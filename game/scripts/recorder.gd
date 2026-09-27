@@ -190,6 +190,9 @@ func end() -> void:
 		hint = "Zu kurz – nach dem Ansetzen mindestens 0,5 s weitermalen."
 
 func lateral(p: Vector2, ph: float) -> float:
+	var sc := track.shortcut_at(p)
+	if not sc.is_empty():
+		return (p - Vector2(sc.point)).dot(Vector2(sc.normal))
 	var t := track.tangent(ph)
 	return (p - track.at(ph)).dot(Vector2(-t.y, t.x))
 
@@ -223,6 +226,10 @@ func sample(p: Vector2, time: float) -> bool:
 	var gates_before := gates_passed
 	count_gates(last_pos, p)
 	var candidate := progress + (0.0 if cut else maxf(advance, 0.0))
+	var on_shortcut := track.shortcut_at(p)
+	if not on_shortcut.is_empty() and not cut:
+		# Abkürzung: übersprungene Tore der Hauptstrecke gelten als durchfahren.
+		gates_passed = maxi(gates_passed, int(floor(candidate * GATES_PER_LAP)))
 	var cap := float(gates_passed + 1) / GATES_PER_LAP
 	if cut or candidate > cap + 0.002:
 		# Tor verpasst: Zeichnung stoppt, Endpunkt bleibt am letzten gültigen Punkt.
@@ -242,11 +249,12 @@ func sample(p: Vector2, time: float) -> bool:
 	raw.append({"x": p.x, "z": p.y, "time": time, "active_dt": elapsed})
 	var count := maxi(1, ceili(distance / 0.6))
 	var start_s := float(route[-1].s)
+	var sc_index := int(on_shortcut.index) if not on_shortcut.is_empty() else -1
 	for i in range(1, count + 1):
 		var t := float(i) / count
 		var s := lerpf(start_s, progress, t)
 		var o := lerpf(start_offset, offset_f, t)
-		route.append({"p": track.at(s, o), "speed": lerpf(start_speed, speed_f, t), "s": s, "o": o})
+		route.append({"p": track.place(s, o, sc_index), "speed": lerpf(start_speed, speed_f, t), "s": s, "o": o, "sc": sc_index})
 	last_pos = p
 	last_phase = ph
 	last_time = time
@@ -254,13 +262,13 @@ func sample(p: Vector2, time: float) -> bool:
 	marks.append(state())
 	if trial and trial_moved_at < 0.0:
 		trial_moved_at = draw_time
-	complete = gates_passed >= GATES_PER_LAP * 2
+	complete = gates_passed >= GATES_PER_LAP * track.laps
 	if complete and trial:
 		# Ziellinie endgültig überquert: sofort festschreiben.
 		confirm()
 	if complete:
-		progress = 2.0
-		route[-1].s = 2.0
+		progress = float(track.laps)
+		route[-1].s = float(track.laps)
 		finalize()
 	return true
 
@@ -271,7 +279,7 @@ func gate(k: int) -> Array:
 
 func count_gates(a: Vector2, b: Vector2) -> void:
 	# Tore in Reihenfolge; mehrere pro Segment möglich (schnelles Zeichnen).
-	while gates_passed < GATES_PER_LAP * 2:
+	while gates_passed < GATES_PER_LAP * track.laps:
 		var g := gate(gates_passed + 1)
 		if Geometry2D.segment_intersects_segment(a, b, g[0], g[1]) == null:
 			return
@@ -297,4 +305,4 @@ func finalize() -> void:
 			ssum += speeds[j] * w
 		route[i].o = osum / wsum
 		route[i].speed = ssum / wsum
-		route[i].p = track.at(float(route[i].s), float(route[i].o))
+		route[i].p = track.place(float(route[i].s), float(route[i].o), int(route[i].get("sc", -1)))

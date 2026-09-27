@@ -11,7 +11,7 @@ func run() -> void:
 	for i in range(8):
 		await process_frame
 	root.get_texture().get_image().save_png("user://track_menu.png")
-	for id in app.TRACKS:
+	for id in (OS.get_environment("ONLY").split(",") if OS.get_environment("ONLY") != "" else app.TRACKS):
 		app.select_track(id)
 		app.start_drawing()
 		for i in range(40):

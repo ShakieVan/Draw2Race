@@ -90,6 +90,72 @@ OBJEKTE = {
     "wald_wegweiser": ("Wegweiser (verwittert)", "Ein alter hölzerner Wegweiser mit drei leeren, verwitterten Richtungsbrettern ohne Schrift, eines davon abgebrochen und schief hängend."),
     "wald_holzstapel": ("Holzstapel", "Ein ordentlich gestapelter Stapel Brennholz-Scheite mit einer kleinen Plane obenauf."),
     "wald_baumstumpf": ("Baumstumpf", "Ein alter Baumstumpf mit Rinde, Pilzen am Fuß und Moos."),
+    # ===== Runde 2 (27.09.2026): neue Strecken =====
+    # --- Autos ---
+    "auto_drift": ("Auto „Drift King“ – Drift-Coupé",
+        "Ein breites, tiefergelegtes zweitüriges Heckantriebs-Coupé im Tuning-Stil: stark ausgestellte Kotflügel, "
+        "leicht negativer Radsturz, flacher Heckflügel auf dem Kofferraumdeckel, tiefe Frontlippe, sportliche Felgen."),
+    "auto_bergsprint": ("Auto „Col Racer“ – Bergsprint",
+        "Ein sehr leichter, kleiner, offener zweisitziger Roadster ohne Dach mit Überrollbügeln hinter den Sitzen, "
+        "kurzer Radstand, schmale Karosserie, runde Scheinwerfer, wirkt wendig und agil."),
+    "auto_pickup": ("Auto „Quarry Truck“ – Pick-up",
+        "Ein robuster, höhergelegter Pick-up mit Doppelkabine, grobstolligen Reifen, Ladefläche mit Überrollbügel "
+        "und Zusatzscheinwerfern, kräftiger Rammschutz vorne."),
+    # --- Hafenviertel ---
+    "hafen_container": ("Container-Stapel", "Drei übereinander gestapelte Schiffscontainer aus Stahl mit Wellblechwänden, Farben rostrot, blaugrau und grün, leichte Gebrauchsspuren und Rost, ohne Schrift oder Logos."),
+    "hafen_kran": ("Portalkran", "Ein großer Hafen-Portalkran aus rot-weißem Stahlfachwerk auf vier Stützen mit Laufkatze und Führerhaus."),
+    "hafen_lagerhalle": ("Lagerhalle mit offenem Tor", "Eine lange Hafen-Lagerhalle aus Wellblech mit flachem Satteldach, an der Stirnseite ein großes, weit offenes Rolltor, durch das man hindurchfahren könnte; kein Schriftzug."),
+    "hafen_poller": ("Hafenpoller", "Ein schwerer gusseiserner Hafenpoller, schwarz lackiert, mit um den Kopf gelegtem dickem Tau."),
+    "hafen_faesser": ("Ölfässer", "Eine Gruppe aus sechs stehenden Stahlfässern, teils blau, teils rot lackiert, mit Dellen und Rost."),
+    "hafen_paletten": ("Palettenstapel", "Ein Stapel aus acht hölzernen Europaletten, leicht verwittert, ohne Aufdrucke."),
+    "hafen_gabelstapler": ("Gabelstapler", "Ein gelber Industrie-Gabelstapler mit Fahrerschutzdach und abgesenkter Gabel, ohne Schrift."),
+    "hafen_frachtschiff": ("Kleines Frachtschiff", "Ein kleines Küstenfrachtschiff mit dunkelblauem Rumpf, weißem Brückenaufbau am Heck und einigen Containern an Deck, ganz ohne Wasser dargestellt."),
+    "hafen_laterne": ("Hafen-Laterne", "Eine hohe Hafen-Straßenlaterne aus verzinktem Stahl mit zwei nach beiden Seiten auskragenden Leuchtenköpfen."),
+    "hafen_absperrung_kaputt": ("Umgefahrene Absperrung", "Eine rot-weiße Baustellen-Absperrschranke, die umgefahren wurde: ein Fuß umgekippt, die Latte schräg am Boden liegend und leicht verbogen – ein Hinweis auf eine Durchfahrt."),
+    # --- Jahrmarkt ---
+    "jahrmarkt_riesenrad": ("Riesenrad", "Ein klassisches Jahrmarkts-Riesenrad aus weißem Stahl mit bunten Gondeln und vielen kleinen Glühlampen an den Speichen."),
+    "jahrmarkt_karussell": ("Kettenkarussell", "Ein Kettenkarussell mit bunt bemaltem Dach, Sitzen an langen Ketten, im Stillstand, mit vielen kleinen Glühlampen am Dachrand."),
+    "jahrmarkt_bude": ("Imbissbude", "Eine hölzerne Jahrmarkts-Imbissbude mit gestreiftem Vordach in Rot und Weiß, Theke, Lichterkette am Dachrand, ohne Schrift."),
+    "jahrmarkt_losbude": ("Losbude", "Eine bunte Jahrmarkts-Losbude mit Regalen voller Plüsch-Preise, Vordach mit Glühlampen, ohne Schrift."),
+    "jahrmarkt_zelt": ("Zirkuszelt", "Ein kleines rundes Zirkuszelt mit rot-gelb gestreifter Plane, spitzem Dach und Wimpeln."),
+    "jahrmarkt_lichtermast": ("Lichtermast", "Ein schlanker Holzmast mit mehreren sternförmig abgespannten bunten Glühlampen-Ketten (nur der Mast mit den Ansätzen der Ketten)."),
+    "jahrmarkt_autoscooter": ("Autoscooter-Halle", "Ein offenes Autoscooter-Fahrgeschäft: flaches Dach mit Lichterrand auf Stützen, darunter die glatte Fahrfläche mit einigen bunten Scootern."),
+    "jahrmarkt_bruecke": ("Holzbrücke", "Eine kurze, breite Fahrbrücke aus Holzbohlen mit Stahlträgern und schlichtem Geländer, wie für ein Rennen über eine andere Straße hinweg."),
+    # --- Serra-Pass (Steilküste, Serpentinen) ---
+    "serra_fels": ("Kalkfelsen", "Ein großer, zerklüfteter heller Kalksteinfelsen, wie an einer mediterranen Steilküste, mit etwas Buschwerk in den Spalten."),
+    "serra_trockenmauer": ("Trockenmauer", "Ein etwa 3 m langes Stück einer mediterranen Trockenmauer aus unregelmäßig geschichteten hellen Natursteinen."),
+    "serra_leitplanke": ("Stein-Leitplanke", "Ein etwa 4 m langes Stück einer niedrigen Straßen-Schutzmauer aus hellem Naturstein mit abgerundeter Mauerkrone, wie an einer Bergstraße."),
+    "serra_olivenbaum": ("Olivenbaum", "Ein knorriger, alter Olivenbaum mit gedrehtem Stamm und silbrig-grüner, lichter Krone."),
+    "serra_pinie": ("Pinie", "Eine mediterrane Schirmpinie mit hohem, leicht gebogenem Stamm und flacher, schirmförmiger dunkelgrüner Krone."),
+    "serra_agave": ("Agave", "Eine große Agave mit dicken, blaugrünen, spitzen Blättern."),
+    "serra_kapelle": ("Bergkapelle", "Eine kleine weiße mediterrane Kapelle mit Glockengiebel, Holztür und Ziegeldach."),
+    "serra_leuchtturm": ("Leuchtturm", "Ein weißer Leuchtturm mit roter Laterne auf einem kleinen Felssockel."),
+    "serra_aussicht": ("Aussichtspunkt", "Ein kleiner gepflasterter Aussichtspunkt mit Steinbrüstung und einer Bank, wie an einer Küstenstraße."),
+    # --- Steinbruch ---
+    "steinbruch_felswand": ("Steinbruch-Felswand", "Ein Stück einer abgestuften Steinbruch-Felswand aus grauem Gestein mit waagerechten Abbaustufen."),
+    "steinbruch_foerderband": ("Förderband", "Ein langes, schräg ansteigendes Förderband auf Stahlstützen, das Kies nach oben transportiert."),
+    "steinbruch_bagger": ("Bagger", "Ein großer gelber Kettenbagger mit ausgefahrenem Arm und Schaufel, ohne Schrift."),
+    "steinbruch_kipper": ("Muldenkipper", "Ein großer gelber Muldenkipper für den Steinbruch mit riesigen Reifen, ohne Schrift."),
+    "steinbruch_kieshaufen": ("Kieshaufen", "Ein kegelförmiger Haufen aus grauem Kies und Schotter."),
+    "steinbruch_brecher": ("Steinbrecher", "Eine Steinbrecher-Anlage aus Stahl mit Einfülltrichter, Treppen und Geländern."),
+    "steinbruch_buero": ("Container-Büro", "Ein weißer Bürocontainer auf Stelzen mit Außentreppe und kleinem Fenster."),
+    # --- Drift-Arena ---
+    "drift_reifenwand": ("Reifenwand", "Eine gerade Wand aus drei Lagen gestapelter, zusammengeschraubter alter Autoreifen, abwechselnd schwarz und rot-weiß bemalt."),
+    "drift_betonblock": ("Betonschutzwand", "Ein etwa 3 m langes Element einer Beton-Schutzwand (New-Jersey-Profil), grau mit Schrammen und Reifenabrieb."),
+    "drift_pylone": ("Leitkegel", "Ein orange-weißer Verkehrs-Leitkegel aus Kunststoff."),
+    "drift_flutlicht": ("Arena-Flutlicht", "Ein Flutlichtmast aus Gittermast-Stahl mit großer Leuchtengruppe oben."),
+    "drift_zaun": ("Maschendrahtzaun", "Ein etwa 4 m langes Stück Maschendrahtzaun mit Stahlpfosten und Stacheldraht oben."),
+    "drift_zuschauer_container": ("Zuschauer-Container", "Zwei übereinander gestapelte Container, der obere als Zuschauertribüne mit Geländer umgebaut, ohne Schrift."),
+    "drift_parkhaus": ("Parkdeck", "Ein offenes zweistöckiges Beton-Parkdeck mit Rampe und Stützen, ohne Schrift."),
+    # --- Kinderzimmer (Bonus) ---
+    "kinder_bauklotz": ("Holzbauklotz", "Ein großer bunter Holzbauklotz (Würfel) mit abgerundeten Kanten, lackiert."),
+    "kinder_bausteinturm": ("Bausteinturm", "Ein Turm aus bunten Steckbausteinen, leicht schief gebaut, ohne Markenlogo."),
+    "kinder_buntstifte": ("Buntstifte", "Ein Bündel bunter Holz-Buntstifte, locker nebeneinander liegend."),
+    "kinder_buch": ("Bilderbuch", "Ein aufgeklapptes, dickes Kinderbilderbuch mit leeren, hellen Seiten ohne Schrift, auf dem Rücken liegend."),
+    "kinder_ball": ("Spielball", "Ein bunter Gummiball mit Streifen."),
+    "kinder_teddy": ("Teddybär", "Ein sitzender, etwas abgeliebter Plüsch-Teddybär."),
+    "kinder_holzeisenbahn": ("Holzeisenbahn", "Eine kleine Holzspielzeug-Lokomotive mit zwei Waggons, bunt lackiert."),
+    "kinder_kreisel": ("Spielkreisel", "Ein bunt lackierter Holz-Spielkreisel."),
 }
 
 LIESMICH = """# Bildvorlagen für 3D-Modelle
@@ -103,7 +169,7 @@ versehen (freigestellt, ein Objekt, schräg von oben, weiches Licht, keine Schri
 > Geh bitte alle `.txt`-Dateien in diesem Ordner nacheinander durch. Erzeuge für jede Datei genau ein Bild, das
 > exakt der Beschreibung in der Datei entspricht und alle dort genannten Bildregeln einhält. Speichere jedes Bild
 > als PNG im Unterordner `bilder/` unter demselben Dateinamen wie die Beschreibung (z. B. `auto_sprint.txt` →
-> `bilder/auto_sprint.png`) und überschreibe dabei vorhandene Bilder. Die Perspektive-Regel ist verbindlich:
+> `bilder/auto_sprint.png`). Überspringe Beschreibungen, zu denen in `bilder/` bereits ein Bild existiert. Die Perspektive-Regel ist verbindlich:
 > Kamera links vorne, etwa 20–30° von oben, überwiegend Seitenansicht mit etwas Front; abgewandte Teile (z. B. die
 > rechten Räder) dürfen und sollen verdeckt sein – niemals die Perspektive ändern, um mehr zu zeigen, und niemals
 > von unten. Wenn ein Bild die Regeln nicht einhält (falsche Perspektive, Schrift, Logo, abgeschnitten, Boden oder
@@ -112,9 +178,13 @@ versehen (freigestellt, ein Objekt, schräg von oben, weiches Licht, keine Schri
 
 ## Reihenfolge
 
-1. `auto_*` – die fünf Autos (Probe-Szene)
-2. `kueste_*` – Küstenstrecke (Probe-Szene)
-3. `stadt_*` und `wald_*`
+Runde 1 (fertig): `auto_*` (5 Autos), `kueste_*`, `stadt_*`, `wald_*`.
+
+Runde 2 (neue Strecken) – nur Beschreibungen, zu denen es in `bilder/` noch kein Bild gibt:
+1. `auto_drift`, `auto_bergsprint`, `auto_pickup`
+2. `hafen_*`, `serra_*`
+3. `jahrmarkt_*`, `steinbruch_*`
+4. `drift_*`, `kinder_*`
 
 Gern mehrere Varianten eines Objekts als `name_2.png`, `name_3.png` – die beste wird ausgewählt.
 

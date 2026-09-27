@@ -10,7 +10,7 @@ function Invoke-Godot([string[]]$Arguments) {
     if ($LASTEXITCODE -ne 0 -or ($output -match 'SCRIPT ERROR|^ERROR:|FAIL:')) { throw "Godot fehlgeschlagen: $Arguments" }
 }
 Invoke-Godot -Arguments @('--headless','--path',$gamePath,'--editor','--import','--quit')
-foreach ($test in @('test_core','test_flow','test_tracks')) {
+foreach ($test in @('test_core','test_flow','test_tracks','test_air')) {
     Invoke-Godot -Arguments @('--headless','--path',$gamePath,'--quit-after','180','--script',"res://tests/$test.gd")
 }
 if ($Target -eq 'Test') { exit 0 }

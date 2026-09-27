@@ -1,7 +1,7 @@
 extends Node3D
 
 # Streckenreihenfolge der Karriere; die nächste Strecke öffnet sich mit 3 Gold auf der vorigen.
-const TRACKS := ["azure","city","forest"]
+const TRACKS := ["azure","city","forest","harbor","serra"]
 var track_id := "azure"
 var track := Circuit.new()
 var recorder: LineRecorder
@@ -80,6 +80,12 @@ func _ready() -> void:
 	show_menu()
 	if "--demo" in OS.get_cmdline_user_args():
 		demo()
+
+func lap_text(progress: float) -> String:
+	# Rundkurs: „RUNDE x / n“; Sprintstrecke: zurückgelegter Anteil.
+	if track.open:
+		return "SPRINT %d %%" % int(clampf(progress, 0.0, 1.0) * 100.0)
+	return "RUNDE %d / %d" % [mini(track.laps, maxi(1, int(progress) + 1)), track.laps]
 
 func track_center() -> Vector3:
 	var c := track.bounds.get_center()
@@ -179,7 +185,7 @@ func start_drawing() -> void:
 	world.update_tracks(0.0)
 	world.marker.visible = true
 	var start := track.at(0.0)
-	world.marker.position = Vector3(start.x,0.31,start.y)
+	world.marker.position = Vector3(start.x,0.31 + track.surface_z(0.0),start.y)
 	camera_target = track_center()
 	camera.size = overview_size()
 	set_camera(camera_target)
@@ -223,7 +229,9 @@ func begin_race() -> void:
 
 func record_tyre_tracks(i: int) -> void:
 	var v := vehicles[i]
-	world.tyre_tracks.sample(i,v.pos,v.heading,v.velocity.length(),v.braking,v.slip,track,race_time)
+	if v.airborne or v.in_loop or v.crashed:
+		return
+	world.tyre_tracks.sample(i,v.pos,v.heading,v.velocity.length(),v.braking,v.slip,track,race_time,v.z)
 
 func update_tyre_tracks() -> void:
 	for i in range(vehicles.size()):
@@ -256,8 +264,15 @@ func place_models() -> void:
 	for i in range(mini(vehicles.size(), models.size())):
 		var p := render_pos(i)
 		var h := vehicles[i].heading if i >= prev_headings.size() else lerp_angle(prev_headings[i], vehicles[i].heading, alpha)
-		models[i].position = Vector3(p.x,0.2,p.y)
-		models[i].rotation.y = -h
+		# 2,5D: Höhe (Fahrbahn, Sprung, Looping); im Looping dreht sich das Auto um seine Querachse.
+		var drop := 0.0
+		if vehicles[i].crashed:
+			# Absturz: nur Darstellung – das Auto fällt aus dem Bild.
+			var fall: float = models[i].get_meta("fall", 0.0) + get_process_delta_time() * 9.81 * 0.5
+			models[i].set_meta("fall", fall)
+			drop = fall * fall
+		models[i].position = Vector3(p.x,0.2 + vehicles[i].z - drop,p.y)
+		models[i].rotation = Vector3(0, -h, vehicles[i].loop_theta if vehicles[i].in_loop else 0.0)
 	# Regen: Scheinwerfer- und Rücklicht-Positionen für die Beleuchtung der Tropfen.
 	var lit: Array = []
 	for i in range(mini(vehicles.size(), models.size())):
@@ -295,7 +310,7 @@ func _physics_process(dt: float) -> void:
 					contact_sparks(a,b,RaceVehicle.resolve_contact(vehicles[a],vehicles[b]))
 		update_tyre_tracks()
 		update_models()
-		if vehicles[0].finish_time>=0:
+		if vehicles[0].finish_time>=0 or vehicles[0].crashed:
 			finish_race()
 		elif race_time > 180.0:
 			pause_game()
@@ -456,7 +471,7 @@ func _process(dt: float) -> void:
 		var p := render_pos(0) + vehicles[0].velocity*0.28
 		var follow := lerpf(0.45,1.0,sqrt(f))
 		var c := track_center()
-		target = c + (Vector3(p.x,0,p.y)-c)*follow
+		target = c + (Vector3(p.x,vehicles[0].z,p.y)-c)*follow
 		zoom = minf(overview_size(),48.0*pow(road_fill_size()/48.0,f))
 	if not paused:
 		if phase=="draw":
@@ -476,13 +491,13 @@ func _process(dt: float) -> void:
 	if phase == "menu" and hud.backdrop.visible:
 		hud.backdrop.queue_redraw()
 	if phase == "draw" and hud.status!=null:
-		hud.status.text = "RUNDE %d / 2" % mini(2,int(recorder.progress)+1)
-		hud.detail.text = "%d %% geplant" % int(recorder.progress*50)
-		hud.progress_bar.value = recorder.progress*50
+		hud.status.text = lap_text(recorder.progress)
+		hud.detail.text = "%d %% geplant" % int(recorder.progress*100.0/track.laps)
+		hud.progress_bar.value = recorder.progress*100.0/track.laps
 		hud.instruction_label.text = recorder.hint
 	elif phase in ["race","countdown"]:
 		var v := vehicles[0]
-		hud.status.text = "RUNDE %d / 2" % mini(2,maxi(1,int(v.progress)+1))
+		hud.status.text = lap_text(v.progress)
 		hud.time_label.text = format_time(race_time)
 		hud.speed_label.text = str(int(v.velocity.length()*3.6))
 		hud.rank_label.text = "%d / %d" % [live_rank(),vehicles.size()]
@@ -502,9 +517,17 @@ func _process(dt: float) -> void:
 		get_tree().quit()
 
 func world_point(screen: Vector2) -> Vector2:
+	# Blickstrahl mit der Fahrbahnebene schneiden; bei Höhenprofil (Brücke, Berg) die Ebene in zwei
+	# Schritten auf die Fahrbahnhöhe an der getroffenen Stelle nachführen.
 	var from := camera.project_ray_origin(screen)
 	var direction := camera.project_ray_normal(screen)
-	var hit := from + direction*((0.20-from.y)/direction.y)
+	var plane := 0.20
+	var hit := from + direction*((plane-from.y)/direction.y)
+	if not track.elevation.is_empty() or not track.terrain.is_empty():
+		for _i in range(3):
+			var near := track.phase(Vector2(hit.x,hit.z)) if recorder == null else track.phase_near(Vector2(hit.x,hit.z), recorder.last_phase, 0.2)
+			plane = 0.20 + track.surface_z(near)
+			hit = from + direction*((plane-from.y)/direction.y)
 	return Vector2(hit.x,hit.z)
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -616,7 +639,7 @@ func refresh_line() -> void:
 		return
 	world.draw_route(recorder.route,false,recorder.open_route_index(),recorder.ghost())
 	var tip: Vector2 = recorder.last_pos if not recorder.route.is_empty() else track.at(0.0)
-	world.marker.position = Vector3(tip.x,0.31,tip.y)
+	world.marker.position = Vector3(tip.x,0.31 + track.surface_z(recorder.last_phase),tip.y)
 
 func _input(event: InputEvent) -> void:
 	# Ein begonnener Strich läuft weiter, auch wenn der Finger über eine Leiste gleitet.
@@ -646,14 +669,15 @@ func record_point(screen: Vector2) -> void:
 func live_rank() -> int:
 	var rank := 1
 	for i in range(1,vehicles.size()):
-		if vehicles[i].finish_time>=0 or vehicles[i].progress>vehicles[0].progress:
+		if not vehicles[i].crashed and (vehicles[i].finish_time>=0 or vehicles[i].progress>vehicles[0].progress):
 			rank += 1
 	return rank
 
 func sorted_results() -> Array:
 	var rows: Array = []
 	for i in range(vehicles.size()):
-		rows.append({"index":i,"time":vehicles[i].finish_time,"progress":vehicles[i].progress})
+		# Abgestürzte Autos landen hinter allen anderen.
+		rows.append({"index":i,"time":vehicles[i].finish_time,"progress":-1.0 if vehicles[i].crashed else vehicles[i].progress,"crashed":vehicles[i].crashed})
 	rows.sort_custom(func(a: Dictionary,b: Dictionary):
 		if a.time>=0 and b.time>=0: return a.time<b.time
 		if a.time>=0: return true
@@ -677,7 +701,13 @@ func finish_race() -> void:
 	var rows := sorted_results()
 	var rank := player_result_rank(rows)
 	var record := false
-	if not demonstration:
+	if vehicles[0].crashed:
+		# Absturz: verloren, keine Zeit für Bestenliste oder Bestzeit.
+		rank = vehicles.size()
+		for row in rows:
+			if row.index == 0:
+				row.rank = rank
+	elif not demonstration:
 		record = store.result(track_id,stage,car_choice,vehicles[0].finish_time,rank==1)
 		var plan: Array = []
 		for point in recorder.route:

@@ -9,6 +9,12 @@ Format (auch Ziel einer späteren Companion-App):
   surfaces    Belagzonen neben der Fahrbahn: from/to als Streckenanteil, side outer|inner|both, kind mud|...
   conditions  Bedingungen je Herausforderung (3 Einträge): time day|dusk|night, weather dry|rain|snow, fog 0|1|2
   props       Deko-Bausteine: type, x, z, optional rot (Grad), w, d, h, scale, color, text
+              type "ai": KI-Modell {model, x, z, rot, h | w+d} mit Klötzchen-Ersatz (color) solange es fehlt
+              type "water": Wasserfläche {x, z, w, d, rot}
+2,5D (Leitplanke 8), alle optional:
+  open        true = Sprintstrecke (Start und Ziel getrennt, eine Durchfahrt)
+  elevation   [[s, Höhe]] Höhenprofil der Fahrbahn
+  ramps/gaps/loops/shortcuts/guardrails/terrain – siehe game/scripts/track.gd
 Nur Standardbibliothek; Aufruf: python tools/make_tracks.py
 """
 import json
@@ -275,7 +281,287 @@ def forest():
           "props": keep(props, dense, 2.0) + [l for l in lanterns if min_other(l, dense) > HALF_WIDTH + 0.8]})
 
 
+# ---------------------------------------------------------------------------------------------------------
+# Werkzeuge für die großen Strecken (Runde 2)
+
+def turtle(start, heading_deg, commands, step=1.0):
+    """Weg aus Befehlen: ("S", Länge) gerade, ("T", Radius, Winkel°) Bogen (+ = gegen den Uhrzeigersinn in x/z).
+    Liefert dichte Punktliste (Abstand ~step)."""
+    x, z = start
+    a = math.radians(heading_deg)
+    pts = [(x, z)]
+    for cmd in commands:
+        if cmd[0] == "S":
+            n = max(1, int(cmd[1] / step))
+            for _ in range(n):
+                x += math.cos(a) * cmd[1] / n
+                z += math.sin(a) * cmd[1] / n
+                pts.append((x, z))
+        else:
+            r, ang = cmd[1], math.radians(cmd[2])
+            n = max(2, int(abs(ang) * r / step))
+            for _ in range(n):
+                a += ang / n
+                x += math.cos(a) * abs(ang) * r / n
+                z += math.sin(a) * abs(ang) * r / n
+                pts.append((x, z))
+    return pts
+
+
+def resample_open(pts, step=1.0):
+    cum = [0.0]
+    for i in range(1, len(pts)):
+        cum.append(cum[-1] + math.dist(pts[i - 1], pts[i]))
+    total = cum[-1]
+    n = int(total / step)
+    out, j = [], 0
+    for k in range(n + 1):
+        d = k * total / n
+        while j < len(cum) - 2 and cum[j + 1] < d:
+            j += 1
+        f = (d - cum[j]) / max(1e-9, cum[j + 1] - cum[j])
+        out.append((pts[j][0] + (pts[j + 1][0] - pts[j][0]) * f, pts[j][1] + (pts[j + 1][1] - pts[j][1]) * f))
+    return out, total
+
+
+def nearest(pts, p, closed=True):
+    """(Abstand, Index, Anteil im Abschnitt) zum nächsten Streckenabschnitt."""
+    best = (1e9, 0, 0.0)
+    count = len(pts) if closed else len(pts) - 1
+    for i in range(count):
+        a, b = pts[i], pts[(i + 1) % len(pts)]
+        abx, aby = b[0] - a[0], b[1] - a[1]
+        t = max(0.0, min(1.0, ((p[0] - a[0]) * abx + (p[1] - a[1]) * aby) / (abx * abx + aby * aby + 1e-9)))
+        d = math.dist(p, (a[0] + abx * t, a[1] + aby * t))
+        if d < best[0]:
+            best = (d, i, t)
+    return best
+
+
+def s_of(pts, p, closed=True):
+    d, i, t = nearest(pts, p, closed)
+    span = len(pts) if closed else len(pts) - 1
+    return (i + t) / span
+
+
+def point_at(pts, s, offset=0.0, closed=True):
+    span = len(pts) if closed else len(pts) - 1
+    f = (s % 1.0 if closed else min(max(s, 0.0), 1.0)) * span
+    i = min(int(f), span - 1)
+    a, b = pts[i % len(pts)], pts[(i + 1) % len(pts)]
+    q = (a[0] + (b[0] - a[0]) * (f - i), a[1] + (b[1] - a[1]) * (f - i))
+    t = norm((b[0] - a[0], b[1] - a[1]))
+    return (q[0] - t[1] * offset, q[1] + t[0] * offset), math.degrees(math.atan2(t[1], t[0]))
+
+
+def keep_open(props, pts, clearance):
+    out = []
+    for p in props:
+        need = HALF_WIDTH + clearance
+        if all(nearest(pts, q, closed=False)[0] > need for q in footprint(p)):
+            out.append({k: (round(v, 2) if isinstance(v, float) else v) for k, v in p.items()})
+    return out
+
+
+def ai(model, x, z, rot=0.0, h=None, w=None, d=None, color="a3aaa9"):
+    prop = {"type": "ai", "model": model, "x": x, "z": z, "rot": rot, "color": color}
+    if h is not None:
+        prop["h"] = h
+    if w is not None:
+        prop["w"], prop["d"] = w, d
+    return prop
+
+
+# ---------------------------------------------------------------------------------------------------------
+def harbor():
+    """Hafenviertel: schräge Straßenzüge, Abkürzung durch eine Lagerhalle, Schanze über ein Hafenbecken."""
+    corners = [(-60, 25), (10, 25), (30, 5), (55, 5), (62, -15), (40, -32), (15, -32), (0, -15),
+               (-20, -30), (-52, -30), (-66, -10)]
+    pts = fillet_polygon(corners, [9, 8, 7, 6, 8, 7, 6, 6, 7, 8, 9])
+    dense, total = resample(pts, 1.0)
+    # Abkürzung: statt des Schlenkers über (0,-15) gerade durch die Lagerhalle bei z ≈ -31.
+    a_s = s_of(dense, (13, -32))
+    b_s = s_of(dense, (-18, -30.5))
+    (ax, az), _ = point_at(dense, a_s)
+    (bx, bz), _ = point_at(dense, b_s)
+    path = [[round(ax + (bx - ax) * k / 8, 2), round(az + (bz - az) * k / 8, 2)] for k in range(9)]
+    shortcut = {"from": round(a_s, 4), "to": round(b_s, 4), "path": path, "width": 4.0, "surface": "asphalt"}
+    # Schanze über das Hafenbecken auf der Geraden z = -30 (Fahrtrichtung nach Westen).
+    ramp_s = s_of(dense, (-24, -30))
+    gap_from = ramp_s + 5.0 / total
+    gap_to = gap_from + 7.5 / total
+    props = []
+    # Kaimauer und Hafenbecken im Norden, Frachtschiff.
+    props.append({"type": "water", "x": 0, "z": 50, "w": 170, "d": 26})
+    props.append(ai("hafen_frachtschiff", -10, 52, rot=0, w=38, d=10, color="2e4a6b"))
+    for x in range(-60, 61, 12):
+        props.append(ai("hafen_poller", x, 36.5, h=0.9, color="2b2b2b"))
+    # Becken unter dem Sprung (quer zur Straße).
+    (gx, gz), gh = point_at(dense, (gap_from + gap_to) / 2)
+    props.append({"type": "water", "x": gx, "z": gz, "w": 6.5, "d": 34, "rot": 0})
+    # Lagerhalle über der Abkürzung, Tore in Fahrtrichtung offen.
+    props.append(ai("hafen_lagerhalle", (ax + bx) / 2, (az + bz) / 2 - 0.5, rot=0, w=16, d=9, color="8c969a"))
+    props.append(ai("hafen_absperrung_kaputt", ax + 2.5, az - 3.5, rot=20, h=1.0, color="d8d0c0"))
+    # Kräne, Container, Fässer, Paletten, Stapler.
+    for x, z in [(-35, 38), (25, 38), (48, 30)]:
+        props.append(ai("hafen_kran", x, z, rot=0, h=16, color="c0392b"))
+    rng = random.Random(21)
+    for x, z in [(-40, 5), (-25, 8), (-10, 3), (-38, -12), (22, -14), (40, -12), (70, 20), (75, -5), (-80, 10), (-78, -25)]:
+        props.append(ai("hafen_container", x, z, rot=rng.choice([0, 90]), w=6, d=2.5, color=rng.choice(["8e3b2e", "3d5a6b", "4a6b3d"])))
+    for x, z in [(5, 0), (-50, 15), (58, -28), (-45, -45)]:
+        props.append(ai("hafen_faesser", x, z, h=1.0, color="2f5f9f"))
+        props.append(ai("hafen_paletten", x + 3, z + 2, h=1.2, color="a07a4a"))
+    props.append(ai("hafen_gabelstapler", -30, -12, rot=45, h=2.2, color="e0b020"))
+    # Laternen entlang der Straße (Leuchtenköpfe zur Fahrbahn, siehe world.gd).
+    for i in range(22):
+        (x, z), _ = point_at(dense, i / 22 + 0.01, 5.8 if i % 2 else -5.8)
+        props.append({"type": "lamp", "x": x, "z": z, "model": "hafen_laterne"})
+    data = {"format": 1, "id": "harbor", "name": "Harbour Run", "subtitle": "Kräne, Container – und ein offenes Hallentor.",
+            "theme": "harbor", "half_width": HALF_WIDTH, "points": pts,
+            "conditions": [{"time": "day", "weather": "dry", "fog": 0}, {"time": "dusk", "weather": "rain", "fog": 0},
+                           {"time": "night", "weather": "dry", "fog": 1}],
+            "ramps": [{"s": round(ramp_s, 4), "length": 5.0, "height": 1.5}],
+            "gaps": [{"from": round(gap_from, 4), "to": round(gap_to, 4)}],
+            "shortcuts": [shortcut], "surfaces": [],
+            "props": keep(props, dense, 1.2)}
+    save(data)
+
+
+def serra():
+    """Serra-Pass: Sprint entlang der Steilküste, dann Serpentinen den Berg hinauf. Start und Ziel getrennt."""
+    cmds = [("S", 35), ("T", 40, -25), ("T", 40, 25), ("S", 25),
+            ("T", 8, -160), ("S", 40), ("T", 8, 140), ("S", 40), ("T", 8, -140), ("S", 40), ("T", 8, 140), ("S", 25)]
+    raw = turtle((-80, 40), 0, cmds)
+    dense, total = resample_open(raw, 1.0)
+    n = len(dense) - 1
+    # Höhenprofil: Küste auf 14 m, danach steigt die Straße nur auf den Geraden (Kehren flach).
+    heights = []
+    h = 14.0
+    for i in range(len(dense)):
+        if i > 0:
+            a, b, c = dense[max(0, i - 3)], dense[i], dense[min(n, i + 3)]
+            h1 = math.atan2(b[1] - a[1], b[0] - a[0])
+            h2 = math.atan2(c[1] - b[1], c[0] - b[0])
+            bend = abs((h2 - h1 + math.pi) % (2 * math.pi) - math.pi)
+            coast = i < 95
+            if not coast and bend < 0.05:
+                h += 0.2 * math.dist(dense[i - 1], dense[i])
+        heights.append(h)
+    # Steigungswechsel weich ausrunden (±12 m), sonst heben Autos an jeder Kuppe ab.
+    smooth = []
+    for i in range(len(heights)):
+        lo, hi = max(0, i - 12), min(n, i + 12)
+        smooth.append(sum(heights[lo:hi + 1]) / (hi - lo + 1))
+    heights = smooth
+    elevation = [[round(i / n, 4), round(heights[i], 2)] for i in range(0, len(dense), 4)]
+    if elevation[-1][0] < 1.0:
+        elevation.append([1.0, round(heights[-1], 2)])
+
+    def road_h(i):
+        return heights[i]
+
+    # Gelände: weicher Hang aus den Straßenhöhen (inverse Abstandsgewichtung), an der Straße eingeschnitten;
+    # talseitig steile Böschung (dort droht der Absturz), bergseitig ansteigend; südlich der Küstenstraße
+    # Steilküste zum Meer (-3 m).
+    xs = [q[0] for q in dense]
+    zs = [q[1] for q in dense]
+    x0, x1 = min(xs) - 45, max(xs) + 45
+    z0, z1 = min(zs) - 45, max(zs) + 40
+    cell = 3.0
+    w = int((x1 - x0) / cell) + 1
+    hgt = int((z1 - z0) / cell) + 1
+    samples = [(dense[i], heights[i]) for i in range(0, len(dense), 3)]
+    grid = []
+    for iz in range(hgt):
+        for ix in range(w):
+            p = (x0 + ix * cell, z0 + iz * cell)
+            d, i, t = nearest(dense, p, closed=False)
+            i2 = min(n, i + 1)
+            base = heights[i] + (heights[i2] - heights[i]) * t
+            num = den = 0.0
+            for q, hq in samples:
+                wgt = 1.0 / (math.dist(p, q) ** 2 + 4.0)
+                num += wgt * hq
+                den += wgt
+            v = num / den
+            # Nach Norden (bergauf) über die Straßenhöhen hinaus weiter ansteigen.
+            v += max(0.0, min(zs) - p[1]) * 0.5
+            a_, b_ = dense[i], dense[i2]
+            tx, tz = norm((b_[0] - a_[0] + 1e-9, b_[1] - a_[1]))
+            nl = (-tz, tx)
+            side = (p[0] - a_[0]) * nl[0] + (p[1] - a_[1]) * nl[1]
+            downhill = (nl[1] > 0) == (side > 0)       # Seite, deren Normale nach Süden (+z) zeigt
+            e = d - 4.6
+            if e <= 0:
+                v = base
+            elif downhill:
+                v = min(v, base - 1.4 * e)
+            else:
+                v = max(v, base + 0.35 * e)
+            if i < 95 and downhill and e > 1.0:
+                v = min(v, -3.0 + max(0.0, 14.0 - (e - 1.0) * 6.0))     # Steilküste
+            if e < 1.6:
+                v = min(v, base - 0.25)      # Gelände nie über der Fahrbahn (Rasterzellen zwischen den Punkten)
+            edge = min(ix, iz, w - 1 - ix, hgt - 1 - iz) * cell
+            if edge < 18.0:
+                v = min(v, -3.0 + (v + 3.0) * edge / 18.0)   # Küste rundum statt eckiger Kante
+            grid.append(round(max(v, -3.0), 2))
+    terrain = {"origin": [x0, z0], "cell": cell, "w": w, "h": hgt, "heights": grid}
+    # Leitplanken (Steinmauer) talseitig, mit Lücken am Scheitel der Kehren.
+    guardrails = []
+    # Leitplanken dort, wo das Gelände neben der Straße steil abfällt (auch an Kehren-Innenseiten).
+    def terr(q):
+        fx, fz = (q[0] - x0) / cell, (q[1] - z0) / cell
+        ix, iz = max(0, min(w - 2, int(fx))), max(0, min(hgt - 2, int(fz)))
+        tx, tz = min(1.0, max(0.0, fx - ix)), min(1.0, max(0.0, fz - iz))
+        g0 = grid[iz * w + ix] + (grid[iz * w + ix + 1] - grid[iz * w + ix]) * tx
+        g1 = grid[(iz + 1) * w + ix] + (grid[(iz + 1) * w + ix + 1] - grid[(iz + 1) * w + ix]) * tx
+        return g0 + (g1 - g0) * tz
+    for side, sign in (("left", 1.0), ("right", -1.0)):
+        run = None
+        for k in range(0, n + 1, 2):
+            (qx, qz), _ = point_at(dense, k / n, sign * 6.7, closed=False)
+            steep = heights[k] - terr((qx, qz)) > 2.0
+            if steep and run is None:
+                run = [k / n, k / n]
+            elif steep:
+                run[1] = k / n
+            elif run is not None:
+                if (run[1] - run[0]) * total > 4.0:
+                    guardrails.append({"from": round(max(0.0, run[0] - 0.004), 4), "to": round(min(1.0, run[1] + 0.004), 4), "side": side})
+                run = None
+        if run is not None and (run[1] - run[0]) * total > 4.0:
+            guardrails.append({"from": round(max(0.0, run[0] - 0.004), 4), "to": round(min(1.0, run[1] + 0.004), 4), "side": side})
+    props = []
+    rng = random.Random(33)
+    for r in guardrails:
+        m = int((r["to"] - r["from"]) * total / 4.2)
+        for j in range(m):
+            sj = r["from"] + (j + 0.5) * (r["to"] - r["from"]) / m
+            off = 4.6 if r["side"] == "left" else -4.6
+            (x, z), rot = point_at(dense, sj, off, closed=False)
+            props.append(ai("serra_leitplanke", x, z, rot=-rot, w=4.2, d=0.6, color="cfc3a8"))
+    for _ in range(120):
+        x, z = rng.uniform(x0, x1), rng.uniform(z0, 44)
+        kind = rng.choice(["serra_olivenbaum", "serra_pinie", "serra_pinie", "serra_agave", "serra_fels"])
+        props.append(ai(kind, x, z, rot=rng.uniform(0, 360), h={"serra_olivenbaum": 4.5, "serra_pinie": 8.0,
+                     "serra_agave": 1.4, "serra_fels": 2.5}[kind], color="6f7f4a"))
+    (fx, fz), _ = point_at(dense, 1.0, 0, closed=False)
+    props.append(ai("serra_kapelle", fx + 6, fz - 12, rot=0, h=6.5, color="f2efe6"))
+    props.append(ai("serra_leuchtturm", -60, 62, h=14, color="f2efe6"))
+    props.append(ai("serra_aussicht", -20, 50, h=1.5, color="c8bca4"))
+    data = {"format": 1, "id": "serra", "name": "Serra Pass", "subtitle": "Steilküste, Kehren, kein Netz – ein Sprint bis zum Pass.",
+            "theme": "mountain", "half_width": HALF_WIDTH, "points": dense, "open": True,
+            "elevation": elevation, "terrain": terrain, "guardrails": guardrails,
+            "conditions": [{"time": "day", "weather": "dry", "fog": 0}, {"time": "dusk", "weather": "dry", "fog": 0},
+                           {"time": "day", "weather": "rain", "fog": 1}],
+            "surfaces": [], "props": keep_open(props, dense, 1.0)}
+    save(data)
+
+
 if __name__ == "__main__":
     azure()
     city()
     forest()
+    harbor()
+    serra()

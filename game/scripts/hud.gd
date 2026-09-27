@@ -242,13 +242,15 @@ func menu() -> void:
 	label(card,track.name,Vector2(24,50),50)
 	label(card,track.subtitle,Vector2(28,118),18,MUTED,414)
 	label(card,"STRECKE",Vector2(28,184),13,MUTED)
-	var short_names := {"azure":"Küste","city":"Stadt","forest":"Wald"}
+	var short_names := {"azure":"Küste","city":"Stadt","forest":"Wald","harbor":"Hafen","serra":"Pass"}
+	var slot: float = 418.0 / app.TRACKS.size()
 	for i in range(app.TRACKS.size()):
 		var tid: String = app.TRACKS[i]
 		var unlocked: bool = app.track_unlocked(i)
 		var text: String = short_names.get(tid,tid)
-		var b := button(card,text,Rect2(28+i*140,218,130,56),func(): app.select_track(tid); app.stage=0; menu(),app.track_id==tid)
-		b.add_theme_font_size_override("font_size",21)
+		var b := button(card,text,Rect2(28+i*slot,218,slot-6,56),func(): app.select_track(tid); app.stage=0; menu(),app.track_id==tid)
+		b.add_theme_font_size_override("font_size",17)
+		b.clip_text = true
 		b.disabled = not unlocked
 	label(card,"HERAUSFORDERUNG",Vector2(28,292),13,MUTED)
 	# Tageszeit/Wetter sind Teil der Herausforderung und nicht wählbar – nur angezeigt.
@@ -282,10 +284,12 @@ func menu() -> void:
 func leaderboard(track_id: String, stage: int) -> void:
 	# Persönliche Bestenliste: Strecke und Herausforderung wählbar, 10 schnellste Fahrten.
 	var p := overlay("Bestenliste.","Deine 10 schnellsten Fahrten.",Vector2(900,800))
-	var short_names := {"azure":"Küste","city":"Stadt","forest":"Wald"}
+	var short_names := {"azure":"Küste","city":"Stadt","forest":"Wald","harbor":"Hafen","serra":"Pass"}
 	for i in range(app.TRACKS.size()):
 		var tid: String = app.TRACKS[i]
-		button(p,short_names.get(tid,tid),Rect2(34+i*128,132,120,52),func(): p.get_parent().queue_free(); leaderboard(tid,stage),tid==track_id)
+		var lb := button(p,short_names.get(tid,tid),Rect2(34+i*80,132,74,52),func(): p.get_parent().queue_free(); leaderboard(tid,stage),tid==track_id)
+		lb.add_theme_font_size_override("font_size",16)
+		lb.clip_text = true
 	for i in range(3):
 		var sb := button(p,"%d %s" % [i+1,"Rivale" if i==0 else "Rivalen"],Rect2(440+i*142,132,134,52),func(): p.get_parent().queue_free(); leaderboard(track_id,i),i==stage)
 		sb.add_theme_font_size_override("font_size",19)
@@ -442,15 +446,18 @@ func results(rows: Array, rank: int, record: bool) -> void:
 	header("%s     /     ZIELEINLAUF" % app.track.name.to_upper())
 	var p := panel(content,Rect2(427,140,586,700))
 	label(p,"VORFÜHRFAHRT" if app.demonstration else ("NEUE BESTZEIT" if record else "DEIN RENNERGEBNIS"),Vector2(34,28),15,ORANGE)
-	label(p,"Linie mit Klasse." if rank==1 else "Die nächste Linie zählt.",Vector2(30,68),38)
-	label(p,"PLATZ %d" % rank,Vector2(34,128),21,MUTED)
-	label(p,app.format_time(app.vehicles[0].finish_time),Vector2(32,162),60)
-	label(p,("★  Gold für Herausforderung %d" % (app.stage+1)) if rank==1 and not app.demonstration else "Früher bremsen. Am Ausgang Turbo halten.",Vector2(34,253),20,ORANGE,515)
+	var crashed: bool = app.vehicles[0].crashed
+	label(p,"Abgestürzt!" if crashed else ("Linie mit Klasse." if rank==1 else "Die nächste Linie zählt."),Vector2(30,68),38)
+	label(p,"AUSGESCHIEDEN" if crashed else "PLATZ %d" % rank,Vector2(34,128),21,MUTED)
+	label(p,"—" if crashed else app.format_time(app.vehicles[0].finish_time),Vector2(32,162),60)
+	var tip := "Mehr Schwung vor Sprung und Looping – oder weniger Tempo an der Kante." if crashed else "Früher bremsen. Am Ausgang Turbo halten."
+	label(p,("★  Gold für Herausforderung %d" % (app.stage+1)) if rank==1 and not crashed and not app.demonstration else tip,Vector2(34,253),20,ORANGE,515)
 	for i in range(rows.size()):
 		var row: Dictionary = rows[i]
 		label(p,"%02d" % row.rank,Vector2(34,310+i*45),20,MUTED)
 		label(p,"DU" if row.index==0 else "RIVALE %d" % row.index,Vector2(94,310+i*45),20,ORANGE if row.index==0 else INK)
-		result_times[row.index] = label(p,app.format_time(row.time) if row.time>=0 else "Im Rennen …",Vector2(362,310+i*45),20)
+		var status_text: String = app.format_time(row.time) if row.time>=0 else ("Abgestürzt" if row.get("crashed", false) else "Im Rennen …")
+		result_times[row.index] = label(p,status_text,Vector2(362,310+i*45),20)
 	if not app.demonstration and app.store.last_place > 0:
 		label(p,"Platz %d deiner Bestenliste" % app.store.last_place,Vector2(34,494),18,ORANGE if app.store.last_place==1 else MUTED)
 	button(p,"Neue Linie     →",Rect2(34,548,518,62),app.start_drawing,true)

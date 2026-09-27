@@ -46,6 +46,20 @@ var turbo_factor := 1.0
 var route: Array[Dictionary] = []
 var track: Circuit
 var max_slip := 0.0
+# --- Höhe und Flug (2,5D, Leitplanke 8) ---
+const GRAVITY := 9.81
+const LANDING_TIME := 0.35
+var z := 0.0              # Höhe über Null (m)
+var vz := 0.0             # senkrechte Geschwindigkeit (m/s)
+var airborne := false
+var landing := 0.0        # Restzeit, in der die Haftung nach der Landung wieder aufgebaut wird
+var crashed := false      # abgestürzt (Lücke zu kurz übersprungen, Looping zu langsam, Abgrund)
+var air_time := 0.0       # Summe der Flugzeit (für Tests/Anzeige)
+var in_loop := false
+var loop_theta := 0.0     # Winkel im Looping (0 unten, PI oben)
+var loop_speed := 0.0
+var loop_radius := 0.0
+var loop_origin := Vector2.ZERO
 
 func _init(circuit: Circuit, plan: Array[Dictionary], start_s := 0.0, lane := 0.0, car := 0) -> void:
 	track = circuit
@@ -54,6 +68,7 @@ func _init(circuit: Circuit, plan: Array[Dictionary], start_s := 0.0, lane := 0.
 	heading = track.tangent(start_s).angle()
 	progress = start_s
 	previous_phase = track.phase_near(pos, start_s)
+	z = track.ground_height(previous_phase)
 	var spec: Dictionary = CARS[clampi(car, 0, CARS.size() - 1)]
 	grip = float(spec.grip)
 	power = float(spec.power)
@@ -61,7 +76,10 @@ func _init(circuit: Circuit, plan: Array[Dictionary], start_s := 0.0, lane := 0.
 	turbo_factor = float(spec.turbo)
 
 func step(dt: float, boost: bool, time: float) -> void:
-	if finish_time >= 0.0:
+	if finish_time >= 0.0 or crashed:
+		return
+	if in_loop:
+		step_loop(dt)
 		return
 	var before := progress
 	var speed := velocity.length()
@@ -85,7 +103,7 @@ func step(dt: float, boost: bool, time: float) -> void:
 	if absf(avoid_offset) > 0.01:
 		# Ausweichen (nur Gegner): Zielpunkt seitlich versetzen statt aufzufahren.
 		target += (target - pos).normalized().orthogonal() * avoid_offset
-	if progress > 1.985:
+	if progress > track.laps - 0.015:
 		target = track.at(progress + 0.025)
 	var error := wrapf((target - pos).angle() - heading, -PI, PI)
 	var target_distance := maxf(2.3, pos.distance_to(target))
@@ -116,14 +134,31 @@ func step(dt: float, boost: bool, time: float) -> void:
 	# Untergrund: Erde/Matsch bremsen über Rollwiderstand und mindern die Haftung (Leitplanke 3).
 	var ground := str(track.surface_at(pos).kind)
 	var ground_grip: float = (1.0 - (1.0 - float(SURFACE_GRIP.get(ground, 1.0))) / offroad) * weather_grip
+	if landing > 0.0:
+		# Nach der Landung baut sich die Haftung erst wieder auf.
+		ground_grip *= lerpf(1.0, 0.3, landing / LANDING_TIME)
+		landing = maxf(0.0, landing - dt)
 	var ground_drag: float = float(SURFACE_DRAG.get(ground, 0.0)) / offroad
 	var longitudinal := drive - braking - 0.010 * u * absf(u) - u * (0.09 + ground_drag)
+	if not airborne:
+		# Steigung/Gefälle (2,5D): Hangabtrieb entlang der Fahrtrichtung.
+		var ahead_s := previous_phase + signf(u) * 1.0 / track.length
+		var grade := (track.ground_height(ahead_s) - track.ground_height(previous_phase)) * signf(u)
+		if absf(grade) < 2.0:
+			longitudinal -= GRAVITY * grade / sqrt(1.0 + grade * grade)
 	var front_capacity := sqrt(maxf(1.0, pow(grip * ground_grip * 0.53, 2) - pow(longitudinal * 0.52, 2)))
 	var rear_capacity := sqrt(maxf(1.0, pow(grip * ground_grip * 0.47, 2) - pow(longitudinal * 0.48, 2)))
 	var alpha_front := atan2(v + yaw * 1.1, absf(u) + 1.8) - steering
 	var alpha_rear := atan2(v - yaw * 1.2, absf(u) + 1.8)
 	var front_force := clampf(-alpha_front * 36.0, -front_capacity, front_capacity)
 	var rear_force := clampf(-alpha_rear * 40.0, -rear_capacity, rear_capacity)
+	if airborne:
+		# In der Luft: keine Reifenkräfte (kein Grip, keine Lenkung, kein Antrieb/Bremsen), nur Luftwiderstand.
+		front_force = 0.0
+		rear_force = 0.0
+		longitudinal = -0.010 * u * absf(u)
+		braking = 0.0
+		boosting = false
 	yaw += ((front_force * 1.1 - rear_force * 1.2) / 1.9 - yaw * 0.55) * dt
 	yaw = clampf(yaw, -3.0, 3.0)
 	velocity += (forward * longitudinal + side * (front_force + rear_force)) * dt
@@ -144,9 +179,104 @@ func step(dt: float, boost: bool, time: float) -> void:
 	var ds := wrapf(ph - previous_phase, -0.5, 0.5)
 	if absf(ds) < 0.08:
 		progress += ds
+	update_height(ph, dt)
+	if not airborne and not crashed:
+		var loop := track.loop_between(previous_phase, ph)
+		if not loop.is_empty():
+			enter_loop(loop)
 	previous_phase = ph
-	if before < 2.0 and progress >= 2.0:
-		finish_time = time - dt + dt * clampf((2.0 - before) / maxf(0.00001, progress - before), 0.0, 1.0)
+	var goal := float(track.laps)
+	if before < goal and progress >= goal:
+		finish_time = time - dt + dt * clampf((goal - before) / maxf(0.00001, progress - before), 0.0, 1.0)
+
+func update_height(ph: float, dt: float) -> void:
+	# Senkrechte Bewegung: am Boden folgt z der Fahrbahn; fällt der Boden schneller weg als der freie Fall
+	# (Schanzenkante, Kuppe, Lücke), hebt das Auto mit seiner senkrechten Geschwindigkeit ab.
+	var ground := track.ground_height(ph)
+	if not airborne and not in_loop and edge_check(ph, ground):
+		return
+	if airborne:
+		vz -= GRAVITY * dt
+		z += vz * dt
+		air_time += dt
+		if z <= ground:
+			airborne = false
+			landing = LANDING_TIME
+			# Harte Landung kostet etwas Tempo.
+			velocity *= clampf(1.0 + vz * 0.01, 0.85, 1.0)
+			z = ground
+			vz = 0.0
+		elif z < track.base_height(ph) - 3.0:
+			crashed = true
+		return
+	var follow := (ground - z) / dt
+	# Abheben nur, wenn der Boden deutlich (> 5 cm) unter die Flugbahn wegfällt; kleinere Knicke schluckt die Federung.
+	var ballistic := z + vz * dt - 0.5 * GRAVITY * dt * dt
+	if ground < ballistic - 0.05:
+		airborne = true
+		vz -= GRAVITY * dt
+		z += vz * dt
+		return
+	# Steigrate begrenzen: Sprünge im Höhenprofil dürfen das Auto nicht katapultieren.
+	vz = clampf(follow, -25.0, 25.0)
+	z = ground
+
+var fall_speed := 0.0      # nur Darstellung: Absturz ins Tal / von der Brücke
+
+func edge_check(ph: float, road: float) -> bool:
+	# Neben der Fahrbahn fällt das Gelände steil ab (Brücke, Bergstraße, Steilküste)?
+	# Mit Leitplanke: Abprallen, ab BREAK_SPEED senkrecht zur Planke bricht sie -> Absturz. Ohne: Absturz.
+	var q := track.query(pos)
+	var distance := float(q.distance)
+	if distance <= Circuit.HALF_WIDTH + 0.7:
+		return false
+	var drop := road - track.terrain_height(pos)
+	if drop < 2.5:
+		return false
+	var normal: Vector2 = (pos - Vector2(q.point)).normalized()
+	var t := track.tangent(float(q.s))
+	var side := normal.dot(Vector2(-t.y, t.x))
+	var impact := velocity.dot(normal)
+	if track.guardrail_at(float(q.s), side) and impact < Circuit.BREAK_SPEED:
+		pos = Vector2(q.point) + normal * (Circuit.HALF_WIDTH + 0.7)
+		if impact > 0.0:
+			velocity -= normal * impact * 1.4
+		velocity *= 0.8
+		guard_hit = impact
+		return false
+	crashed = true
+	broke_rail = track.guardrail_at(float(q.s), side)
+	return true
+
+var guard_hit := 0.0       # Aufprallgeschwindigkeit an der Leitplanke (Funken/Geräusch), vom Aufrufer zurückgesetzt
+var broke_rail := false
+
+func enter_loop(loop: Dictionary) -> void:
+	in_loop = true
+	loop_theta = 0.0
+	loop_radius = float(loop.radius)
+	loop_speed = maxf(0.0, velocity.dot(Vector2.from_angle(heading)))
+	loop_origin = pos
+
+func step_loop(dt: float) -> void:
+	# Autonome Durchfahrt mit dem Schwung: tangentiale Verzögerung durch Schwerkraft und Luftwiderstand;
+	# fehlt oben die Anpresskraft (v²/R + g·cos θ < 0) oder bleibt das Auto stehen, stürzt es ab.
+	loop_speed += (-GRAVITY * sin(loop_theta) - 0.010 * loop_speed * loop_speed) * dt
+	loop_theta += loop_speed / loop_radius * dt
+	var normal := loop_speed * loop_speed / loop_radius + GRAVITY * cos(loop_theta)
+	if normal < 0.0 or loop_speed < 0.5:
+		crashed = true
+		in_loop = false
+		return
+	var forward := Vector2.from_angle(heading)
+	pos = loop_origin + forward * loop_radius * sin(loop_theta)
+	z = track.base_height(previous_phase) + loop_radius * (1.0 - cos(loop_theta))
+	if loop_theta >= TAU:
+		in_loop = false
+		pos = loop_origin
+		z = track.ground_height(previous_phase)
+		velocity = forward * loop_speed
+		yaw = 0.0
 
 static func update_avoidance(cars: Array, dt: float) -> void:
 	# Gegner (Index > 0) weichen Autos aus, die schräg vor oder neben ihnen fahren.

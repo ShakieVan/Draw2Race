@@ -64,7 +64,7 @@ func shape_transform(kind: String, transform: Transform3D, color: Color) -> void
 	batches[kind + color.to_html()].transforms[-1] = transform
 
 const WATER_SHADER := preload("res://assets/water.gdshader")
-const WATER_COLORS := ["39959c", "4aa6a5", "53b3ac", "3f7f80"]
+const WATER_COLORS := ["39959c", "4aa6a5", "53b3ac", "3f7f80", "2f6f7a", "2d7fa1"]
 var water_material: ShaderMaterial
 
 func premium_water() -> ShaderMaterial:
@@ -104,6 +104,8 @@ const THEMES := {
 	"coast": {"sky":"327d88","sea":"39959c","ground":"8eae85","stripe":"89a981","rim":"c7b79a","rim2":"f2e9d5","shoulder":"b69c73","mud":"896c4d","island":true},
 	"city": {"sky":"283440","sea":"30383f","ground":"7c8784","stripe":"86918e","rim":"5d6569","rim2":"a3aaa9","shoulder":"9ba39f","mud":"6d665a","island":false},
 	"forest": {"sky":"36614d","sea":"2c4a38","ground":"4f7b49","stripe":"4a7444","rim":"5f4f39","rim2":"76654a","shoulder":"5f5a34","mud":"4a3524","island":false},
+	"harbor": {"sky":"4d6f80","sea":"2f6f7a","ground":"8a8f8c","stripe":"7f8583","rim":"5d6569","rim2":"a3aaa9","shoulder":"6f7472","mud":"5a554a","island":false},
+	"mountain": {"sky":"6fa7c9","sea":"2d7fa1","ground":"8a9a5b","stripe":"84935a","rim":"8f836d","rim2":"b8ab8f","shoulder":"b09a74","mud":"7a6448","island":false,"rock":"b3a891"},
 }
 const NAMED := {"coral":"f16c4c","cream":"f2e9d5","teal":"227c77","sand":"d8c39a","slate":"5f6f78","gold":"f3c374"}
 
@@ -122,7 +124,10 @@ func build(circuit: Circuit) -> void:
 	var half := track.bounds.size*0.5 + Vector2(Circuit.HALF_WIDTH+9.0, Circuit.HALF_WIDTH+9.0)
 	shape("box", Vector3(c.x,-2.5,c.y), Vector3(half.x*2+160,0.4,half.y*2+160), Color(theme.sea))
 	var fancy_ground := premium_rendering()
-	if theme.island:
+	if not track.terrain.is_empty():
+		# Gelände mit Höhenrelief (Berg, Steilküste): Netz aus dem Höhenraster der Strecke.
+		build_terrain(theme, fancy_ground)
+	elif theme.island:
 		# Insel: Sandsockel, Strand, Wiese mit Mähstreifen.
 		shape("disc", Vector3(c.x,-1.2,c.y), Vector3(half.x*2.35,2.0,half.y*2.35), Color(theme.rim))
 		shape("disc", Vector3(c.x,-0.18,c.y), Vector3(half.x*2.3,0.35,half.y*2.3), Color(theme.rim2))
@@ -182,6 +187,8 @@ func build(circuit: Circuit) -> void:
 		for sign_value in [-1.0,1.0]:
 			var center: Vector2 = p-track.tangent(s)*0.34+track.tangent(s).orthogonal()*sign_value*0.22
 			shape("box", Vector3(center.x,0.20+s*0.004,center.y), Vector3(0.85,0.02,0.16), arrow_color, angle-sign_value*0.55)
+	build_stunts()
+	build_shortcuts()
 	for prop in track.props:
 		build_prop(prop)
 	flush_ai_props()
@@ -203,7 +210,7 @@ func build(circuit: Circuit) -> void:
 	shape("disc",Vector3.ZERO,Vector3(1.6,0.08,1.6),Color("ffd38b"),0,marker)
 	shape("disc",Vector3(0,0.06,0),Vector3(0.9,0.10,0.9),CORAL,0,marker)
 	var start := track.at(0.0)
-	marker.position = Vector3(start.x,0.31,start.y)
+	marker.position = Vector3(start.x,0.31 + track.surface_z(0.0),start.y)
 	line_mesh = MeshInstance3D.new()
 	add_child(line_mesh)
 	open_mesh = MeshInstance3D.new()
@@ -233,6 +240,208 @@ func build_asphalt_road() -> void:
 			if track.other_branch_distance(p, s) > Circuit.HALF_WIDTH + 0.2:
 				shape("box", Vector3(p.x,0.182+s*0.004,p.y), Vector3(0.8,0.016,0.06), Color("8b9390"), -track.tangent(s).angle())
 
+func build_terrain(theme: Dictionary, fancy: bool) -> void:
+	var tr: Dictionary = track.terrain
+	var w := int(tr.w)
+	var h := int(tr.h)
+	var cell := float(tr.cell)
+	var ox := float(tr.origin[0])
+	var oz := float(tr.origin[1])
+	var hs: Array = tr.heights
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var vtx := func(ix: int, iz: int) -> Vector3:
+		return Vector3(ox + ix * cell, float(hs[iz * w + ix]) + 0.02, oz + iz * cell)
+	for iz in range(h - 1):
+		for ix in range(w - 1):
+			var a: Vector3 = vtx.call(ix, iz)
+			var b: Vector3 = vtx.call(ix + 1, iz)
+			var c: Vector3 = vtx.call(ix + 1, iz + 1)
+			var d: Vector3 = vtx.call(ix, iz + 1)
+			for tri in [[a, b, c], [a, c, d]]:
+				var n: Vector3 = (tri[1] - tri[0]).cross(tri[2] - tri[0]).normalized()
+				if n.y < 0.0:
+					n = -n
+				for p in tri:
+					st.set_normal(n)
+					st.add_vertex(p)
+	var node := MeshInstance3D.new()
+	node.mesh = st.commit()
+	if fancy:
+		# Gleicher Gelände-Shader wie auf ebenen Strecken (Rasen/Fels, weicher Bankett-Übergang).
+		premium_ground(theme, Vector3.ZERO, Vector3.ONE, false)
+		var flat_ground: MeshInstance3D = get_child(get_child_count() - 1)
+		node.material_override = flat_ground.material_override
+		flat_ground.queue_free()
+	else:
+		node.material_override = material(Color(theme.ground))
+	add_child(node)
+	# Steilwände: Flächen mit starker Neigung felsgrau statt Rasen (nur optisch, eigener Durchgang).
+	var rock := StandardMaterial3D.new()
+	rock.albedo_color = Color(theme.get("rock", "9a9486"))
+	rock.roughness = 0.95
+	var cliff := SurfaceTool.new()
+	cliff.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var any := false
+	for iz in range(h - 1):
+		for ix in range(w - 1):
+			var a: Vector3 = vtx.call(ix, iz)
+			var b: Vector3 = vtx.call(ix + 1, iz)
+			var c: Vector3 = vtx.call(ix + 1, iz + 1)
+			var d: Vector3 = vtx.call(ix, iz + 1)
+			var slope := maxf(absf(a.y - c.y), absf(b.y - d.y)) / (cell * 1.414)
+			if slope < 0.9:
+				continue
+			any = true
+			for tri in [[a, b, c], [a, c, d]]:
+				var n: Vector3 = (tri[1] - tri[0]).cross(tri[2] - tri[0]).normalized()
+				if n.y < 0.0:
+					n = -n
+				for p in tri:
+					cliff.set_normal(n)
+					cliff.add_vertex(p + Vector3(0, 0.03, 0))
+	if any:
+		var rocks := MeshInstance3D.new()
+		rocks.mesh = cliff.commit()
+		rocks.material_override = rock
+		add_child(rocks)
+
+func build_shortcuts() -> void:
+	# Fahrbahn der Abkürzungen (schmaler, eigener Belag) entlang ihres Pfads.
+	for sc in track.shortcuts:
+		var trail: Array = sc.path
+		var half := float(sc.width) * 0.5
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for i in range(trail.size() - 1):
+			var a: Vector2 = trail[i]
+			var b: Vector2 = trail[i + 1]
+			var nrm := (b - a).normalized().orthogonal() * half
+			var ya := 0.165 + track.terrain_height(a)
+			var yb := 0.165 + track.terrain_height(b)
+			var q := [Vector3(a.x - nrm.x, ya, a.y - nrm.y), Vector3(a.x + nrm.x, ya, a.y + nrm.y), Vector3(b.x + nrm.x, yb, b.y + nrm.y), Vector3(b.x - nrm.x, yb, b.y - nrm.y)]
+			for j in [0, 2, 1, 0, 3, 2]:
+				st.set_normal(Vector3.UP)
+				st.add_vertex(q[j])
+		var node := MeshInstance3D.new()
+		node.mesh = st.commit()
+		var color := Color("8b6f4e") if str(sc.surface) == "gravel" else Color("3f4c52")
+		node.material_override = premium_road(color) if premium_rendering() else material(color)
+		add_child(node)
+
+func build_stunts() -> void:
+	# 2,5D-Bauteile: Stützpfeiler unter erhöhter Fahrbahn, Holzschanzen, Looping-Ring.
+	var pillar := Color("7d8386")
+	var steps := int(track.length / 6.0)
+	for i in range(steps):
+		var s := float(i) / steps
+		var h := track.base_height(s)
+		if h > 1.2 and not track.in_gap(s):
+			for side in [-1.0, 1.0]:
+				var p := track.at(s, side * (Circuit.HALF_WIDTH - 0.6))
+				# Pfeiler nur, wo die Fahrbahn wirklich über dem Gelände liegt (Brücke), nicht am Berg.
+				var ground := track.terrain_height(p)
+				if h - ground > 1.2:
+					shape("box", Vector3(p.x, (h + ground) * 0.5, p.y), Vector3(0.6, h - ground, 0.6), pillar)
+	var wood := Color("a0764a")
+	var dark_wood := Color("6e4d2e")
+	for r in track.ramps:
+		var s0 := float(r.s)
+		var len_m := float(r.length)
+		var height := float(r.height)
+		var n := maxi(4, int(len_m / 0.5))
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for k in range(n):
+			var sa := s0 + len_m * k / n / track.length
+			var sb := s0 + len_m * (k + 1) / n / track.length
+			var ha := track.base_height(sa) + height * k / n + 0.2
+			var hb := track.base_height(sb) + height * (k + 1) / n + 0.2
+			var w := Circuit.HALF_WIDTH - 0.3
+			var q := [track.at(sa, -w), track.at(sa, w), track.at(sb, w), track.at(sb, -w)]
+			var hs := [ha, ha, hb, hb]
+			for j in [0, 2, 1, 0, 3, 2]:
+				st.set_normal(Vector3.UP)
+				st.add_vertex(Vector3(q[j].x, hs[j], q[j].y))
+			# Seitenwangen
+			for side in [-w, w]:
+				var p0 := track.at(sa, side)
+				var p1 := track.at(sb, side)
+				var base := track.base_height(sa) + 0.18
+				var quad := [Vector3(p0.x, base, p0.y), Vector3(p1.x, base, p1.y), Vector3(p1.x, hb, p1.y), Vector3(p0.x, ha, p0.y)]
+				for j in [0, 1, 2, 0, 2, 3]:
+					st.set_normal(Vector3(0, 0, 1))
+					st.add_vertex(quad[j])
+		# Stirnseite an der Absprungkante
+		var se := s0 + len_m / track.length
+		var e0 := track.at(se, -Circuit.HALF_WIDTH + 0.3)
+		var e1 := track.at(se, Circuit.HALF_WIDTH - 0.3)
+		var top := track.base_height(se) + height + 0.2
+		var low := track.base_height(se) + 0.18
+		var face := [Vector3(e0.x, low, e0.y), Vector3(e1.x, low, e1.y), Vector3(e1.x, top, e1.y), Vector3(e0.x, top, e0.y)]
+		for j in [0, 1, 2, 0, 2, 3]:
+			st.set_normal(Vector3(0, 0, 1))
+			st.add_vertex(face[j])
+		var node := MeshInstance3D.new()
+		node.mesh = st.commit()
+		var mat := material(wood)
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		node.material_override = mat
+		add_child(node)
+		# Bohlenfugen quer über die Schanze
+		for k in range(1, n):
+			var sk := s0 + len_m * k / n / track.length
+			var pk := track.at(sk)
+			shape("box", Vector3(pk.x, track.base_height(sk) + height * k / n + 0.21, pk.y), Vector3(0.04, 0.01, (Circuit.HALF_WIDTH - 0.3) * 2.0), dark_wood, -track.tangent(sk).angle())
+	for l in track.loops:
+		build_loop(float(l.s), float(l.radius))
+
+func build_loop(s: float, radius: float) -> void:
+	# Looping als Band im Kreis (senkrecht in Fahrtrichtung), leicht seitlich versetzt wie ein Korkenzieher.
+	var origin := track.at(s)
+	var fwd := track.tangent(s)
+	var side := Vector2(-fwd.y, fwd.x)
+	var base := track.base_height(s) + 0.2
+	var n := 48
+	var w := Circuit.HALF_WIDTH - 0.6
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for k in range(n):
+		var ring := []
+		for j in [k, k + 1]:
+			var th: float = TAU * j / n
+			var shift: float = lerpf(-1.2, 1.2, float(j) / n)
+			var c := origin + fwd * radius * sin(th) + side * shift
+			var y := base + radius * (1.0 - cos(th))
+			ring.append([Vector3(c.x - side.x * w, y, c.y - side.y * w), Vector3(c.x + side.x * w, y, c.y + side.y * w), th])
+		var quad := [ring[0][0], ring[0][1], ring[1][1], ring[1][0]]
+		var normal := Vector3(-fwd.x * sin(ring[0][2]), cos(ring[0][2]), -fwd.y * sin(ring[0][2]))
+		for j in [0, 1, 2, 0, 2, 3]:
+			st.set_normal(normal)
+			st.add_vertex(quad[j])
+	var node := MeshInstance3D.new()
+	node.mesh = st.commit()
+	# Eigenes Material (nicht das gemeinsame): halbtransparentes Stahlband, damit das Auto im Ring sichtbar bleibt.
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.82, 0.85, 0.88, 0.55)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.metallic = 0.5
+	mat.roughness = 0.3
+	mat.emission_enabled = true
+	mat.emission = Color(0.35, 0.37, 0.4)
+	node.material_override = mat
+	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	add_child(node)
+	# Stahlstützen außen am Ring
+	for k in range(6):
+		var th: float = PI * 0.25 + PI * 0.5 * k / 5.0 + (0.0 if k < 3 else PI)
+		var c := origin + fwd * radius * sin(th)
+		var y := base + radius * (1.0 - cos(th))
+		for sgn in [-1.0, 1.0]:
+			var p: Vector2 = c + side * sgn * (w + 0.4)
+			shape("box", Vector3(p.x, y * 0.5, p.y), Vector3(0.3, y, 0.3), Color("5d6368"))
+
 func curb_band(inner: float, outer: float) -> void:
 	# Je Farbe ein Netz (gleiches Material wie die übrigen Bauteile, daher gleiche Helligkeit).
 	var tools := {CORAL: SurfaceTool.new(), CREAM: SurfaceTool.new()}
@@ -253,14 +462,18 @@ func curb_band(inner: float, outer: float) -> void:
 			# An der Kreuzung (Acht) keine Randsteine quer über die andere Fahrbahn.
 			if track.other_branch_distance(mid, (s0 + s1) * 0.5) < Circuit.HALF_WIDTH + 0.6:
 				continue
+			if track.in_gap((s0 + s1) * 0.5):
+				continue
 			var a0 := track.at(s0, lo)
 			var a1 := track.at(s0, hi)
 			var b0 := track.at(s1, lo)
 			var b1 := track.at(s1, hi)
+			var ha := track.base_height(s0)
+			var hb := track.base_height(s1)
 			var quads := [
-				[Vector3(a0.x, top, a0.y), Vector3(a1.x, top, a1.y), Vector3(b1.x, top, b1.y), Vector3(b0.x, top, b0.y)],
-				[Vector3(a1.x, bottom, a1.y), Vector3(b1.x, bottom, b1.y), Vector3(b1.x, top, b1.y), Vector3(a1.x, top, a1.y)],
-				[Vector3(b0.x, bottom, b0.y), Vector3(a0.x, bottom, a0.y), Vector3(a0.x, top, a0.y), Vector3(b0.x, top, b0.y)],
+				[Vector3(a0.x, top + ha, a0.y), Vector3(a1.x, top + ha, a1.y), Vector3(b1.x, top + hb, b1.y), Vector3(b0.x, top + hb, b0.y)],
+				[Vector3(a1.x, bottom + ha, a1.y), Vector3(b1.x, bottom + hb, b1.y), Vector3(b1.x, top + hb, b1.y), Vector3(a1.x, top + ha, a1.y)],
+				[Vector3(b0.x, bottom + hb, b0.y), Vector3(a0.x, bottom + ha, a0.y), Vector3(a0.x, top + ha, a0.y), Vector3(b0.x, top + hb, b0.y)],
 			]
 			for qi in range(quads.size()):
 				var q: Array = quads[qi]
@@ -432,7 +645,7 @@ func place_ai(name: String, x: float, z: float, yaw: float, height: float, footp
 		# Größere Bauten werfen Laternenschatten (vorberechnet in Atmosphere.bake_rain_lights).
 		atmosphere.occluders.append([Vector2(x, z), Vector2(box.size.x * scale3.x, box.size.z * scale3.z) * 0.5, -yaw])
 	var anchor := Vector3(box.get_center().x, box.position.y, box.get_center().z)
-	var origin := Vector3(x, base_y, z) - basis * anchor
+	var origin := Vector3(x, base_y + track.terrain_height(Vector2(x, z)), z) - basis * anchor
 	if not ai_prop_batches.has(name):
 		ai_prop_batches[name] = []
 	ai_prop_batches[name].append(Transform3D(basis, origin))
@@ -491,7 +704,7 @@ func place_card(name: String, x: float, z: float, height: float) -> bool:
 	var flip := -1.0 if fposmod(x * 3.7 + z * 1.3, 2.0) < 1.0 else 1.0
 	if not card_batches.has(name):
 		card_batches[name] = []
-	card_batches[name].append(Transform3D(Basis.from_scale(Vector3(size * flip, size, size)), Vector3(x, 0.1, z)))
+	card_batches[name].append(Transform3D(Basis.from_scale(Vector3(size * flip, size, size)), Vector3(x, 0.1 + track.terrain_height(Vector2(x, z)), z)))
 	return true
 
 func flush_cards() -> void:
@@ -562,6 +775,29 @@ func lit_overlay_color(color: Color) -> ShaderMaterial:
 	mat.set_shader_parameter("tint", color)
 	return mat
 
+func generic_prop(prop: Dictionary) -> bool:
+	# Streckenformat-Typen, die in beiden Grafikstufen gelten: "water" und "ai" (KI-Modell mit Klötzchen-Ersatz).
+	var x := float(prop.get("x",0.0))
+	var z := float(prop.get("z",0.0))
+	var rot := -deg_to_rad(float(prop.get("rot",0.0)))
+	match str(prop.get("type","")):
+		"water":
+			# Wasserfläche knapp über dem Boden, unter der Fahrbahn (Wasser-Shader über die Farbe).
+			shape("box", Vector3(x, 0.06 + track.terrain_height(Vector2(x, z)), z), Vector3(float(prop.get("w",4.0)), 0.12, float(prop.get("d",4.0))), Color("3f7f80"), rot)
+			return true
+		"ai":
+			var model := str(prop.get("model",""))
+			var h := float(prop.get("h", 0.0))
+			var fp := Vector2(float(prop.get("w", 0.0)), float(prop.get("d", 0.0)))
+			if premium_rendering() and place_ai(model, x, z, rot, h, fp):
+				return true
+			# Ersatz, solange das Modell fehlt (oder einfache Grafik): Klotz in Grundfarbe.
+			var size := Vector3(fp.x if fp.x > 0.0 else maxf(h * 0.5, 0.8), h if h > 0.0 else 2.0, fp.y if fp.y > 0.0 else maxf(h * 0.5, 0.8))
+			var base := track.terrain_height(Vector2(x, z))
+			shape("box", Vector3(x, base + size.y * 0.5, z), size, Color(str(prop.get("color","a3aaa9"))), rot)
+			return true
+	return false
+
 func premium_prop(prop: Dictionary) -> bool:
 	# true = als KI-Modell gebaut (samt Licht/Schrift), false = Klötzchen-Fassung verwenden.
 	if not premium_rendering():
@@ -613,7 +849,7 @@ func premium_prop(prop: Dictionary) -> bool:
 			return place_ai(pick, x, z, rot, 0.0, Vector2(w, d))
 		"lamp":
 			# Ausleger zur Fahrbahn drehen; das Licht sitzt am Leuchtenkopf über der Straße.
-			var model := "stadt_laterne" if track.theme == "city" else "kueste_laterne"
+			var model := str(prop.get("model", "stadt_laterne" if track.theme == "city" else "kueste_laterne"))
 			var arm := ai_arm(model)
 			var here := Vector2(x, z)
 			var to_road := track.at(track.phase(here)) - here
@@ -636,7 +872,7 @@ func premium_prop(prop: Dictionary) -> bool:
 	return false
 
 func build_prop(prop: Dictionary) -> void:
-	if premium_prop(prop):
+	if generic_prop(prop) or premium_prop(prop):
 		return
 	var x := float(prop.get("x",0.0))
 	var z := float(prop.get("z",0.0))
@@ -788,6 +1024,11 @@ func road_strip(inner: float, outer: float, y: float, color: Color, start_s := 0
 		var points := [track.at(a,inner),track.at(a,outer),track.at(b,outer),track.at(b,inner)]
 		if skip_crossing and track.other_branch_distance(points[0], a) < Circuit.HALF_WIDTH + 0.3:
 			continue
+		# 2,5D: Fahrbahn folgt dem Höhenprofil; in Lücken (Sprung über eine andere Straße) keine Fahrbahn.
+		if track.in_gap((a + b) * 0.5):
+			continue
+		ya += track.base_height(a)
+		yb += track.base_height(b)
 		var heights := [ya,ya,yb,yb]
 		for j in [0,2,1,0,3,2]:
 			surface.set_normal(Vector3.UP)
@@ -875,7 +1116,7 @@ func route_mesh(route: Array[Dictionary], from: int, to: int, subdued: bool, mat
 			st.set_color(color_b if at_end else color_a)
 			st.set_normal(Vector3.UP)
 			var s: float = route[i].s if at_end else route[i-1].s
-			st.add_vertex(Vector3(p.x,0.27+s*0.006,p.y))
+			st.add_vertex(Vector3(p.x,0.27+s*0.006+track.surface_z(s),p.y))
 	st.set_material(mat)
 	return st.commit()
 

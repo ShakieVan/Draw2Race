@@ -15,7 +15,7 @@ func clear() -> void:
 	cars.clear()
 	total = 0
 
-func sample(id: int, pos: Vector2, heading: float, speed: float, brake: float, slip: float, track: Circuit, time: float) -> void:
+func sample(id: int, pos: Vector2, heading: float, speed: float, brake: float, slip: float, track: Circuit, time: float, lift := 0.0) -> void:
 	var forward := Vector2.from_angle(heading)
 	var side := forward.orthogonal()
 	if not cars.has(id):
@@ -49,9 +49,9 @@ func sample(id: int, pos: Vector2, heading: float, speed: float, brake: float, s
 		if dirty or float(state.load)>0.02:
 			var color: Color = state.dirt_color
 			color.a = 0.65 if dirty else float(state.load)*0.65
-			add_segment(a,p,0.24 if surface.kind=="mud" else 0.20,color,start_surface.height,surface.height,time,"soil")
+			add_segment(a,p,0.24 if surface.kind=="mud" else 0.20,color,start_surface.height + lift,surface.height + lift,time,"soil")
 		if surface.kind=="asphalt" and rubber>0.03 and speed>2.0:
-			add_segment(a,p,0.14,Color(0.065,0.085,0.09,rubber*0.68),start_surface.height,surface.height,time,"rubber")
+			add_segment(a,p,0.14,Color(0.065,0.085,0.09,rubber*0.68),start_surface.height + lift,surface.height + lift,time,"rubber")
 
 func add_segment(a: Vector2, b: Vector2, width: float, color: Color, height_a: float, height_b: float, time: float, kind: String) -> void:
 	segments.append({"a":a,"b":b,"width":width,"color":color,"height_a":height_a,"height_b":height_b,"time":time,"kind":kind})

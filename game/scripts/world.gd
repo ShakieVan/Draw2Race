@@ -647,8 +647,10 @@ func road_strip(inner: float, outer: float, y: float, color: Color, start_s := 0
 	return mesh
 
 static func line_half_width(speed: float) -> float:
-	# Langsam = 3x so breit wie früher (0,32 m), damit langsam und schnell klar unterscheidbar sind.
-	return lerpf(0.96,0.10,clampf((speed-5.0)/24.0,0.0,1.0))
+	# Halbe Breite gegenüber vorher (langsam 0,48 m, schnell 0,05 m) und nicht linear: Die Breite fällt schon bei
+	# mittlerem Tempo deutlich ab, richtig breit wird die Linie nur bei langsamem Tempo.
+	var t := clampf((speed-5.0)/24.0,0.0,1.0)
+	return lerpf(0.48,0.05,pow(t,0.4))
 
 static func line_color(speed: float) -> Color:
 	return Color("fff1b8").lerp(Color("ed3c32"),clampf((speed-5.0)/24.0,0.0,1.0))
@@ -663,6 +665,10 @@ func draw_route(route: Array[Dictionary], subdued := false, open_from := -1, gho
 		# Wie Fahrbahnmarkierung beleuchtet (Tag hell, Nacht dunkel, unter Laternen hell) statt selbstleuchtend.
 		line_mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
 		line_mat.roughness = 0.9
+		# Ganz dezentes Eigenleuchten, damit die Linie auch nachts noch zu ahnen ist.
+		line_mat.emission_enabled = true
+		line_mat.emission = Color(1.0, 0.9, 0.78)
+		line_mat.emission_energy_multiplier = 0.16
 	line_mesh.mesh = route_mesh(route, 0, split, subdued, line_mat)
 	open_mesh.mesh = route_mesh(route, maxi(split, 1) - 1, route.size(), false, open_line_material()) if split < route.size() else null
 	# Deckend, damit sich überlappende Segmente nicht streifig addieren; der Altrest wirkt wie ein Schatten.
@@ -996,7 +1002,8 @@ func car_model(color: Color, player := false, style := "coupe") -> Node3D:
 		halo_mat.albedo_color = Color(1.0, 0.86, 0.45, 0.38)
 		halo.material_override = halo_mat
 		halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		halo.position = Vector3(0, 0.05, 0)
+		# Über den Randsteinen (Auto bei y 0,2 + 0,1 = 0,3 > 0,285), sonst verdecken sie den Lichtkranz.
+		halo.position = Vector3(0, 0.1, 0)
 		car.add_child(halo)
 	var exhaust := Node3D.new()
 	exhaust.name = "Turbo"

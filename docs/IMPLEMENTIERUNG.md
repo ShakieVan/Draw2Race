@@ -208,3 +208,4 @@ Ersetzt Zeichen-Zoom-Regler, automatische Nachführung und Kamera-Stick (Nutzere
 - Tests: 3 Prüfungen in `test_core.gd` (Versionsvergleich, gültiges Release, Ablehnung fremder URL/Entwurf/fehlender Prüfsumme).
 - Regen nur im Licht (`assets/rain.gdshader`): Tropfen ohne Eigenfarbe, additiv; Helligkeit = Tageslicht + Lichtkarte der Straßenlichter (beim Aufbau berechnet, `Atmosphere.bake_rain_lights`) + Scheinwerferkegel/Rücklichter der Autos (live, `update_rain_cars`). Zum Boden hin heller als Tiefenhinweis in der orthografischen Draufsicht.
 - Kontrollbild-Aufrufe immer mit `timeout`/`--quit-after`: Bricht ein Skript beim Laden ab, erreicht das Testskript sein `quit()` nie.
+- 0.2.2: Lichtkranz des eigenen Autos über den Randsteinen; Linie halb so breit (langsam 0,48 m, schnell 0,05 m) und schon bei mittlerem Tempo schmal (Breite ~ Tempo^0,4); im Rennen dezentes Eigenleuchten (Emission 0,16), damit sie nachts zu ahnen bleibt.

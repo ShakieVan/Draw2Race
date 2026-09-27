@@ -1,4 +1,4 @@
-# Bereitet alle KI-Kulissenmodelle (.tools/ai3d/runs/<name>) für das Spiel auf: game/assets/props/<name>.glb.
+﻿# Bereitet alle KI-Kulissenmodelle (.tools/ai3d/runs/<name>) für das Spiel auf: game/assets/props/<name>.glb.
 # Budgets: viele gleiche Objekte (Bäume, Laternen) knapp, einzelne große (Häuser) großzügiger.
 param([string[]]$Only)
 $ErrorActionPreference = 'Stop'
@@ -11,6 +11,17 @@ $Budget = @{
     'stadt_altbau' = @(9000, 1024); 'stadt_eckladen' = @(9000, 1024); 'stadt_wohnblock' = @(8000, 1024); 'stadt_buero' = @(6000, 1024)
     'kueste_clubhaus' = @(9000, 1024); 'kueste_tribuene' = @(12000, 1024); 'kueste_bootshaus' = @(8000, 1024); 'wald_huette' = @(8000, 1024)
     'kueste_zeitnahme' = @(6000, 1024)
+    'hafen_lagerhalle' = @(10000, 1024); 'hafen_frachtschiff' = @(10000, 1024); 'hafen_kran' = @(6000, 1024); 'hafen_laterne' = @(1200, 256)
+    'hafen_poller' = @(600, 256); 'hafen_container' = @(1500, 512); 'hafen_faesser' = @(1500, 512); 'hafen_paletten' = @(1200, 512)
+    'jahrmarkt_riesenrad' = @(10000, 1024); 'jahrmarkt_karussell' = @(8000, 1024); 'jahrmarkt_zelt' = @(6000, 1024); 'jahrmarkt_lichtermast' = @(1200, 256)
+    'jahrmarkt_autoscooter' = @(8000, 1024); 'jahrmarkt_bude' = @(4000, 512); 'jahrmarkt_losbude' = @(4000, 512); 'jahrmarkt_bruecke' = @(4000, 512)
+    'serra_kapelle' = @(8000, 1024); 'serra_leuchtturm' = @(6000, 1024); 'serra_agave' = @(1500, 512); 'serra_leitplanke' = @(2000, 512)
+    'serra_trockenmauer' = @(2500, 512); 'serra_olivenbaum' = @(3000, 512); 'serra_pinie' = @(3000, 512); 'serra_fels' = @(2000, 512)
+    'steinbruch_brecher' = @(8000, 1024); 'steinbruch_bagger' = @(6000, 1024); 'steinbruch_kipper' = @(6000, 1024); 'steinbruch_buero' = @(6000, 1024)
+    'steinbruch_felswand' = @(4000, 1024); 'steinbruch_kieshaufen' = @(2000, 512); 'steinbruch_foerderband' = @(4000, 512)
+    'drift_parkhaus' = @(9000, 1024); 'drift_zuschauer_container' = @(6000, 1024); 'drift_betonblock' = @(800, 256); 'drift_reifenwand' = @(2000, 512)
+    'drift_pylone' = @(600, 256); 'drift_zaun' = @(1500, 512); 'drift_flutlicht' = @(2500, 512)
+    'kinder_teddy' = @(8000, 1024); 'kinder_holzeisenbahn' = @(6000, 1024); 'kinder_bausteinturm' = @(4000, 1024); 'kinder_bauklotz' = @(800, 256)
 }
 New-Item -ItemType Directory -Force -Path (Join-Path $Root 'game/assets/props') | Out-Null
 foreach ($Dir in Get-ChildItem (Join-Path $Root '.tools/ai3d/runs') -Directory) {

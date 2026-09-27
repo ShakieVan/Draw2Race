@@ -10,7 +10,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "art" / "bildvorlagen" / "freigestellt"
 DST = ROOT / "game" / "assets" / "cards"
-TREES = ["wald_kiefer", "wald_eiche", "kueste_palme", "stadt_baum"]
+TREES = ["wald_kiefer", "wald_eiche", "kueste_palme", "stadt_baum", "serra_olivenbaum", "serra_pinie"]
 HEIGHT = 512
 
 

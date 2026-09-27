@@ -14,12 +14,12 @@ func run() -> void:
 	var colors := ["f16c4c","5ac4d1","e8c866","a593cf","3a3f47"]
 	var i := 0
 	for spec in RaceVehicle.CARS:
-		var car: Node3D = app.world.car_model(Color(colors[i]), false, str(spec.style))
-		var p: Vector2 = app.track.at(0.0) + t*(i*2.6-5.2) + t.orthogonal()*(1.2 if i%2 else -1.2)
+		var car: Node3D = app.world.car_model(Color(str(spec.color)), false, str(spec.style))
+		var p: Vector2 = app.track.at(0.0) + t*(i*2.6-9.1) + t.orthogonal()*(1.2 if i%2 else -1.2)
 		car.position = Vector3(p.x,0.2,p.y)
 		car.rotation.y = -t.angle()
 		i += 1
-	app.view_zoom = 9.0
+	app.view_zoom = 12.0
 	app.view_focus = Vector3(app.track.at(0.0).x,0,app.track.at(0.0).y)
 	for k in range(30):
 		await process_frame

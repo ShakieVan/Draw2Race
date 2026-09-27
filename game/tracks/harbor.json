@@ -2,7 +2,7 @@
  "format": 1,
  "id": "harbor",
  "name": "Harbour Run",
- "subtitle": "Kräne, Container – und ein offenes Hallentor.",
+ "subtitle": "Kräne, Container – und eine Abkürzung an der Lagerhalle vorbei.",
  "theme": "harbor",
  "half_width": 3.5,
  "points": [
@@ -1804,6 +1804,16 @@
    "x": -36.6,
    "z": 30.8,
    "model": "hafen_laterne"
+  },
+  {
+   "type": "ai",
+   "model": "hafen_lagerhalle",
+   "x": -2.8,
+   "z": -37.36,
+   "rot": 177.0,
+   "color": "8c969a",
+   "w": 16,
+   "d": 9
   }
  ]
 }

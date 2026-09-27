@@ -588,7 +588,9 @@ func build_puddles() -> void:
 # --- Premium-Kulisse: KI-Modelle (tools/build_props.ps1) statt Klötzchen, gleiche Modelle gebündelt ---
 const AI_PROP_PATH := "res://assets/props/%s.glb"
 # Drehung je Modell (Grad), damit die Schauseite zur Strecke bzw. in +z zeigt (TRELLIS-Grundausrichtung).
-const AI_PROP_YAW := {}
+# Modelle, deren Längsachse in der KI-Ausgabe entlang z liegt; das Streckenformat erwartet w (Breite) entlang x.
+const AI_PROP_YAW := {"hafen_lagerhalle": 90.0, "hafen_frachtschiff": 90.0, "hafen_container": 90.0,
+	"drift_betonblock": 90.0, "serra_leitplanke": 90.0}
 var ai_prop_meshes := {}
 var ai_prop_batches := {}
 
@@ -641,6 +643,8 @@ func place_ai(name: String, x: float, z: float, yaw: float, height: float, footp
 	var box := mesh.get_aabb()
 	var scale3: Vector3
 	if footprint != Vector2.ZERO:
+		if absf(float(AI_PROP_YAW.get(name, 0.0))) == 90.0:
+			footprint = Vector2(footprint.y, footprint.x)   # Grundfläche in Modellachsen (vor der Drehung)
 		var sx := footprint.x / maxf(box.size.x, 0.001)
 		var sz := footprint.y / maxf(box.size.z, 0.001)
 		if stretch:
@@ -704,6 +708,7 @@ func multimesh_node(mesh: Mesh, list: Array, label: String) -> MultiMeshInstance
 # --- Baumkarten (Billboards): ein Bild pro Baum statt eines 3D-Modells ---
 const CARD_SHADER := preload("res://assets/cards/tree_card.gdshader")
 const CARD_PATH := "res://assets/cards/%s.png"
+const CARD_TREES := ["serra_olivenbaum", "serra_pinie"]
 var card_batches := {}
 
 func place_card(name: String, x: float, z: float, height: float) -> bool:
@@ -800,6 +805,9 @@ func generic_prop(prop: Dictionary) -> bool:
 			var model := str(prop.get("model",""))
 			var h := float(prop.get("h", 0.0))
 			var fp := Vector2(float(prop.get("w", 0.0)), float(prop.get("d", 0.0)))
+			# Bäume als Bildkarten (billig, weiche Kronen), sonst KI-Modell.
+			if premium_rendering() and model in CARD_TREES and place_card(model, x, z, h if h > 0.0 else 5.0):
+				return true
 			if premium_rendering() and place_ai(model, x, z, rot, h, fp):
 				return true
 			# Ersatz, solange das Modell fehlt (oder einfache Grafik): Klotz in Grundfarbe.
@@ -1283,7 +1291,9 @@ func sort_layers(root: Node) -> void:
 		geo.layers = LAYER_FLAT if box.end.y < 0.45 else LAYER_TALL
 const CAR_PAINT := preload("res://assets/cars/car_paint.gdshader")
 # Lacksättigung je Stil, wenn die KI den Lack farbstichig gebacken hat (siehe tools/ai_cars.json).
-const PAINT_SAT := {"muscle": 0.34}
+const PAINT_SAT := {"muscle": 0.34, "roadster": 0.32}
+# Dunkel gebackener Lack (Pickup): Lackschwelle und Bezugshelligkeit (sRGB) je Stil.
+const PAINT_LIGHT := {"pickup": [0.13, 0.22], "roadster": [0.36, 0.86]}
 
 func premium_car_path(style: String) -> String:
 	return "res://assets/cars/%s.glb" % style
@@ -1312,6 +1322,9 @@ func premium_car(car: Node3D, color: Color, style: String) -> StandardMaterial3D
 				shaded.set_shader_parameter("albedo_tex", mat.albedo_texture)
 				shaded.set_shader_parameter("paint_color", color)
 				shaded.set_shader_parameter("paint_max_sat", float(PAINT_SAT.get(style, 0.16)))
+				if PAINT_LIGHT.has(style):
+					shaded.set_shader_parameter("paint_min_light", float(PAINT_LIGHT[style][0]))
+					shaded.set_shader_parameter("paint_reference", float(PAINT_LIGHT[style][1]))
 				if mat.roughness_texture != null:
 					shaded.set_shader_parameter("orm_tex", mat.roughness_texture)
 					shaded.set_shader_parameter("has_orm", true)

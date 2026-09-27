@@ -399,8 +399,18 @@ def harbor():
     # Becken unter dem Sprung (quer zur Straße).
     (gx, gz), gh = point_at(dense, (gap_from + gap_to) / 2)
     props.append({"type": "water", "x": gx, "z": gz, "w": 6.5, "d": 34, "rot": 0})
-    # Lagerhalle über der Abkürzung, Tore in Fahrtrichtung offen.
-    props.append(ai("hafen_lagerhalle", (ax + bx) / 2, (az + bz) / 2 - 0.5, rot=0, w=16, d=9, color="8c969a"))
+    # Lagerhalle direkt neben der Abkürzung (nicht darüber: das Dach würde Auto und Linie verdecken),
+    # längs zur Abkürzung; die Seite, auf der sie die Hauptstrecke nicht berührt.
+    dx, dz = bx - ax, bz - az
+    ln = math.hypot(dx, dz)
+    nx, nz = -dz / ln, dx / ln
+    hall_rot = math.degrees(math.atan2(dz, dx))
+    for side in (1, -1):
+        hall = ai("hafen_lagerhalle", round((ax + bx) / 2 + nx * 7.5 * side, 2), round((az + bz) / 2 + nz * 7.5 * side, 2),
+                  rot=round(hall_rot, 1), w=min(16, ln * 0.7), d=9, color="8c969a")
+        if keep([hall], dense, 1.2):
+            break
+    hall_kept = [hall] if keep([hall], dense, 1.2) else []
     props.append(ai("hafen_absperrung_kaputt", ax + 2.5, az - 3.5, rot=20, h=1.0, color="d8d0c0"))
     # Kräne, Container, Fässer, Paletten, Stapler.
     for x, z in [(-35, 38), (25, 38), (48, 30)]:
@@ -416,14 +426,14 @@ def harbor():
     for i in range(22):
         (x, z), _ = point_at(dense, i / 22 + 0.01, 5.8 if i % 2 else -5.8)
         props.append({"type": "lamp", "x": x, "z": z, "model": "hafen_laterne"})
-    data = {"format": 1, "id": "harbor", "name": "Harbour Run", "subtitle": "Kräne, Container – und ein offenes Hallentor.",
+    data = {"format": 1, "id": "harbor", "name": "Harbour Run", "subtitle": "Kräne, Container – und eine Abkürzung an der Lagerhalle vorbei.",
             "theme": "harbor", "half_width": HALF_WIDTH, "points": pts,
             "conditions": [{"time": "day", "weather": "dry", "fog": 0}, {"time": "dusk", "weather": "rain", "fog": 0},
                            {"time": "night", "weather": "dry", "fog": 1}],
             "ramps": [{"s": round(ramp_s, 4), "length": 5.0, "height": 1.5}],
             "gaps": [{"from": round(gap_from, 4), "to": round(gap_to, 4)}],
             "shortcuts": [shortcut], "surfaces": [],
-            "props": keep(props, dense, 1.2)}
+            "props": keep(props, dense, 1.2) + hall_kept}
     save(data)
 
 

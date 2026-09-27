@@ -46,10 +46,12 @@ func run() -> void:
 				print("Ende: zurückgerollt=%s gefallen=%s Winkel %.0f Grad" % [v.rolled_back, v.loop_fall, rad_to_deg(v.loop_theta)])
 			if v.in_loop and v.loop_speed < 0.0 and frames == 1 and v.loop_theta < 0.9:
 				root.get_texture().get_image().save_png("user://loop_%s_slow_2.png" % id); frames = 2
-			if v.crashed and v.loop_fall and frames == 1 and crash_at >= 0 and i == crash_at + 10:
+			if v.crashed and v.loop_fall and frames == 1 and crash_at >= 0 and i == crash_at + 4:
 				root.get_texture().get_image().save_png("user://loop_%s_slow_2.png" % id); frames = 2
-			if crash_at >= 0 and i == crash_at + 40:
-				root.get_texture().get_image().save_png("user://loop_%s_slow_3.png" % id)
+			for k in [[14, 3], [30, 4], [90, 5]]:
+				if crash_at >= 0 and i == crash_at + int(k[0]):
+					root.get_texture().get_image().save_png("user://loop_%s_slow_%d.png" % [id, int(k[1])])
+			if crash_at >= 0 and i == crash_at + 90:
 				break
 			if v.finish_time >= 0.0 or (v.progress > float(loop.s) + 0.05 and not v.in_loop and not v.crashed):
 				print("KEIN ABSTURZ"); break

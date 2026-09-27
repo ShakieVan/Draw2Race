@@ -342,22 +342,23 @@ func place_models() -> void:
 		var h := vehicles[i].heading if i >= prev_headings.size() else lerp_angle(prev_headings[i], vehicles[i].heading, alpha)
 		# 2,5D: Höhe (Fahrbahn, Sprung, Looping); im Looping dreht sich das Auto um seine Querachse.
 		var drop := 0.0
+		if vehicles[i].loop_fall:
+			# Aus dem Looping gefallen: eigene Bewegung (nur Darstellung), siehe loop_fall_pose.
+			var t: float = models[i].get_meta("fall_time", 0.0) + get_process_delta_time()
+			models[i].set_meta("fall_time", t)
+			models[i].transform = loop_fall_pose(vehicles[i], t)
+			var halo_off := models[i].get_node_or_null("Halo") as Node3D
+			if halo_off != null:
+				halo_off.visible = false
+			continue
 		if vehicles[i].crashed and not vehicles[i].rolled_back:
 			# Absturz: nur Darstellung – das Auto fällt aus dem Bild.
 			var fall: float = models[i].get_meta("fall", 0.0) + get_process_delta_time() * 9.81 * 0.5
 			models[i].set_meta("fall", fall)
 			drop = fall * fall
-			if vehicles[i].loop_fall:
-				# Aus dem Looping gefallen: in der Lage des Absturzes herunter bis auf die Fahrbahn (kopfüber
-				# liegt das Dach unten – dann bleibt die Autohöhe über dem Boden).
-				var height: float = vehicles[i].z - track.base_height(vehicles[i].previous_phase)
-				drop = minf(drop * 0.2, height - 0.65)
-				models[i].set_meta("tumble", clampf(drop / maxf(height - 0.65, 0.1), 0.0, 1.0))
 		models[i].position = Vector3(p.x,0.2 + vehicles[i].z - drop,p.y)
-		if vehicles[i].in_loop or vehicles[i].loop_fall:
-			# Beim Herunterfallen kippt das Auto aus der Absturzlage aufs Dach (θ → 180°).
-			var th: float = lerpf(vehicles[i].loop_theta, PI, float(models[i].get_meta("tumble", 0.0))) if vehicles[i].loop_fall else vehicles[i].loop_theta
-			models[i].basis = track.loop_basis(vehicles[i].loop_forward, th, vehicles[i].loop_radius, vehicles[i].loop_entry)
+		if vehicles[i].in_loop:
+			models[i].basis = track.loop_basis(vehicles[i].loop_forward, vehicles[i].loop_theta, vehicles[i].loop_radius, vehicles[i].loop_entry)
 		else:
 			models[i].rotation = Vector3(0, -h, 0.0)
 		var halo := models[i].get_node_or_null("Halo") as Node3D
@@ -375,6 +376,48 @@ func place_models() -> void:
 	for i in range(mini(vehicles.size(), models.size())):
 		lit.append([models[i].position, vehicles[i].heading])
 	world.atmosphere.update_rain_cars(lit)
+
+const CAR_HEIGHT := 0.65   # Höhe des Autos (Dach über den Rädern) für das Liegen auf dem Dach
+
+func loop_band_point(v: RaceVehicle, th: float, lift := 0.0) -> Vector3:
+	# Punkt auf der Innenseite des Loopingbandes; lift = Abstand zur Ringmitte hin.
+	var r := v.loop_radius
+	var side := Vector2(-v.loop_forward.y, v.loop_forward.x)
+	var c: Vector2 = v.loop_origin + v.loop_forward * (r - lift) * sin(th) + side * track.loop_lateral(th, v.loop_entry)
+	return Vector3(c.x, 0.2 + track.base_height(v.previous_phase) + r - (r - lift) * cos(th), c.y)
+
+func on_roof(v: RaceVehicle, th: float) -> Basis:
+	# Auto auf dem Dach liegend auf dem Band bei Winkel th (Räder zur Ringmitte).
+	var b := track.loop_basis(v.loop_forward, th, v.loop_radius, v.loop_entry)
+	return Basis(b.x, -b.y, -b.z)
+
+func loop_fall_pose(v: RaceVehicle, t: float) -> Transform3D:
+	# Absturz im Looping (jenseits der Senkrechten): das Auto löst sich vom Band, fällt senkrecht auf das
+	# darunterliegende Bahnstück (Innenseite), dreht sich dabei aufs Dach und rutscht die Bahn hinunter bis zum
+	# tiefsten Punkt. Nur Darstellung – die Simulation hat das Auto beim Ablösen als ausgeschieden gewertet.
+	var r := v.loop_radius
+	var th0 := v.loop_theta
+	var start := loop_band_point(v, th0)
+	# Landestelle: Bahnstück senkrecht darunter (gleicher Abstand in Fahrtrichtung), auf der Seite der Einfahrt
+	# (vorne, sin > 0) oder der Ausfahrt (hinten).
+	var along := clampf(sin(th0), -1.0, 1.0)
+	var th_land: float = asin(along) if along >= 0.0 else TAU + asin(along)
+	var land := loop_band_point(v, th_land, CAR_HEIGHT)
+	var fall_h := maxf(0.0, start.y - land.y)
+	var t_fall := sqrt(2.0 * fall_h / 9.81) + 0.05
+	var start_basis := track.loop_basis(v.loop_forward, th0, r, v.loop_entry)
+	if t < t_fall:
+		var k := t / t_fall
+		var y := start.y - 0.5 * 9.81 * t * t
+		var pos := Vector3(lerpf(start.x, land.x, k), maxf(y, land.y), lerpf(start.z, land.z, k))
+		var rot := Quaternion(start_basis.orthonormalized()).slerp(Quaternion(on_roof(v, th_land).orthonormalized()), smoothstep(0.0, 1.0, k))
+		return Transform3D(Basis(rot), pos)
+	# Rutschen auf dem Dach bis zum tiefsten Punkt (Einfahrt vorne: θ → 0, Ausfahrt hinten: θ → 2π).
+	var goal: float = 0.0 if along >= 0.0 else TAU
+	var ts := t - t_fall
+	var slide := 1.0 - exp(-ts * 2.2)
+	var th := lerpf(th_land, goal, slide)
+	return Transform3D(on_roof(v, th), loop_band_point(v, th, CAR_HEIGHT))
 
 func _physics_process(dt: float) -> void:
 	if paused:
@@ -412,7 +455,7 @@ func _physics_process(dt: float) -> void:
 		# Nach einem Absturz noch kurz zusehen lassen (Fall, Zurückrollen), dann das Ergebnis.
 		if vehicles[0].crashed:
 			crash_wait += dt
-		if vehicles[0].finish_time>=0 or crash_wait > 1.6 or (track.mode == "drift" and race_time > drift_limit()):
+		if vehicles[0].finish_time>=0 or crash_wait > (2.4 if vehicles[0].loop_fall else 1.6) or (track.mode == "drift" and race_time > drift_limit()):
 			finish_race()
 		elif race_time > 180.0:
 			pause_game()

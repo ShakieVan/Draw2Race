@@ -10,6 +10,17 @@ function Invoke-Godot([string[]]$Arguments) {
     if ($LASTEXITCODE -ne 0 -or ($output -match 'SCRIPT ERROR|^ERROR:|FAIL:')) { throw "Godot fehlgeschlagen: $Arguments" }
 }
 Invoke-Godot -Arguments @('--headless','--path',$gamePath,'--editor','--import','--quit')
+# KI-Modelltexturen sind JPGs: verlustfrei importiert blähen sie die APK nur auf. Neue Importe auf WebP (verlustbehaftet)
+# umstellen und dann neu importieren.
+$lossless = Get-ChildItem (Join-Path $gamePath 'assets/props'), (Join-Path $gamePath 'assets/cars') -Filter '*.jpg.import' |
+    Where-Object { (Get-Content -LiteralPath $_.FullName -Raw) -match '(?m)^compress/mode=0\r?$' }
+if ($lossless) {
+    foreach ($file in $lossless) {
+        $text = (Get-Content -LiteralPath $file.FullName -Raw) -replace '(?m)^compress/mode=0(\r?)$', 'compress/mode=1$1' -replace '(?m)^compress/lossy_quality=0\.7(\r?)$', 'compress/lossy_quality=0.8$1'
+        [IO.File]::WriteAllText($file.FullName, $text)
+    }
+    Invoke-Godot -Arguments @('--headless','--path',$gamePath,'--editor','--import','--quit')
+}
 foreach ($test in @('test_core','test_flow','test_tracks','test_air')) {
     Invoke-Godot -Arguments @('--headless','--path',$gamePath,'--quit-after','180','--script',"res://tests/$test.gd")
 }

@@ -605,7 +605,7 @@ const AI_PROP_PATH := "res://assets/props/%s.glb"
 # Drehung je Modell (Grad), damit die Schauseite zur Strecke bzw. in +z zeigt (TRELLIS-Grundausrichtung).
 # Modelle, deren Längsachse in der KI-Ausgabe entlang z liegt; das Streckenformat erwartet w (Breite) entlang x.
 const AI_PROP_YAW := {"hafen_lagerhalle": 90.0, "hafen_frachtschiff": 90.0, "hafen_container": 90.0,
-	"drift_betonblock": 90.0, "serra_leitplanke": 90.0}
+	"drift_betonblock": 90.0, "serra_leitplanke": 90.0, "drift_parkhaus": 90.0, "drift_reifenwand": 90.0}
 var ai_prop_meshes := {}
 var ai_prop_batches := {}
 

@@ -1,0 +1,315 @@
+{
+ "lufs": -14.0,
+ "tracks": [
+  {
+   "file": "ruhig_playlist_menu_klavier_s11.ogg",
+   "set": "ruhig",
+   "role": "playlist",
+   "mix_in": 0.45,
+   "mix_out": 189.73,
+   "duration": 194.68,
+   "gain_db": 0.0,
+   "quelle": "menu_klavier_s11.flac"
+  },
+  {
+   "file": "ruhig_playlist_auswahl_spannung_s11.ogg",
+   "set": "ruhig",
+   "role": "playlist",
+   "mix_in": 0.7,
+   "mix_out": 129.82,
+   "duration": 132.32,
+   "gain_db": 0.0,
+   "quelle": "auswahl_spannung_s11.flac"
+  },
+  {
+   "file": "ruhig_playlist_auswahl_spannung_s22.ogg",
+   "set": "ruhig",
+   "role": "playlist",
+   "mix_in": 0.45,
+   "mix_out": 194.23,
+   "duration": 201.96,
+   "gain_db": 0.0,
+   "quelle": "auswahl_spannung_s22.flac"
+  },
+  {
+   "file": "ruhig_playlist_rennen_techno_s22.ogg",
+   "set": "ruhig",
+   "role": "playlist",
+   "mix_in": 0.0,
+   "mix_out": 179.06,
+   "duration": 181.56,
+   "gain_db": 0.0,
+   "quelle": "rennen_techno_s22.flac"
+  },
+  {
+   "file": "ruhig_niederlage_niederlage_cello_s21.ogg",
+   "set": "ruhig",
+   "role": "niederlage",
+   "mix_in": 0.0,
+   "mix_out": 224.98,
+   "duration": 229.72,
+   "gain_db": 0.0,
+   "quelle": "niederlage_cello_s21.flac"
+  },
+  {
+   "file": "ruhig_niederlage_niederlage_cello_s22.ogg",
+   "set": "ruhig",
+   "role": "niederlage",
+   "mix_in": 0.2,
+   "mix_out": 239.23,
+   "duration": 243.96,
+   "gain_db": 0.0,
+   "quelle": "niederlage_cello_s22.flac"
+  },
+  {
+   "file": "ruhig_playlist_menu_klavier_s22neu_s44.ogg",
+   "set": "ruhig",
+   "role": "playlist",
+   "mix_in": 0.0,
+   "mix_out": 169.48,
+   "duration": 174.96,
+   "gain_db": 0.0,
+   "quelle": "menu_klavier_s22neu_s44.flac"
+  },
+  {
+   "file": "ruhig_sieg_sieg_jubel_s33.ogg",
+   "set": "ruhig",
+   "role": "sieg",
+   "mix_in": 3.45,
+   "mix_out": 218.73,
+   "duration": 221.96,
+   "gain_db": 0.0,
+   "quelle": "sieg_jubel_s33.flac"
+  },
+  {
+   "file": "ruhig_sieg_sieg_jubel_s55.ogg",
+   "set": "ruhig",
+   "role": "sieg",
+   "mix_in": 5.2,
+   "mix_out": 83.74,
+   "duration": 87.88,
+   "gain_db": 0.0,
+   "quelle": "sieg_jubel_s55.flac"
+  },
+  {
+   "file": "energie_playlist_rennen_red_line_s11_lang_b.ogg",
+   "set": "energie",
+   "role": "playlist",
+   "mix_in": 0.0,
+   "mix_out": 219.42,
+   "duration": 221.92,
+   "gain_db": 0.0,
+   "quelle": "rennen_red_line_s11_lang_b.flac"
+  },
+  {
+   "file": "energie_playlist_rennen_burn_it_s11_lang_b.ogg",
+   "set": "energie",
+   "role": "playlist",
+   "mix_in": 0.0,
+   "mix_out": 211.42,
+   "duration": 213.92,
+   "gain_db": 0.0,
+   "quelle": "rennen_burn_it_s11_lang_b.flac"
+  },
+  {
+   "file": "energie_playlist_rennen_full_throttle_s11.ogg",
+   "set": "energie",
+   "role": "playlist",
+   "mix_in": 0.2,
+   "mix_out": 179.26,
+   "duration": 181.76,
+   "gain_db": 0.0,
+   "quelle": "rennen_full_throttle_s11.flac"
+  },
+  {
+   "file": "energie_playlist_rennen_flashback_highway_s11.ogg",
+   "set": "energie",
+   "role": "playlist",
+   "mix_in": 0.2,
+   "mix_out": 192.38,
+   "duration": 194.88,
+   "gain_db": 0.0,
+   "quelle": "rennen_flashback_highway_s11.flac"
+  },
+  {
+   "file": "energie_playlist_rennen_one_more_lap_s11.ogg",
+   "set": "energie",
+   "role": "playlist",
+   "mix_in": 0.45,
+   "mix_out": 259.94,
+   "duration": 262.44,
+   "gain_db": 0.0,
+   "quelle": "rennen_one_more_lap_s11.flac"
+  },
+  {
+   "file": "energie_playlist_rennen_pit_stop_party_s11_lang_b.ogg",
+   "set": "energie",
+   "role": "playlist",
+   "mix_in": 0.0,
+   "mix_out": 241.1,
+   "duration": 243.6,
+   "gain_db": 0.0,
+   "quelle": "rennen_pit_stop_party_s11_lang_b.flac"
+  },
+  {
+   "file": "energie_playlist_rennen_outta_the_pits_s11.ogg",
+   "set": "energie",
+   "role": "playlist",
+   "mix_in": 0.0,
+   "mix_out": 187.46,
+   "duration": 189.96,
+   "gain_db": 0.0,
+   "quelle": "rennen_outta_the_pits_s11.flac"
+  },
+  {
+   "file": "energie_playlist_rennen_dangerous_curves_s11_lang_b.ogg",
+   "set": "energie",
+   "role": "playlist",
+   "mix_in": 0.45,
+   "mix_out": 256.7,
+   "duration": 259.2,
+   "gain_db": 0.0,
+   "quelle": "rennen_dangerous_curves_s11_lang_b.flac"
+  },
+  {
+   "file": "energie_playlist_rennen_bounce_drift_s11_lang_b.ogg",
+   "set": "energie",
+   "role": "playlist",
+   "mix_in": 0.0,
+   "mix_out": 219.1,
+   "duration": 221.6,
+   "gain_db": 0.0,
+   "quelle": "rennen_bounce_drift_s11_lang_b.flac"
+  },
+  {
+   "file": "energie_sieg_sieg_youre_the_king_s11_lang_b.ogg",
+   "set": "energie",
+   "role": "sieg",
+   "mix_in": 0.0,
+   "mix_out": 188.54,
+   "duration": 191.04,
+   "gain_db": 0.0,
+   "quelle": "sieg_youre_the_king_s11_lang_b.flac"
+  },
+  {
+   "file": "energie_niederlage_niederlage_get_up_s11_lang_b.ogg",
+   "set": "energie",
+   "role": "niederlage",
+   "mix_in": 0.0,
+   "mix_out": 209.9,
+   "duration": 212.4,
+   "gain_db": 0.0,
+   "quelle": "niederlage_get_up_s11_lang_b.flac"
+  },
+  {
+   "file": "energie_sieg_sieg_youre_the_king_s22_lang_b.ogg",
+   "set": "energie",
+   "role": "sieg",
+   "mix_in": 0.0,
+   "mix_out": 195.1,
+   "duration": 197.6,
+   "gain_db": 0.0,
+   "quelle": "sieg_youre_the_king_s22_lang_b.flac"
+  },
+  {
+   "file": "energie_niederlage_niederlage_get_up_s22_lang_b.ogg",
+   "set": "energie",
+   "role": "niederlage",
+   "mix_in": 0.0,
+   "mix_out": 192.1,
+   "duration": 194.6,
+   "gain_db": 0.0,
+   "quelle": "niederlage_get_up_s22_lang_b.flac"
+  },
+  {
+   "file": "energie_playlist_rennen_red_line_s22_lang_b.ogg",
+   "set": "energie",
+   "role": "playlist",
+   "mix_in": 0.0,
+   "mix_out": 215.9,
+   "duration": 218.4,
+   "gain_db": 0.0,
+   "quelle": "rennen_red_line_s22_lang_b.flac"
+  },
+  {
+   "file": "energie_playlist_rennen_burn_it_s22_lang_b.ogg",
+   "set": "energie",
+   "role": "playlist",
+   "mix_in": 0.0,
+   "mix_out": 202.42,
+   "duration": 204.92,
+   "gain_db": 0.0,
+   "quelle": "rennen_burn_it_s22_lang_b.flac"
+  },
+  {
+   "file": "energie_playlist_rennen_full_throttle_s22.ogg",
+   "set": "energie",
+   "role": "playlist",
+   "mix_in": 0.45,
+   "mix_out": 211.38,
+   "duration": 213.88,
+   "gain_db": 0.0,
+   "quelle": "rennen_full_throttle_s22.flac"
+  },
+  {
+   "file": "energie_playlist_rennen_flashback_highway_s22.ogg",
+   "set": "energie",
+   "role": "playlist",
+   "mix_in": 0.0,
+   "mix_out": 186.02,
+   "duration": 188.52,
+   "gain_db": 0.0,
+   "quelle": "rennen_flashback_highway_s22.flac"
+  },
+  {
+   "file": "energie_playlist_rennen_one_more_lap_s22.ogg",
+   "set": "energie",
+   "role": "playlist",
+   "mix_in": 0.2,
+   "mix_out": 205.38,
+   "duration": 207.88,
+   "gain_db": 0.0,
+   "quelle": "rennen_one_more_lap_s22.flac"
+  },
+  {
+   "file": "energie_playlist_rennen_pit_stop_party_s22_lang_b.ogg",
+   "set": "energie",
+   "role": "playlist",
+   "mix_in": 0.0,
+   "mix_out": 192.22,
+   "duration": 194.72,
+   "gain_db": 0.0,
+   "quelle": "rennen_pit_stop_party_s22_lang_b.flac"
+  },
+  {
+   "file": "energie_playlist_rennen_outta_the_pits_s22_lang_b.ogg",
+   "set": "energie",
+   "role": "playlist",
+   "mix_in": 0.0,
+   "mix_out": 193.48,
+   "duration": 196.04,
+   "gain_db": 0.0,
+   "quelle": "rennen_outta_the_pits_s22_lang_b.flac"
+  },
+  {
+   "file": "energie_playlist_rennen_dangerous_curves_s22_lang_b.ogg",
+   "set": "energie",
+   "role": "playlist",
+   "mix_in": 0.0,
+   "mix_out": 202.18,
+   "duration": 204.68,
+   "gain_db": 0.0,
+   "quelle": "rennen_dangerous_curves_s22_lang_b.flac"
+  },
+  {
+   "file": "energie_playlist_rennen_bounce_drift_s22_lang_b.ogg",
+   "set": "energie",
+   "role": "playlist",
+   "mix_in": 0.0,
+   "mix_out": 213.48,
+   "duration": 216.76,
+   "gain_db": 0.0,
+   "quelle": "rennen_bounce_drift_s22_lang_b.flac"
+  }
+ ]
+}

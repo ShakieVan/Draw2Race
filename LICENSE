@@ -1,0 +1,21 @@
+Draw2Race
+Copyright (c) 2026 ShakieVan
+
+Dieses Werk (Quellcode, Strecken, Grafik, Musik, Texte und Dokumentation) ist lizenziert unter der
+Creative Commons Namensnennung - Nicht kommerziell 4.0 International Lizenz (CC BY-NC 4.0).
+
+This work (source code, tracks, graphics, music, texts and documentation) is licensed under the
+Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0).
+
+Zusammenfassung / Summary:  https://creativecommons.org/licenses/by-nc/4.0/deed.de
+Rechtstext / Legal code:    https://creativecommons.org/licenses/by-nc/4.0/legalcode.de
+                            https://creativecommons.org/licenses/by-nc/4.0/legalcode
+
+Namensnennung / Attribution: "Draw2Race by ShakieVan (https://github.com/ShakieVan/Draw2Race)"
+
+Ausnahmen / Exceptions (behalten ihre eigenen Lizenzen / keep their own licenses):
+- Godot Engine: MIT License, see game/assets/Godot-LICENSE.txt and game/assets/Godot-COPYRIGHT.txt
+- Font "Outfit": SIL Open Font License 1.1, see game/assets/OFL.txt
+
+Musik / Music: generated locally with the AI music model YuE2, whose weights are licensed for
+non-commercial use (CC BY-NC 4.0). The music is therefore restricted to non-commercial use as well.

@@ -1,0 +1,14 @@
+.tools/
+game/.godot/
+builds/*
+!builds/README.md
+*.tmp
+
+# Fremdmaterial: urheberrechtlich geschützt, nur lokale Analysevorlage – nie veröffentlichen
+Videos/
+audio/Vorschläge/
+# Analysebilder und Hörstellen aus dem Referenzvideo (Einzelbilder, Kontaktbögen, Tonausschnitte)
+docs/reference/*
+!docs/reference/README.md
+# Große Arbeits-/Entwurfsdateien; spielfertige Musik liegt in game/assets/music/
+audio/entwurf/

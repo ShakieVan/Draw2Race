@@ -379,6 +379,35 @@ func ai_prop_mesh(name: String) -> Mesh:
 		ai_prop_meshes[name] = mesh
 	return ai_prop_meshes[name]
 
+var ai_arms := {}
+
+func ai_arm(name: String) -> Array:
+	# Richtung (Winkel in der x/z-Ebene) und Länge des Auslegers relativ zur Höhe: Mittel der obersten 8 %
+	# der Punkte (Leuchtenkopf) gegenüber den untersten 8 % (Mastfuß).
+	if ai_arms.has(name):
+		return ai_arms[name]
+	var result := [0.0, 0.0]
+	var mesh := ai_prop_mesh(name)
+	if mesh != null:
+		var verts: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		var box := mesh.get_aabb()
+		var top := Vector2.ZERO
+		var bottom := Vector2.ZERO
+		var nt := 0
+		var nb := 0
+		for v in verts:
+			if v.y > box.end.y - box.size.y * 0.08:
+				top += Vector2(v.x, v.z)
+				nt += 1
+			elif v.y < box.position.y + box.size.y * 0.08:
+				bottom += Vector2(v.x, v.z)
+				nb += 1
+		if nt > 0 and nb > 0:
+			var arm := top / nt - bottom / nb
+			result = [atan2(arm.y, arm.x), arm.length() / maxf(box.size.y, 0.001)]
+	ai_arms[name] = result
+	return result
+
 func place_ai(name: String, x: float, z: float, yaw: float, height: float, footprint := Vector2.ZERO, stretch := false, base_y := 0.0) -> bool:
 	# Modell auf Höhe/Grundfläche bringen und zum Bündel hinzufügen. false = Modell fehlt (Klötzchen bauen).
 	var mesh := ai_prop_mesh(name)
@@ -497,8 +526,15 @@ func premium_prop(prop: Dictionary) -> bool:
 			# Gleichmäßig skalieren (nicht strecken): KI-Häuser behalten ihre Proportionen.
 			return place_ai(pick, x, z, rot, 0.0, Vector2(w, d))
 		"lamp":
-			if place_ai("stadt_laterne" if track.theme == "city" else "kueste_laterne", x, z, spin, 4.2):
-				light_pool(Vector3(x,3.9,z), 4.0, Color(1.0,0.82,0.5,0.5))
+			# Ausleger zur Fahrbahn drehen; das Licht sitzt am Leuchtenkopf über der Straße.
+			var model := "stadt_laterne" if track.theme == "city" else "kueste_laterne"
+			var arm := ai_arm(model)
+			var here := Vector2(x, z)
+			var to_road := track.at(track.phase(here)) - here
+			var yaw := float(arm[0]) - atan2(to_road.y, to_road.x) if to_road.length() > 0.1 else spin
+			if place_ai(model, x, z, yaw, 4.2):
+				var head := here + to_road.normalized() * float(arm[1]) * 4.2
+				light_pool(Vector3(head.x,3.9,head.y), 4.0, Color(1.0,0.82,0.5,0.5))
 				return true
 			return false
 		"floodlight":

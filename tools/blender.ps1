@@ -1,6 +1,6 @@
 # Startet ein Blender-Python-Skript im Hintergrund, isoliert: Benutzerdaten und Temp-Dateien liegen in
 # .tools/blender (nicht im Windows-Profil). Blender selbst wird nicht installiert; verwendet wird eine
-# vorhandene portable Kopie (Pfad über DRAW2RACE_BLENDER überschreibbar).
+# vorhandene portable Kopie (Pfad über DRAW2RACE_BLENDER oder .tools/blender_path.txt).
 param(
     [Parameter(Mandatory=$true)][string]$Script,
     [Parameter(ValueFromRemainingArguments=$true)][string[]]$ScriptArgs
@@ -8,7 +8,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $Project = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $Blender = $env:DRAW2RACE_BLENDER
-if (-not $Blender) { $Blender = 'C:\Users\Shakie\Documents\Lood-Ball\tools\blender\blender-4.5.13-windows-x64\blender.exe' }
+# Lokaler Standardpfad (nicht im Repo): .tools/blender_path.txt
+$PathFile = Join-Path $Project '.tools/blender_path.txt'
+if (-not $Blender -and (Test-Path -LiteralPath $PathFile)) { $Blender = (Get-Content -LiteralPath $PathFile -Raw).Trim() }
+if (-not $Blender) { throw 'Blender-Pfad fehlt: DRAW2RACE_BLENDER setzen oder .tools/blender_path.txt anlegen' }
 if (-not (Test-Path -LiteralPath $Blender)) { throw "Blender nicht gefunden: $Blender (DRAW2RACE_BLENDER setzen)" }
 $State = Join-Path $Project '.tools/blender'
 $Names = @('BLENDER_USER_RESOURCES', 'TEMP', 'TMP', 'PYTHONDONTWRITEBYTECODE')

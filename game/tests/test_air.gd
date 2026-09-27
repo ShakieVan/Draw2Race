@@ -206,7 +206,7 @@ func _init() -> void:
 	over.step(1.0 / 60.0, false, 0.0)
 	check(over.crashed and not over.broke_rail, "Ohne Leitplanke: Absturz über die Kante")
 	# Neue Strecken: KI kommt ohne Absturz ins Ziel (Sprung, Abkürzung, Kehren, Leitplanken).
-	for id in ["harbor", "serra"]:
+	for id in ["harbor", "serra", "fair", "quarry", "kids"]:
 		var real := Circuit.load_track(id)
 		var bot2 := RaceVehicle.new(real, real.ai_route(2.3))
 		for tick in range(60 * 150):
@@ -214,5 +214,26 @@ func _init() -> void:
 			if bot2.finish_time >= 0.0 or bot2.crashed:
 				break
 		check(not bot2.crashed and bot2.finish_time > 10.0, "Strecke %s: KI im Ziel (%.1f s)" % [id, bot2.finish_time])
+	# Drift-Modus: Breitenprofil, Punkte für Drifts, Strafe bei Wandberührung, kein Einfluss im Rennmodus.
+	var arena := Circuit.load_track("arena")
+	check(arena.mode == "drift" and arena.hw(0.5) > 7.0 and arena.widths.size() >= 4, "Drift-Arena: weite Flächen und Nadelöhre")
+	var calm_route := arena.ai_route(1.5)
+	var wild_route := arena.ai_route(1.5)
+	for p in wild_route:
+		if arena.curvature(float(p.s)) > 0.03:
+			p.speed = float(p.speed) * 1.45
+	var calm_drift := RaceVehicle.new(arena, calm_route, 0.0, 0.0, 7)
+	var wild_drift := RaceVehicle.new(arena, wild_route, 0.0, 0.0, 7)
+	for tick in range(60 * 90):
+		calm_drift.step(1.0 / 60.0, false, float(tick + 1) / 60.0)
+		wild_drift.step(1.0 / 60.0, false, float(tick + 1) / 60.0)
+	check(wild_drift.drift_score > calm_drift.drift_score * 2.0, "Drift: zu schnell geplante Kurven bringen Punkte (%d gegen %d)" % [int(wild_drift.drift_score), int(calm_drift.drift_score)])
+	var wall_car := RaceVehicle.new(arena, calm_route)
+	wall_car.drift_score = 500.0
+	wall_car.pos = arena.at(0.1, arena.hw(0.1) - 0.2)
+	wall_car.score_drift(1.0 / 60.0)
+	check(wall_car.wall_hits == 1 and wall_car.drift_score <= 440.0 and wall_car.drift_multiplier == 1.0, "Drift: Wandberührung kostet Punkte und Multiplikator")
+	var racer := drive(flat, 20.0, 3.0)
+	check(racer.drift_score == 0.0, "Rennmodus: keine Drift-Wertung")
 	print("RESULT: ", checks - failures, "/", checks, " passed")
 	quit(1 if failures else 0)

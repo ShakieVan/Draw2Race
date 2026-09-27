@@ -559,9 +559,161 @@ def serra():
     save(data)
 
 
+def fair():
+    """Jahrmarkt: Acht mit Wellen; an der Kreuzung springt der obere Ast per Schanze über den unteren."""
+    pts = []
+    samples = 340
+    t0 = 0.45
+    for i in range(samples):
+        t = t0 + 2 * math.pi * i / samples
+        wob = 1.0 + 0.10 * math.sin(3 * t)
+        pts.append((60 * math.sin(t) * wob, 40 * math.sin(t) * math.cos(t) * wob))
+    dense, total = resample(pts, 1.0)
+    # Kreuzung: zweiter Durchgang durch (0,0) (t = π) – dort springt man über den ersten Ast.
+    cross = (math.pi - t0) / (2 * math.pi)
+    gap_half = 6.0 / total
+    ramp_len = 7.0
+    ramp_s = cross - gap_half - ramp_len / total
+    props = []
+    rng = random.Random(44)
+    spots = [("jahrmarkt_riesenrad", -42, -2, 18), ("jahrmarkt_karussell", 40, 4, 7), ("jahrmarkt_autoscooter", 0, 36, 4),
+             ("jahrmarkt_zelt", 0, -36, 7), ("jahrmarkt_bude", -20, 28, 3.5), ("jahrmarkt_bude", 22, 28, 3.5),
+             ("jahrmarkt_losbude", -22, -30, 3.5), ("jahrmarkt_losbude", 24, -30, 3.5), ("jahrmarkt_bude", 75, 0, 3.5),
+             ("jahrmarkt_losbude", -78, 4, 3.5)]
+    for model, x, z, h in spots:
+        props.append(ai(model, x, z, rot=rng.choice([0, 90, 180, 270]), h=h, color=rng.choice(["c0392b", "f1c40f", "2e86c1", "8e44ad"])))
+    for i in range(18):
+        (x, z), _ = point_at(dense, i / 18 + 0.02, 6.2 if i % 2 else -6.2)
+        props.append({"type": "lamp", "x": x, "z": z, "model": "jahrmarkt_lichtermast"})
+    data = {"format": 1, "id": "fair", "name": "Fun Fair Eight", "subtitle": "Riesenrad, Lichter – und ein Sprung über die eigene Strecke.",
+            "theme": "fair", "half_width": HALF_WIDTH, "points": pts,
+            "conditions": [{"time": "dusk", "weather": "dry", "fog": 0}, {"time": "night", "weather": "dry", "fog": 0},
+                           {"time": "night", "weather": "rain", "fog": 0}],
+            "ramps": [{"s": round(ramp_s, 4), "length": ramp_len, "height": 1.8}],
+            "gaps": [{"from": round(cross - gap_half, 4), "to": round(cross + gap_half, 4)}],
+            "surfaces": [], "props": keep(props, dense, 1.5)}
+    save(data)
+
+
+def quarry():
+    """Steinbruch: Schotter, Looping auf der langen Geraden, Schanze über einen Graben, Kicker, Abkürzung."""
+    # Start auf der linken Geraden, damit vor dem Looping die ganze untere Gerade als Anlauf bleibt.
+    corners = [(-72, -25), (-65, 30), (45, 30), (65, 8), (55, -22), (0, -22), (-18, -2), (-40, -30)]
+    pts = fillet_polygon(corners, [9, 9, 8, 7, 7, 6, 6, 7])
+    dense, total = resample(pts, 1.0)
+    loop_s = s_of(dense, (20, 30))
+    # Schanze erst 30 m nach der Kurve (Anlauf), Graben 6 m, danach 13 m bis zur nächsten Kurve.
+    ramp1 = s_of(dense, (25, -22))
+    gap_from = ramp1 + 6.0 / total
+    gap_to = gap_from + 6.0 / total
+    ramp2 = s_of(dense, (-48, -29))
+    a_s = s_of(dense, (-3, -22))
+    b_s = s_of(dense, (-37, -29.5))
+    (ax, az), _ = point_at(dense, a_s)
+    (bx, bz), _ = point_at(dense, b_s)
+    path = [[round(ax + (bx - ax) * k / 8, 2), round(az + (bz - az) * k / 8, 2)] for k in range(9)]
+    props = []
+    rng = random.Random(55)
+    (gx, gz), _ = point_at(dense, (gap_from + gap_to) / 2)
+    props.append({"type": "water", "x": gx, "z": gz, "w": 6.0, "d": 30})
+    for x in range(-80, 81, 16):
+        props.append(ai("steinbruch_felswand", x, -58, rot=0, w=16, d=10, color="8d8a83"))
+        props.append(ai("steinbruch_felswand", x, 58, rot=180, w=16, d=10, color="8d8a83"))
+    props += [ai("steinbruch_bagger", 20, 0, rot=30, h=5, color="e0b020"), ai("steinbruch_kipper", -30, 10, rot=-20, h=4, color="e0b020"),
+              ai("steinbruch_brecher", 70, -30, h=8, color="6b6f73"), ai("steinbruch_foerderband", 60, 45, rot=20, w=20, d=3, color="6b6f73"),
+              ai("steinbruch_buero", -85, 5, h=4, color="e8e8e8")]
+    for x, z in [(-12, -30), (-26, -21), (-5, -14), (40, 5), (-55, 10)]:
+        props.append(ai("steinbruch_kieshaufen", x, z, h=3.0, color="a9a39a"))
+    data = {"format": 1, "id": "quarry", "name": "Quarry Loop", "subtitle": "Schotter, Graben, Kicker – und ein Looping.",
+            "theme": "quarry", "road": "gravel", "half_width": HALF_WIDTH, "points": pts,
+            "conditions": [{"time": "day", "weather": "dry", "fog": 0}, {"time": "dusk", "weather": "rain", "fog": 0},
+                           {"time": "night", "weather": "dry", "fog": 1}],
+            "loops": [{"s": round(loop_s, 4), "radius": 3.2}],   # auf Schotter ist ~15 m/s Anlauftempo realistisch
+            "ramps": [{"s": round(ramp1, 4), "length": 6.0, "height": 1.7}, {"s": round(ramp2, 4), "length": 4.0, "height": 0.8}],
+            "gaps": [{"from": round(gap_from, 4), "to": round(gap_to, 4)}],
+            "shortcuts": [{"from": round(a_s, 4), "to": round(b_s, 4), "path": path, "width": 4.0, "surface": "gravel"}],
+            "surfaces": [{"from": 0.55, "to": 0.62, "side": "both", "kind": "mud"}],
+            "props": keep(props, dense, 1.5)}
+    save(data)
+
+
+def arena():
+    """Drift-Arena: weite Driftflächen mit großen Radien, zwei kurze gerade Nadelöhre. Punkte statt Platzierung."""
+    corners = [(-55, 25), (20, 25), (48, 0), (22, -26), (-8, -8), (-40, -30), (-68, -4)]
+    pts = fillet_polygon(corners, [16, 14, 13, 11, 11, 13, 16])
+    dense, total = resample(pts, 1.0)
+    # Breitenprofil: überall weit (8 m halbe Breite), in zwei Nadelöhren 2,6 m.
+    widths = []
+    for a, b in [((-8, 25), (4, 25)), ((13, -20), (1, -12))]:
+        sa, sb = sorted((s_of(dense, a), s_of(dense, b)))
+        widths += [[round(sa - 0.02, 4), 8.0], [round(sa, 4), 2.6], [round(sb, 4), 2.6], [round(sb + 0.02, 4), 8.0]]
+    widths.sort()
+    props = []
+    for k, (a, b) in enumerate([((-8, 25), (4, 25)), ((13, -20), (1, -12))]):
+        for q in (a, b):
+            (x, z), rot = point_at(dense, s_of(dense, q), 3.6)
+            props.append(ai("drift_betonblock", x, z, rot=-rot, w=3.0, d=0.8, color="a0a0a0"))
+            (x, z), rot = point_at(dense, s_of(dense, q), -3.6)
+            props.append(ai("drift_betonblock", x, z, rot=-rot, w=3.0, d=0.8, color="a0a0a0"))
+    for x, z in [(-80, 30), (60, 30), (60, -35), (-80, -35)]:
+        props.append({"type": "floodlight", "x": x, "z": z, "reach": 22.0})
+    for i in range(24):
+        (x, z), rot = point_at(dense, i / 24 + 0.01, 11.5 if i % 2 else -11.5)
+        props.append(ai("drift_reifenwand", x, z, rot=-rot, w=4.0, d=1.0, color="2b2b2b"))
+    props += [ai("drift_zuschauer_container", 0, 45, h=5.5, color="3d5a6b"), ai("drift_parkhaus", -20, -52, w=30, d=14, color="9a9a9a")]
+    data = {"format": 1, "id": "arena", "name": "Drift Arena", "subtitle": "Quer ist mehr: Punkte für Winkel und Tempo – ohne die Wand zu küssen.",
+            "theme": "harbor", "half_width": HALF_WIDTH, "points": pts, "mode": "drift", "widths": widths,
+            "drift_targets": [600, 1100, 1600],   # kalibriert: Drift-Auto mit ~45 % zu schnell geplanten Kurven ~1800 Pkt.
+            "conditions": [{"time": "dusk", "weather": "dry", "fog": 0}, {"time": "night", "weather": "dry", "fog": 0},
+                           {"time": "night", "weather": "rain", "fog": 0}],
+            "surfaces": [], "props": keep(props, dense, 0.2)}
+    save(data)
+
+
+def kids():
+    """Bonus Kinderzimmer: Spielzeug-Rennbahn auf dem Parkett zwischen riesigem Spielzeug – Looping und Buchsprung."""
+    # Start links unten, damit die lange obere Gerade Anlauf für den Looping bietet.
+    corners = [(-62, -18), (-58, 30), (15, 34), (55, 20), (64, -8), (32, -32), (4, -14), (-24, -36)]
+    pts = fillet_polygon(corners, [9, 10, 9, 8, 8, 6, 6, 8])
+    dense, total = resample(pts, 1.0)
+    loop_s = s_of(dense, (-8, 32))
+    # Buchsprung auf der langen Diagonale: Schanze 6 m, Lücke 6 m zwischen zwei Buchstapeln.
+    ramp_s = s_of(dense, (56, -16))
+    gap_from = ramp_s + 6.0 / total
+    gap_to = gap_from + 6.0 / total
+    props = []
+    rng = random.Random(66)
+    props += [ai("kinder_teddy", 2, 6, rot=160, h=11, color="a0703c"),
+              ai("kinder_bausteinturm", 34, 2, rot=15, h=8, color="d64541"),
+              ai("kinder_ball", -34, 6, h=6, color="3a7bd5"),
+              ai("kinder_holzeisenbahn", -10, 52, rot=0, w=22, d=5, color="b5773a"),
+              ai("kinder_buntstifte", -50, -50, rot=25, w=12, d=6, color="f1c40f"),
+              ai("kinder_kreisel", 78, 22, h=4.5, color="8e44ad"),
+              ai("kinder_buch", 78, -26, rot=-30, w=12, d=9, color="27ae60"),
+              ai("kinder_buch", -80, 8, rot=80, w=12, d=9, color="c0392b")]
+    for x, z in [(-20, -8), (-44, 16), (20, -46), (48, 42), (-78, -30), (70, -44), (-30, 48), (12, 18)]:
+        props.append(ai("kinder_bauklotz", x, z, rot=rng.choice([0, 20, 45, 70]), h=2.6,
+                        color=rng.choice(["d64541", "f1c40f", "3a7bd5", "27ae60"])))
+    data = {"format": 1, "id": "kids", "name": "Toy Box Speedway", "subtitle": "Bonus: Spielzeugbahn im Kinderzimmer – Looping und Sprung über die Bücherlücke.",
+            "theme": "kids", "half_width": HALF_WIDTH, "points": pts,
+            "conditions": [{"time": "day", "weather": "dry", "fog": 0}, {"time": "dusk", "weather": "dry", "fog": 0},
+                           {"time": "day", "weather": "dry", "fog": 0}],
+            "loops": [{"s": round(loop_s, 4), "radius": 4.0}],
+            "ramps": [{"s": round(ramp_s, 4), "length": 6.0, "height": 1.7}],
+            "gaps": [{"from": round(gap_from, 4), "to": round(gap_to, 4)}],
+            # Teppich im Innenraum der Kurve rechts oben: bremst wie Erde.
+            "surfaces": [{"from": 0.36, "to": 0.46, "side": "inner", "kind": "dirt"}],
+            "props": keep(props, dense, 1.5)}
+    save(data)
+
+
 if __name__ == "__main__":
     azure()
     city()
     forest()
     harbor()
     serra()
+    fair()
+    quarry()
+    arena()
+    kids()

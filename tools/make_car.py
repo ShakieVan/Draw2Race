@@ -17,6 +17,9 @@ from mathutils import Vector
 # rear/wind: u-Bereiche von Heckscheibe (steigt) und Frontscheibe (fällt), roofw halbe Dachbreite,
 # r Radradius, axles u-Position Hinter-/Vorderachse, tw Reifenbreite.
 STYLES = {
+    "drift":    dict(L=2.12, W=0.47, clear=0.06, belt=0.38, nose=0.29, tail=0.37, roof=0.58, rear=(0.15, 0.34), wind=(0.55, 0.71), roofw=0.32, r=0.16, axles=(0.19, 0.80), tw=0.13),
+    "roadster": dict(L=1.86, W=0.42, clear=0.07, belt=0.38, nose=0.30, tail=0.38, roof=0.52, rear=(0.25, 0.30), wind=(0.50, 0.56), roofw=0.30, r=0.15, axles=(0.18, 0.81), tw=0.11),
+    "pickup":   dict(L=2.30, W=0.48, clear=0.14, belt=0.52, nose=0.44, tail=0.50, roof=0.80, rear=(0.40, 0.48), wind=(0.60, 0.74), roofw=0.38, r=0.20, axles=(0.18, 0.80), tw=0.14),
     "coupe":  dict(L=2.08, W=0.43, clear=0.075, belt=0.40, nose=0.31, tail=0.39, roof=0.60, rear=(0.14, 0.33), wind=(0.56, 0.72), roofw=0.32, r=0.155, axles=(0.20, 0.80), tw=0.11),
     "hatch":  dict(L=1.86, W=0.42, clear=0.08, belt=0.41, nose=0.32, tail=0.42, roof=0.66, rear=(0.03, 0.12), wind=(0.60, 0.76), roofw=0.34, r=0.15, axles=(0.17, 0.82), tw=0.105),
     "rally":  dict(L=2.02, W=0.44, clear=0.11, belt=0.45, nose=0.35, tail=0.43, roof=0.68, rear=(0.10, 0.27), wind=(0.57, 0.73), roofw=0.34, r=0.175, axles=(0.19, 0.81), tw=0.12),

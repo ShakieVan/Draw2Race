@@ -23,4 +23,5 @@ game/android/build/libs/
 # Abgeleitet (tools/cutout.py) bzw. überholt
 art/bildvorlagen/freigestellt/
 art/bildvorlagen/bilder/1. Versuch/
-art/bildvorlagen/ERZEUGUNG.json
+art/bildvorlagen/ERZEUGUNG*.json*
+__pycache__/

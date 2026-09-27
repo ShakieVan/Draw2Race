@@ -58,6 +58,25 @@ func result(track_id: String, stage: int, car: int, time: float, won: bool) -> b
 	save()
 	return record
 
+func result_drift(track_id: String, stage: int, car: int, score: int, won: bool) -> bool:
+	# Drift-Modus: Bestenliste nach Punkten (absteigend).
+	var gold := "%s/%d" % [track_id, stage]
+	if won and not gold in data.gold:
+		data.gold.append(gold)
+	if not data.has("times") or not data.times is Dictionary:
+		data.times = {}
+	var key := "%s/%d" % [track_id, stage]
+	var list: Array = data.times.get(key, [])
+	var best := 0 if list.is_empty() else int(list[0].get("score", 0))
+	var entry := {"score": score, "time": 0.0, "car": car, "date": Time.get_date_string_from_system(), "physics": RaceVehicle.VERSION}
+	list.append(entry)
+	list.sort_custom(func(a, b): return int(a.get("score", 0)) > int(b.get("score", 0)))
+	var place := list.find(entry) + 1
+	data.times[key] = list.slice(0, BOARD_SIZE)
+	last_place = place if place <= BOARD_SIZE else 0
+	save()
+	return score > best
+
 # Persönliche Bestenliste je Strecke und Herausforderung: die 10 schnellsten Fahrten (Zeit, Auto, Datum).
 const BOARD_SIZE := 10
 var last_place := 0

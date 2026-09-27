@@ -21,6 +21,9 @@ const CARS := [
 	{"id":"rally","name":"Dirt Hawk","grip":12.6,"power":9.4,"offroad":2.2,"turbo":1.0,"color":"e8c866","style":"rally","unlock":3,"text":"Rallye: kaum Tempoverlust neben der Straße."},
 	{"id":"muscle","name":"Thunder V8","grip":11.4,"power":11.2,"offroad":0.9,"turbo":0.85,"color":"a593cf","style":"muscle","unlock":6,"text":"Brachiale Kraft, braucht Gefühl in Kurven."},
 	{"id":"gt","name":"Apex GT","grip":14.2,"power":10.6,"offroad":0.9,"turbo":1.3,"color":"ececec","style":"gt","unlock":9,"text":"Die Spitze: Haftung, Kraft, starker Turbo."},
+	{"id":"roadster","name":"Col Racer","grip":14.6,"power":9.6,"offroad":1.1,"turbo":1.1,"color":"2e86c1","style":"roadster","unlock":12,"text":"Leicht und wendig – gemacht für Kehren."},
+	{"id":"pickup","name":"Quarry Truck","grip":12.4,"power":10.4,"offroad":2.6,"turbo":0.9,"color":"7d8c4a","style":"pickup","unlock":15,"text":"Unverwüstlich auf Schotter und Matsch."},
+	{"id":"drift","name":"Drift King","grip":13.0,"power":10.8,"offroad":0.9,"turbo":1.0,"rear":0.36,"color":"d35400","style":"drift","unlock":18,"text":"Leichtes Heck: bricht willig aus – für Drift-Punkte."},
 ]
 var pos := Vector2.ZERO
 var velocity := Vector2.ZERO
@@ -46,6 +49,14 @@ var turbo_factor := 1.0
 var route: Array[Dictionary] = []
 var track: Circuit
 var max_slip := 0.0
+var rear_share := 0.47     # Anteil der Haftung an der Hinterachse (Drift-Auto: weniger)
+# --- Drift-Wertung (nur im Drift-Modus ausgewertet; beeinflusst die Fahrt nicht) ---
+var drift_score := 0.0
+var drift_multiplier := 1.0
+var drift_time := 0.0      # Dauer des aktuellen Drifts
+var drift_angle := 0.0     # aktueller Driftwinkel (Grad)
+var wall_hits := 0
+var wall_contact := false
 # --- Höhe und Flug (2,5D, Leitplanke 8) ---
 const GRAVITY := 9.81
 const LANDING_TIME := 0.35
@@ -74,6 +85,7 @@ func _init(circuit: Circuit, plan: Array[Dictionary], start_s := 0.0, lane := 0.
 	power = float(spec.power)
 	offroad = float(spec.offroad)
 	turbo_factor = float(spec.turbo)
+	rear_share = float(spec.get("rear", 0.47))
 
 func step(dt: float, boost: bool, time: float) -> void:
 	if finish_time >= 0.0 or crashed:
@@ -146,8 +158,8 @@ func step(dt: float, boost: bool, time: float) -> void:
 		var grade := (track.ground_height(ahead_s) - track.ground_height(previous_phase)) * signf(u)
 		if absf(grade) < 2.0:
 			longitudinal -= GRAVITY * grade / sqrt(1.0 + grade * grade)
-	var front_capacity := sqrt(maxf(1.0, pow(grip * ground_grip * 0.53, 2) - pow(longitudinal * 0.52, 2)))
-	var rear_capacity := sqrt(maxf(1.0, pow(grip * ground_grip * 0.47, 2) - pow(longitudinal * 0.48, 2)))
+	var front_capacity := sqrt(maxf(1.0, pow(grip * ground_grip * (1.0 - rear_share), 2) - pow(longitudinal * 0.52, 2)))
+	var rear_capacity := sqrt(maxf(1.0, pow(grip * ground_grip * rear_share, 2) - pow(longitudinal * 0.48, 2)))
 	var alpha_front := atan2(v + yaw * 1.1, absf(u) + 1.8) - steering
 	var alpha_rear := atan2(v - yaw * 1.2, absf(u) + 1.8)
 	var front_force := clampf(-alpha_front * 36.0, -front_capacity, front_capacity)
@@ -167,14 +179,16 @@ func step(dt: float, boost: bool, time: float) -> void:
 	slip = maxf(absf(alpha_front), absf(alpha_rear))
 	max_slip = maxf(max_slip, slip)
 	# Harte Grenze erst am Inselrand; davor entscheidet der Untergrund.
-	if track.center_distance(pos) > ISLAND_LIMIT:
+	if track.center_distance(pos) > ISLAND_LIMIT + track.hw(previous_phase) - Circuit.HALF_WIDTH:
 		var q := track.query(pos)
 		var normal: Vector2 = (pos - q.point).normalized()
-		pos = q.point + normal * ISLAND_LIMIT
+		pos = q.point + normal * (ISLAND_LIMIT + track.hw(previous_phase) - Circuit.HALF_WIDTH)
 		var outward := velocity.dot(normal)
 		if outward > 0.0:
 			velocity -= normal * outward * 1.35
 		velocity *= 0.84
+	if track.mode == "drift":
+		score_drift(dt)
 	var ph := track.phase_near(pos, previous_phase, 0.08)
 	var ds := wrapf(ph - previous_phase, -0.5, 0.5)
 	if absf(ds) < 0.08:
@@ -188,6 +202,32 @@ func step(dt: float, boost: bool, time: float) -> void:
 	var goal := float(track.laps)
 	if before < goal and progress >= goal:
 		finish_time = time - dt + dt * clampf((goal - before) / maxf(0.00001, progress - before), 0.0, 1.0)
+
+func score_drift(dt: float) -> void:
+	# Punkte = Driftwinkel (Grad) × Tempo × Zeit × Multiplikator. Der Multiplikator wächst mit der Dauer eines
+	# durchgehenden Drifts (bis ×4). Berührt das Auto die Fahrbahnbegrenzung, sind 60 Punkte weg und der
+	# Multiplikator fällt auf 1 zurück.
+	var speed := velocity.length()
+	var angle := 0.0
+	if speed > 1.0:
+		angle = absf(wrapf(velocity.angle() - heading, -PI, PI))
+	drift_angle = rad_to_deg(angle)
+	if not airborne and speed > 6.0 and angle > deg_to_rad(12.0) and angle < deg_to_rad(75.0):
+		drift_time += dt
+		drift_multiplier = minf(4.0, 1.0 + drift_time * 0.6)
+		drift_score += drift_angle * speed * dt * 0.25 * drift_multiplier
+	else:
+		drift_time = maxf(0.0, drift_time - dt * 3.0)
+		if drift_time <= 0.0:
+			drift_multiplier = 1.0
+	var q := track.query(pos)
+	var touching := float(q.distance) > track.hw(float(q.s)) - 0.5
+	if touching and not wall_contact:
+		wall_hits += 1
+		drift_score = maxf(0.0, drift_score - 60.0)
+		drift_multiplier = 1.0
+		drift_time = 0.0
+	wall_contact = touching
 
 func update_height(ph: float, dt: float) -> void:
 	# Senkrechte Bewegung: am Boden folgt z der Fahrbahn; fällt der Boden schneller weg als der freie Fall
@@ -228,7 +268,8 @@ func edge_check(ph: float, road: float) -> bool:
 	# Mit Leitplanke: Abprallen, ab BREAK_SPEED senkrecht zur Planke bricht sie -> Absturz. Ohne: Absturz.
 	var q := track.query(pos)
 	var distance := float(q.distance)
-	if distance <= Circuit.HALF_WIDTH + 0.7:
+	var edge := track.hw(float(q.s)) + 0.7
+	if distance <= edge:
 		return false
 	var drop := road - track.terrain_height(pos)
 	if drop < 2.5:
@@ -238,7 +279,7 @@ func edge_check(ph: float, road: float) -> bool:
 	var side := normal.dot(Vector2(-t.y, t.x))
 	var impact := velocity.dot(normal)
 	if track.guardrail_at(float(q.s), side) and impact < Circuit.BREAK_SPEED:
-		pos = Vector2(q.point) + normal * (Circuit.HALF_WIDTH + 0.7)
+		pos = Vector2(q.point) + normal * edge
 		if impact > 0.0:
 			velocity -= normal * impact * 1.4
 		velocity *= 0.8
@@ -301,6 +342,8 @@ static func resolve_contact(a: RaceVehicle, b: RaceVehicle) -> float:
 	var dist := delta.length()
 	if dist > 1.15 or dist < 0.001:
 		return 0.0
+	if absf(a.z - b.z) > 1.0 or a.crashed or b.crashed or a.in_loop or b.in_loop:
+		return 0.0   # übereinander (Sprung über die Kreuzung, Looping) oder ausgeschieden: keine Berührung
 	var normal := delta / dist
 	var overlap := (1.15 - dist) * 0.5
 	a.pos -= normal * overlap

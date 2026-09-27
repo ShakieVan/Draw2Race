@@ -4,5 +4,8 @@
   "auto_grip":       {"style": "hatch"},
   "auto_dirt_hawk":  {"style": "rally", "radius": 0.222},
   "auto_thunder_v8": {"style": "muscle", "paint_sat": 0.34},
-  "auto_apex_gt":    {"style": "gt"}
+  "auto_apex_gt":    {"style": "gt"},
+  "auto_drift":      {"style": "drift"},
+  "auto_bergsprint": {"style": "roadster"},
+  "auto_pickup":     {"style": "pickup"}
 }

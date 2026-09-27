@@ -129,6 +129,20 @@ func run() -> void:
 	var rows: Array = app.sorted_results()
 	check(rows[1].index==2 and rows[2].index==3 and rows[3].index==1,"Ergebnisse nach ungerundeten Zeiten sortiert")
 	check(rows[1].rank==rows[2].rank and rows[3].rank==4,"Exakte Gleichstände erhalten dieselbe Platzierung")
+	# Geisterauto: Nach einer Rekordfahrt (Stufe 0 oben gefahren) fährt beim nächsten Rennen der Geist mit.
+	app.stage = 0
+	app.start_drawing()
+	check(FileAccess.file_exists(app.ghost_path()),"Geisterfahrt nach Rekord gespeichert")
+	app.recorder.route = app.track.ai_route(1.0)
+	app.begin_race()
+	check(app.ghost != null and is_instance_valid(app.ghost_model),"Geisterauto fährt mit")
+	var rivals_before: int = app.vehicles.size()
+	for tick in range(10800):
+		app._physics_process(1.0/60.0)
+		if app.phase=="result": break
+	for tick in range(1200): app._physics_process(1.0/60.0)
+	check(app.vehicles.size()==rivals_before and app.ghost.finish_time > 0.0,"Geist zählt nicht als Rivale und erreicht das Ziel (%.2f s)" % app.ghost.finish_time)
+	DirAccess.remove_absolute(app.ghost_path())
 	for suffix in ["",".bak",".tmp",".run"]:
 		if FileAccess.file_exists(test_path+suffix): DirAccess.remove_absolute(test_path+suffix)
 	app.queue_free()

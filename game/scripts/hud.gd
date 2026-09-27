@@ -242,17 +242,26 @@ func menu() -> void:
 	label(card,track.name,Vector2(24,50),50)
 	label(card,track.subtitle,Vector2(28,118),18,MUTED,414)
 	label(card,"STRECKE",Vector2(28,184),13,MUTED)
-	var short_names := {"azure":"Küste","city":"Stadt","forest":"Wald","harbor":"Hafen","serra":"Pass"}
-	var slot: float = 418.0 / app.TRACKS.size()
+	var short_names := SHORT_NAMES
+	var per_row: int = ceili(app.TRACKS.size() / 2.0)
+	var slot: float = 424.0 / per_row
 	for i in range(app.TRACKS.size()):
 		var tid: String = app.TRACKS[i]
 		var unlocked: bool = app.track_unlocked(i)
 		var text: String = short_names.get(tid,tid)
-		var b := button(card,text,Rect2(28+i*slot,218,slot-6,56),func(): app.select_track(tid); app.stage=0; menu(),app.track_id==tid)
-		b.add_theme_font_size_override("font_size",17)
+		if not unlocked and app.BONUS_TRACKS.has(tid):
+			text += " ★%d" % int(app.BONUS_TRACKS[tid])
+		var b := button(card,text,Rect2(28+(i%per_row)*slot,212+(i/per_row)*40,slot-6,36),func(): app.select_track(tid); app.stage=0; menu(),app.track_id==tid)
+		b.add_theme_font_size_override("font_size",15)
+		b.add_theme_constant_override("h_separation",0)
+		for key in ["normal","hover","pressed","disabled","focus"]:
+			var box := b.get_theme_stylebox(key).duplicate() as StyleBoxFlat
+			box.content_margin_left = 4
+			box.content_margin_right = 4
+			b.add_theme_stylebox_override(key,box)
 		b.clip_text = true
 		b.disabled = not unlocked
-	label(card,"HERAUSFORDERUNG",Vector2(28,292),13,MUTED)
+	label(card,"HERAUSFORDERUNG",Vector2(28,298),13,MUTED)
 	# Tageszeit/Wetter sind Teil der Herausforderung und nicht wählbar – nur angezeigt.
 	for i in range(3):
 		var won: bool = app.store.has_gold(app.track_id,i)
@@ -281,28 +290,31 @@ func menu() -> void:
 	label(content,"Mit dem Finger zeichnen",Vector2(48,852),17,Color("d6ebe1"))
 	button(content,"Vorführfahrt  ↗",Rect2(1160,833,212,48),app.demo)
 
+const SHORT_NAMES := {"azure":"Küste","city":"Stadt","forest":"Wald","harbor":"Hafen","serra":"Pass","fair":"Rummel","quarry":"Bruch","arena":"Drift","kids":"Kinder"}
+
 func leaderboard(track_id: String, stage: int) -> void:
 	# Persönliche Bestenliste: Strecke und Herausforderung wählbar, 10 schnellste Fahrten.
 	var p := overlay("Bestenliste.","Deine 10 schnellsten Fahrten.",Vector2(900,800))
-	var short_names := {"azure":"Küste","city":"Stadt","forest":"Wald","harbor":"Hafen","serra":"Pass"}
+	var short_names := SHORT_NAMES
 	for i in range(app.TRACKS.size()):
 		var tid: String = app.TRACKS[i]
-		var lb := button(p,short_names.get(tid,tid),Rect2(34+i*80,132,74,52),func(): p.get_parent().queue_free(); leaderboard(tid,stage),tid==track_id)
+		var bw: float = 838.0 / app.TRACKS.size()
+		var lb := button(p,short_names.get(tid,tid),Rect2(34+i*bw,132,bw-6,48),func(): p.get_parent().queue_free(); leaderboard(tid,stage),tid==track_id)
 		lb.add_theme_font_size_override("font_size",16)
 		lb.clip_text = true
 	for i in range(3):
-		var sb := button(p,"%d %s" % [i+1,"Rivale" if i==0 else "Rivalen"],Rect2(440+i*142,132,134,52),func(): p.get_parent().queue_free(); leaderboard(track_id,i),i==stage)
+		var sb := button(p,"%d %s" % [i+1,"Rivale" if i==0 else "Rivalen"],Rect2(34+i*280,188,272,44),func(): p.get_parent().queue_free(); leaderboard(track_id,i),i==stage)
 		sb.add_theme_font_size_override("font_size",19)
 		sb.clip_text = true
 	var list: Array = app.store.board(track_id,stage)
 	if list.is_empty():
-		label(p,"Noch keine Fahrt – zeichne deine erste Linie!",Vector2(34,220),20,MUTED)
+		label(p,"Noch keine Fahrt – zeichne deine erste Linie!",Vector2(34,260),20,MUTED)
 	for i in range(list.size()):
 		var e: Dictionary = list[i]
-		var y := 206+i*44
+		var y := 248+i*40
 		var car: Dictionary = RaceVehicle.CARS[clampi(int(e.car),0,RaceVehicle.CARS.size()-1)]
 		label(p,"%02d" % (i+1),Vector2(38,y),20,ORANGE if i==0 else MUTED)
-		label(p,app.format_time(float(e.time)),Vector2(110,y),20)
+		label(p,("%d Pkt." % int(e.score)) if e.has("score") else app.format_time(float(e.time)),Vector2(110,y),20)
 		label(p,str(car.name),Vector2(330,y),20,MUTED)
 		label(p,str(e.get("date","")),Vector2(620,y),18,MUTED)
 	button(p,"Zurück",Rect2(34,660,832,66),func(): p.get_parent().queue_free(),true)
@@ -386,7 +398,7 @@ func drawing() -> void:
 	var footer := panel(content,Rect2(40,764,1360,104))
 	footer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label(footer,"ZEICHNE DEIN TEMPO",Vector2(24,16),13,ORANGE)
-	label(footer,"Langsam in Kurven. Schnell auf Geraden.",Vector2(24,39),24)
+	label(footer,"Zu schnell in die Kurve = Drift. Nadelöhre ohne Wand!" if app.track.mode == "drift" else "Langsam in Kurven. Schnell auf Geraden.",Vector2(24,39),24)
 	instruction_label = label(footer,"Ziehen = Kamera · Zwei Finger = Zoom · Im schimmernden Ende weitermalen",Vector2(24,74),14,MUTED)
 	speed_legend(footer,Vector2(610,14))
 	button(footer,"Neu zeichnen",Rect2(944,25,185,55),app.start_drawing)
@@ -420,7 +432,7 @@ func race() -> void:
 	status = label(p,"RUNDE 1 / 2",Vector2(22,15),17,MUTED)
 	time_label = label(p,"00:00.000",Vector2(20,46),36)
 	rank_label = label(p,"1 / 2",Vector2(22,105),36)
-	label(p,"PLATZ",Vector2(122,125),14,MUTED)
+	label(p,"PUNKTE" if app.track.mode == "drift" else "PLATZ",Vector2(122,125),14,MUTED)
 	var speed := panel(content,Rect2(40,783,242,78))
 	speed_label = label(speed,"0",Vector2(22,6),43)
 	label(speed,"km/h",Vector2(160,37),17,MUTED)
@@ -440,6 +452,23 @@ func race() -> void:
 	progress_bar.size.y = 6
 	content.add_child(progress_bar)
 	label(content,"Beim Bremsen lädt sich dein Turbo auf.",Vector2(825,850),17,PAPER)
+
+func drift_results(score: int, target: int, in_time: bool, record: bool) -> void:
+	clear()
+	header("%s     /     DRIFT-WERTUNG" % app.track.name.to_upper())
+	var p := panel(content,Rect2(427,140,586,700))
+	var won := in_time and score >= target
+	label(p,"VORFÜHRFAHRT" if app.demonstration else ("NEUER PUNKTEREKORD" if record else "DEIN DRIFT-ERGEBNIS"),Vector2(34,28),15,ORANGE)
+	label(p,"Quer ist mehr." if won else ("Zu langsam." if not in_time else "Mehr Winkel, mehr Punkte."),Vector2(30,68),38)
+	label(p,"PUNKTE",Vector2(34,128),21,MUTED)
+	label(p,"%d" % score,Vector2(32,162),60)
+	label(p,"Ziel: %d Punkte im Zeitlimit" % target,Vector2(34,253),20,MUTED,515)
+	label(p,("★  Gold für Herausforderung %d" % (app.stage+1)) if won and not app.demonstration else ("Das Zeitlimit war vorbei." if not in_time else "Plane die Kurven schneller – das Heck soll kommen."),Vector2(34,300),20,ORANGE,515)
+	label(p,"Wandberührungen: %d" % app.vehicles[0].wall_hits,Vector2(34,380),18,MUTED)
+	if not app.demonstration and app.store.last_place > 0 and in_time:
+		label(p,"Platz %d deiner Bestenliste" % app.store.last_place,Vector2(34,494),18,ORANGE if app.store.last_place==1 else MUTED)
+	button(p,"Neue Linie     →",Rect2(34,548,518,62),app.start_drawing,true)
+	button(p,"Zum Menü",Rect2(34,622,518,56),app.show_menu)
 
 func results(rows: Array, rank: int, record: bool) -> void:
 	clear()
@@ -512,16 +541,18 @@ func settings() -> void:
 	slider_row(p,"Tempo der Linie",310,"draw_tempo",0.5,Callable(),func(v: float) -> String:
 		var change := int(round((pow(2.0,(v-0.5)*2.0)-1.0)*100.0))
 		return "Standard" if change == 0 else "%+d %%" % change)
+	toggle(p,"Geisterauto (deine beste Fahrt)",Vector2(34,412),bool(app.store.data.get("ghost",true)),
+		func(on: bool): app.store.data["ghost"]=on; app.store.save())
 	# Grafikqualität: Schatten, Kantenglättung, Partikel- und Nebelmenge.
-	label(p,"Grafikqualität",Vector2(38,426),20)
+	label(p,"Grafikqualität",Vector2(38,470),20)
 	var gfx := int(app.store.data.get("gfx",2))
 	for i in range(3):
-		button(p,Atmosphere.QUALITY_NAMES[i],Rect2(34+i*194,470,184,56),func():
+		button(p,Atmosphere.QUALITY_NAMES[i],Rect2(34+i*194,508,184,56),func():
 			app.store.data["gfx"]=i; app.store.save(); app.apply_atmosphere()
 			p.get_parent().queue_free(); settings(),i==gfx)
-	button(p,"Sound & Musik  ♪",Rect2(34,562,278,62),func(): p.get_parent().queue_free(); sound_settings())
-	button(p,"Updates",Rect2(328,562,278,62),func(): p.get_parent().queue_free(); update_dialog())
-	button(p,"Zurück",Rect2(34,666,572,66),func(): p.get_parent().queue_free(),true)
+	button(p,"Sound & Musik  ♪",Rect2(34,588,278,62),func(): p.get_parent().queue_free(); sound_settings())
+	button(p,"Updates",Rect2(328,588,278,62),func(): p.get_parent().queue_free(); update_dialog())
+	button(p,"Zurück",Rect2(34,676,572,66),func(): p.get_parent().queue_free(),true)
 
 func overlay_open() -> bool:
 	return content.get_children().any(func(c): return c is ColorRect)

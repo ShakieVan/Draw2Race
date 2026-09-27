@@ -213,7 +213,7 @@ func sample(p: Vector2, time: float) -> bool:
 		return false
 	var ph := track.phase_near(p, last_phase, 0.15)
 	var advance := wrapf(ph - last_phase, -0.5, 0.5)
-	if distance > MAX_JUMP or track.center_distance(p) > DRAW_LIMIT:
+	if distance > MAX_JUMP or track.center_distance(p) > DRAW_LIMIT + track.hw(ph) - Circuit.HALF_WIDTH:
 		hint = "Zu weit von der Strecke – bleib in ihrer Nähe."
 		stop()
 		return false
@@ -242,7 +242,7 @@ func sample(p: Vector2, time: float) -> bool:
 	var speed := clampf(5.0 + distance / elapsed * tempo_factor, 5.0, 29.0)
 	var start_offset := offset_f
 	var start_speed := speed_f
-	var limit := DRAW_LIMIT - EDGE_MARGIN
+	var limit := DRAW_LIMIT + track.hw(ph) - Circuit.HALF_WIDTH - EDGE_MARGIN
 	offset_f = clampf(lerpf(offset_f, lateral(p, ph), 1.0 - exp(-distance / OFFSET_SMOOTH)), -limit, limit)
 	speed_f = lerpf(speed_f, speed, 1.0 - exp(-distance / SPEED_SMOOTH))
 	progress = minf(candidate, cap)
@@ -274,7 +274,7 @@ func sample(p: Vector2, time: float) -> bool:
 
 func gate(k: int) -> Array:
 	var s := float(k) / GATES_PER_LAP
-	var reach := Circuit.HALF_WIDTH + GATE_TOLERANCE
+	var reach := track.hw(s) + GATE_TOLERANCE
 	return [track.at(s, -reach), track.at(s, reach)]
 
 func count_gates(a: Vector2, b: Vector2) -> void:

@@ -12,6 +12,8 @@ extends RefCounted
 #   "shortcuts": [{"from", "to", "path": [[x,z],...], "width" m, "surface"}]  Abkürzung von Stelle from nach to;
 #                auf dem Pfad läuft der Streckenanteil gleitend von from nach to, übersprungene Tore gelten.
 #   "terrain":   {"origin": [x,z], "cell": m, "w": n, "h": m, "heights": [...]}  Gelände-Höhenraster (Zeilen in z)
+#   "widths":    [[s, halbe Breite m], ...]  Breitenprofil (linear, geschlossen); ohne: HALF_WIDTH
+#   "mode":      "race" (Standard) | "drift" (Punkte für Drifts, Zeitlimit "time_limit" s, Ziele "drift_targets")
 #   "guardrails":[{"from", "to", "side": "left"|"right"}]  Leitplanke; bricht ab BREAK_SPEED senkrecht zur Planke
 const HALF_WIDTH := 3.5
 const STEP := 0.5
@@ -34,6 +36,11 @@ var loops: Array = []
 var shortcuts: Array = []
 var terrain := {}
 var guardrails: Array = []
+var widths: Array = []
+var mode := "race"
+var time_limit := 0.0
+var drift_targets: Array = []
+var max_half_width := HALF_WIDTH
 const BREAK_SPEED := 9.0      # m/s senkrecht zur Leitplanke: darüber bricht sie
 var open := false         # Sprintstrecke: Start und Ziel getrennt, eine Durchfahrt
 var laps := 2
@@ -64,6 +71,12 @@ func _init(path := DEFAULT_TRACK) -> void:
 	open = bool(data.get("open", false))
 	terrain = data.get("terrain", {})
 	guardrails = data.get("guardrails", [])
+	widths = data.get("widths", [])
+	mode = str(data.get("mode", "race"))
+	time_limit = float(data.get("time_limit", 0.0))
+	drift_targets = data.get("drift_targets", [])
+	for w in widths:
+		max_half_width = maxf(max_half_width, float(w[1]))
 	for sc in data.get("shortcuts", []):
 		var trail: Array[Vector2] = []
 		for q in sc.path:
@@ -152,8 +165,9 @@ func build_grid() -> void:
 	for i in range(span()):
 		var a := points[i]
 		var b := points[wrap_index(i + 1)]
-		var lo := Vector2(minf(a.x, b.x), minf(a.y, b.y)) - Vector2.ONE * GRID_REACH
-		var hi := Vector2(maxf(a.x, b.x), maxf(a.y, b.y)) + Vector2.ONE * GRID_REACH
+		var reach := GRID_REACH + max_half_width - HALF_WIDTH
+		var lo := Vector2(minf(a.x, b.x), minf(a.y, b.y)) - Vector2.ONE * reach
+		var hi := Vector2(maxf(a.x, b.x), maxf(a.y, b.y)) + Vector2.ONE * reach
 		for gx in range(floori(lo.x / GRID), floori(hi.x / GRID) + 1):
 			for gz in range(floori(lo.y / GRID), floori(hi.y / GRID) + 1):
 				var key := Vector2i(gx, gz)
@@ -295,8 +309,32 @@ func other_branch_distance(p: Vector2, s: float, gap := 0.12) -> float:
 			best = minf(best, p.distance_to(Geometry2D.get_closest_point_to_segment(p, points[i], points[wrap_index(i + 1)])))
 	return best
 
+func hw(s: float) -> float:
+	# Halbe Fahrbahnbreite an Stelle s (Breitenprofil, linear und geschlossen).
+	if widths.is_empty():
+		return HALF_WIDTH
+	var x := unit(s)
+	var n := widths.size()
+	for i in range(n):
+		var a: Array = widths[i]
+		var b: Array = widths[(i + 1) % n]
+		var sa := float(a[0])
+		var sb := float(b[0]) + (1.0 if i == n - 1 else 0.0)
+		var xx := x + (1.0 if i == n - 1 and x < sa else 0.0)
+		if xx >= sa and xx <= sb:
+			return lerpf(float(a[1]), float(b[1]), (xx - sa) / maxf(sb - sa, 1e-6))
+	return float(widths[0][1])
+
+func edge_offset(s: float, o: float) -> float:
+	# Versatz für Darstellung: innerhalb der Fahrbahn mit der Breite skaliert, außerhalb gleicher Abstand zur Kante.
+	var h := hw(s)
+	if absf(o) <= HALF_WIDTH:
+		return o * h / HALF_WIDTH
+	return signf(o) * (h + absf(o) - HALF_WIDTH)
+
 func inside(p: Vector2, margin := 0.0) -> bool:
-	return center_distance(p) <= HALF_WIDTH + margin
+	var q := query(p)
+	return float(q.distance) <= hw(float(q.s)) + margin
 
 # --- Höhe (2,5D) ---
 func base_height(s: float) -> float:
@@ -400,13 +438,14 @@ func momentum_needs() -> Array:
 func surface_at(p: Vector2) -> Dictionary:
 	var q := query(p)
 	var distance := float(q.distance)
-	if not shortcuts.is_empty() and distance > HALF_WIDTH:
+	var width := hw(float(q.s))
+	if not shortcuts.is_empty() and distance > width:
 		var sc := shortcut_at(p, distance)
 		if not sc.is_empty() and float(sc.distance) <= float(shortcuts[int(sc.index)].width) * 0.5:
 			return {"kind": str(shortcuts[int(sc.index)].surface), "height": 0.2}
-	if distance<=HALF_WIDTH:
+	if distance<=width:
 		return {"kind":road,"height":0.207}
-	if distance<4.05:
+	if distance<width + 0.55:
 		# Schotterpisten haben keine Randsteine, dort beginnt direkt der Waldboden.
 		return {"kind":"curb","height":0.295} if road == "asphalt" else {"kind":"dirt","height":0.16}
 	var s := float(q.s)
@@ -415,9 +454,9 @@ func surface_at(p: Vector2) -> Dictionary:
 	for zone in surfaces:
 		var inside_zone: bool = s >= float(zone.from) and s <= float(zone.to)
 		var side_ok: bool = zone.side == "both" or (zone.side == "outer") == (side > 0.0)
-		if inside_zone and side_ok and distance <= 4.9:
+		if inside_zone and side_ok and distance <= width + 1.4:
 			return {"kind":str(zone.kind),"height":0.147}
-	return {"kind":"dirt","height":0.137 if distance<=4.9 else 0.105}
+	return {"kind":"dirt","height":0.137 if distance<=width + 1.4 else 0.105}
 
 func valid_segment(a: Vector2, b: Vector2) -> bool:
 	if a.distance_to(b) > 13.0:

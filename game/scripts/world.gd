@@ -105,6 +105,9 @@ const THEMES := {
 	"city": {"sky":"283440","sea":"30383f","ground":"7c8784","stripe":"86918e","rim":"5d6569","rim2":"a3aaa9","shoulder":"9ba39f","mud":"6d665a","island":false},
 	"forest": {"sky":"36614d","sea":"2c4a38","ground":"4f7b49","stripe":"4a7444","rim":"5f4f39","rim2":"76654a","shoulder":"5f5a34","mud":"4a3524","island":false},
 	"harbor": {"sky":"4d6f80","sea":"2f6f7a","ground":"8a8f8c","stripe":"7f8583","rim":"5d6569","rim2":"a3aaa9","shoulder":"6f7472","mud":"5a554a","island":false},
+	"fair": {"sky":"1d2240","sea":"1f2a3a","ground":"7a6f5a","stripe":"72684f","rim":"4d4436","rim2":"8a7d63","shoulder":"8d7f63","mud":"5a4a36","island":false},
+	"quarry": {"sky":"8aa3b0","sea":"3f4f55","ground":"9a948a","stripe":"918b80","rim":"6f6a61","rim2":"a8a296","shoulder":"8a7e6a","mud":"6a5a44","island":false,"rock":"8d8a83"},
+	"kids": {"sky":"d9cbb4","sea":"8a6a4a","ground":"b98a5a","stripe":"a87a4c","rim":"e0e0e0","rim2":"d64541","shoulder":"c49a6c","mud":"b0413e","island":false,"road":"e8742a","planks":true},
 	"mountain": {"sky":"6fa7c9","sea":"2d7fa1","ground":"8a9a5b","stripe":"84935a","rim":"8f836d","rim2":"b8ab8f","shoulder":"b09a74","mud":"7a6448","island":false,"rock":"b3a891"},
 }
 const NAMED := {"coral":"f16c4c","cream":"f2e9d5","teal":"227c77","sand":"d8c39a","slate":"5f6f78","gold":"f3c374"}
@@ -148,14 +151,22 @@ func build(circuit: Circuit) -> void:
 	else:
 		# Stadt/Wald: großflächiger Boden bis zum Horizont mit Randsockel.
 		shape("box", Vector3(c.x,-0.6,c.y), Vector3(half.x*2+70,1.2,half.y*2+60), Color(theme.rim))
-		if fancy_ground:
+		if theme.get("planks", false):
+			# Kinderzimmer: Parkett aus 2,4 m breiten Dielen in zwei Holztönen mit Fugen, Spielzeugbahn liegt direkt darauf.
+			var width := half.x*2+66
+			var count := int(width / 2.4)
+			for k in range(count):
+				var x := c.x - width*0.5 + (k + 0.5)*2.4
+				var tone := Color(theme.ground).lerp(Color(theme.stripe), 0.5 + 0.5*sin(k*2.3))
+				shape("box", Vector3(x,0.02,c.y), Vector3(2.36,0.12,half.y*2+56), tone)
+		elif fancy_ground:
 			premium_ground(theme, Vector3(c.x,0.02,c.y), Vector3(half.x*2+66,0.12,half.y*2+56), false)
 		else:
 			shape("box", Vector3(c.x,0.02,c.y), Vector3(half.x*2+66,0.12,half.y*2+56), Color(theme.ground))
 		if track.theme == "city":
 			for gx in range(-8,9):
 				shape("box",Vector3(c.x+gx*9.0,0.09,c.y),Vector3(0.12,0.01,half.y*2+50),Color(theme.stripe))
-	if not fancy_ground:
+	if not fancy_ground and not theme.get("planks", false):
 		road_strip(-4.9, 4.9, 0.12, Color(theme.shoulder))
 	for zone in track.surfaces:
 		var sides: Array = [[4.05,4.9]] if zone.side=="outer" else ([[-4.9,-4.05]] if zone.side=="inner" else [[4.05,4.9],[-4.9,-4.05]])
@@ -197,7 +208,7 @@ func build(circuit: Circuit) -> void:
 	bake()
 	for key in ["ground","stripe","shoulder","rim2"]:
 		atmosphere.register_tint(material(Color(theme[key])))
-	var road_color := Color("8b6f4e") if track.road == "gravel" else Color("394950")
+	var road_color := Color(theme.get("road", "8b6f4e" if track.road == "gravel" else "394950"))
 	atmosphere.road_material = material(road_color)
 	atmosphere.road_color = road_color
 	if premium_rendering() and road_mesh != null:
@@ -464,10 +475,10 @@ func curb_band(inner: float, outer: float) -> void:
 				continue
 			if track.in_gap((s0 + s1) * 0.5):
 				continue
-			var a0 := track.at(s0, lo)
-			var a1 := track.at(s0, hi)
-			var b0 := track.at(s1, lo)
-			var b1 := track.at(s1, hi)
+			var a0 := track.at(s0, track.edge_offset(s0, lo))
+			var a1 := track.at(s0, track.edge_offset(s0, hi))
+			var b0 := track.at(s1, track.edge_offset(s1, lo))
+			var b1 := track.at(s1, track.edge_offset(s1, hi))
 			var ha := track.base_height(s0)
 			var hb := track.base_height(s1)
 			var quads := [
@@ -1021,7 +1032,7 @@ func road_strip(inner: float, outer: float, y: float, color: Color, start_s := 0
 		# Staffelung: späterer Streckenverlauf liegt minimal höher (Acht-Kreuzung ohne Z-Flimmern).
 		var ya := y + (a*0.004 if stagger else 0.0)
 		var yb := y + (b*0.004 if stagger else 0.0)
-		var points := [track.at(a,inner),track.at(a,outer),track.at(b,outer),track.at(b,inner)]
+		var points := [track.at(a,track.edge_offset(a,inner)),track.at(a,track.edge_offset(a,outer)),track.at(b,track.edge_offset(b,outer)),track.at(b,track.edge_offset(b,inner))]
 		if skip_crossing and track.other_branch_distance(points[0], a) < Circuit.HALF_WIDTH + 0.3:
 			continue
 		# 2,5D: Fahrbahn folgt dem Höhenprofil; in Lücken (Sprung über eine andere Straße) keine Fahrbahn.

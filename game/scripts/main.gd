@@ -1,7 +1,9 @@
 extends Node3D
 
 # Streckenreihenfolge der Karriere; die nächste Strecke öffnet sich mit 3 Gold auf der vorigen.
-const TRACKS := ["azure","city","forest","harbor","serra"]
+const TRACKS := ["azure","city","forest","harbor","serra","fair","quarry","arena","kids"]
+# Bonusstrecke: nicht über die Vorgängerstrecke, sondern über die Gesamtzahl an Gold freigeschaltet.
+const BONUS_TRACKS := {"kids": 12}
 var track_id := "azure"
 var track := Circuit.new()
 var recorder: LineRecorder
@@ -44,6 +46,10 @@ var camera_target := Vector3.ZERO
 var capture_frames := 0
 var run_record_path := "user://last_run.json"
 var turbo_actions: Array[Dictionary] = []
+# Geisterauto: beste eigene Fahrt je Strecke/Herausforderung (Linie + Turbo-Einsätze), ungestört wiedergegeben.
+var ghost: RaceVehicle
+var ghost_model: Node3D
+var ghost_turbo: Array = []
 var last_boost_input := false
 var result_record := false
 var result_won := false
@@ -80,6 +86,26 @@ func _ready() -> void:
 	show_menu()
 	if "--demo" in OS.get_cmdline_user_args():
 		demo()
+
+var drift_limit_cache := {}
+
+func drift_limit() -> float:
+	# Zeitlimit im Drift-Modus: aus der Strecke oder – falls nicht angegeben – 1,4 × Fahrzeit einer
+	# vorsichtigen KI-Fahrt (einmal je Strecke berechnet).
+	if track.time_limit > 0.0:
+		return track.time_limit
+	if not drift_limit_cache.has(track_id):
+		var bot := RaceVehicle.new(track, track.ai_route(1.0))
+		for tick in range(60 * 240):
+			bot.step(1.0 / 60.0, false, float(tick + 1) / 60.0)
+			if bot.finish_time >= 0.0 or bot.crashed:
+				break
+		drift_limit_cache[track_id] = maxf(30.0, bot.finish_time * 1.4)
+	return drift_limit_cache[track_id]
+
+func drift_target() -> int:
+	var targets: Array = track.drift_targets
+	return int(targets[mini(stage, targets.size() - 1)]) if not targets.is_empty() else 1000
 
 func lap_text(progress: float) -> String:
 	# Rundkurs: „RUNDE x / n“; Sprintstrecke: zurückgelegter Anteil.
@@ -124,7 +150,11 @@ func select_car(index: int) -> void:
 	store.save()
 
 func track_unlocked(index: int) -> bool:
-	return index <= 0 or debug_flag("unlock") or store.gold_count(TRACKS[index-1]) >= 3
+	if index <= 0 or debug_flag("unlock"):
+		return true
+	if BONUS_TRACKS.has(TRACKS[index]):
+		return store.data.gold.size() >= int(BONUS_TRACKS[TRACKS[index]])
+	return store.gold_count(TRACKS[index-1]) >= 3
 
 func select_track(new_id: String) -> void:
 	if new_id == track_id:
@@ -152,6 +182,47 @@ func clear_cars() -> void:
 		model.queue_free()
 	models.clear()
 	vehicles.clear()
+	if is_instance_valid(ghost_model):
+		ghost_model.queue_free()
+	ghost = null
+
+func ghost_path() -> String:
+	return "user://ghosts/%s_%d.json" % [track_id, stage]
+
+func save_ghost() -> void:
+	DirAccess.make_dir_recursive_absolute("user://ghosts")
+	var plan: Array = []
+	for point in recorder.route:
+		plan.append({"x": point.p.x, "z": point.p.y, "speed": point.speed, "s": point.s, "o": point.get("o", 0.0), "sc": point.get("sc", -1)})
+	var file := FileAccess.open(ghost_path(), FileAccess.WRITE)
+	if file:
+		file.store_string(JSON.stringify({"physics": RaceVehicle.VERSION, "car": car_choice, "time": vehicles[0].finish_time, "plan": plan, "turbo": turbo_actions}))
+
+func spawn_ghost() -> void:
+	if not bool(store.data.get("ghost", true)) or track.mode == "drift" or demonstration or not FileAccess.file_exists(ghost_path()):
+		return
+	var data = JSON.parse_string(FileAccess.get_file_as_string(ghost_path()))
+	if not data is Dictionary or str(data.get("physics", "")) != RaceVehicle.VERSION:
+		return
+	var plan: Array[Dictionary] = []
+	for q in data.plan:
+		plan.append({"p": Vector2(float(q.x), float(q.z)), "speed": float(q.speed), "s": float(q.s), "o": float(q.get("o", 0.0)), "sc": int(q.get("sc", -1))})
+	var car := clampi(int(data.get("car", 0)), 0, RaceVehicle.CARS.size() - 1)
+	ghost = RaceVehicle.new(track, plan, 0.0, 0.0, car)
+	ghost_turbo = data.get("turbo", [])
+	ghost_model = world.car_model(Color(0.75, 0.9, 1.0), false, str(RaceVehicle.CARS[car].style))
+	for node in ghost_model.find_children("*", "GeometryInstance3D", true, false):
+		(node as GeometryInstance3D).transparency = 0.65
+		(node as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+func ghost_boost(time: float) -> bool:
+	var held := false
+	for action in ghost_turbo:
+		if float(action.time) <= time:
+			held = bool(action.held)
+		else:
+			break
+	return held
 
 func show_menu() -> void:
 	paused = false
@@ -211,7 +282,9 @@ func begin_race() -> void:
 	var spec: Dictionary = RaceVehicle.CARS[car_choice]
 	# Gegner in anderen Farben als das eigene Auto; sie fahren das Grundmodell.
 	var rival_colors: Array = ["5ac4d1","e8c866","a593cf","f16c4c","7fb77e"].filter(func(c): return c != spec.color)
-	for i in range(stage+2):
+	# Drift-Modus: allein gegen Punkteziel und Zeitlimit, keine Rivalen.
+	var field := 1 if track.mode == "drift" else stage+2
+	for i in range(field):
 		var plan: Array[Dictionary] = recorder.route if i==0 else track.ai_route(RIVAL_SKILL[stage][i-1],RIVAL_LANES[i-1])
 		var vehicle := RaceVehicle.new(track,plan,-float(i)*0.012,0 if i==0 else (1.2 if i%2 else -1.2),car_choice if i==0 else 0)
 		vehicles.append(vehicle)
@@ -222,6 +295,7 @@ func begin_race() -> void:
 	snapshot_vehicles()
 	update_models()
 	place_models()
+	spawn_ghost()
 	for i in range(vehicles.size()):
 		record_tyre_tracks(i)
 	hud.race()
@@ -273,6 +347,10 @@ func place_models() -> void:
 			drop = fall * fall
 		models[i].position = Vector3(p.x,0.2 + vehicles[i].z - drop,p.y)
 		models[i].rotation = Vector3(0, -h, vehicles[i].loop_theta if vehicles[i].in_loop else 0.0)
+	if ghost != null and is_instance_valid(ghost_model):
+		ghost_model.position = Vector3(ghost.pos.x, 0.2 + ghost.z, ghost.pos.y)
+		ghost_model.rotation = Vector3(0, -ghost.heading, ghost.loop_theta if ghost.in_loop else 0.0)
+		ghost_model.visible = ghost.finish_time < 0.0 and not ghost.crashed
 	# Regen: Scheinwerfer- und Rücklicht-Positionen für die Beleuchtung der Tropfen.
 	var lit: Array = []
 	for i in range(mini(vehicles.size(), models.size())):
@@ -304,19 +382,23 @@ func _physics_process(dt: float) -> void:
 				turbo_actions.append({"time":race_time,"held":boost})
 				last_boost_input = boost
 			v.step(dt,boost,race_time)
+		if ghost != null:
+			ghost.step(dt, ghost_boost(race_time), race_time)
 		for a in range(vehicles.size()):
 			for b in range(a+1,vehicles.size()):
 				if vehicles[a].finish_time<0 and vehicles[b].finish_time<0:
 					contact_sparks(a,b,RaceVehicle.resolve_contact(vehicles[a],vehicles[b]))
 		update_tyre_tracks()
 		update_models()
-		if vehicles[0].finish_time>=0 or vehicles[0].crashed:
+		if vehicles[0].finish_time>=0 or vehicles[0].crashed or (track.mode == "drift" and race_time > drift_limit()):
 			finish_race()
 		elif race_time > 180.0:
 			pause_game()
 	elif phase == "result":
 		# Rivals finish normally; their interpolated times update the result table.
 		race_time += dt
+		if ghost != null:
+			ghost.step(dt, ghost_boost(race_time), race_time)
 		RaceVehicle.update_avoidance(vehicles,dt)
 		var new_finish := false
 		for i in range(1,vehicles.size()):
@@ -500,7 +582,11 @@ func _process(dt: float) -> void:
 		hud.status.text = lap_text(v.progress)
 		hud.time_label.text = format_time(race_time)
 		hud.speed_label.text = str(int(v.velocity.length()*3.6))
-		hud.rank_label.text = "%d / %d" % [live_rank(),vehicles.size()]
+		if track.mode == "drift":
+			hud.rank_label.text = "%d" % int(v.drift_score)
+			hud.status.text = "%s   ×%.1f   noch %d s" % [lap_text(v.progress), v.drift_multiplier, maxi(0, int(ceil(drift_limit() - race_time)))]
+		else:
+			hud.rank_label.text = "%d / %d" % [live_rank(),vehicles.size()]
 		hud.progress_bar.value = v.turbo*100
 		if phase=="race":
 			hud.center.text = "LOS" if race_time<0.65 else ""
@@ -701,6 +787,17 @@ func finish_race() -> void:
 	var rows := sorted_results()
 	var rank := player_result_rank(rows)
 	var record := false
+	if track.mode == "drift":
+		# Drift: gewonnen = im Zeitlimit ins Ziel und Punkteziel der Herausforderung erreicht.
+		var v0 := vehicles[0]
+		var in_time := v0.finish_time >= 0.0 and v0.finish_time <= drift_limit() and not v0.crashed
+		rank = 1 if in_time and v0.drift_score >= drift_target() else 2
+		if not demonstration and in_time:
+			record = store.result_drift(track_id, stage, car_choice, int(v0.drift_score), rank == 1)
+		result_record = record
+		result_won = rank == 1
+		hud.drift_results(int(v0.drift_score), drift_target(), in_time, record)
+		return
 	if vehicles[0].crashed:
 		# Absturz: verloren, keine Zeit für Bestenliste oder Bestzeit.
 		rank = vehicles.size()
@@ -709,6 +806,8 @@ func finish_race() -> void:
 				row.rank = rank
 	elif not demonstration:
 		record = store.result(track_id,stage,car_choice,vehicles[0].finish_time,rank==1)
+		if record:
+			save_ghost()
 		var plan: Array = []
 		for point in recorder.route:
 			plan.append({"x":point.p.x,"z":point.p.y,"speed":point.speed,"s":point.s})

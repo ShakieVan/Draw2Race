@@ -18,7 +18,8 @@ SRC = BASE / "bilder"
 DST = BASE / "freigestellt"
 # Motive mit Durchblicken: eingeschlossene Weißflächen gelten ebenfalls als Hintergrund.
 OPEN = ("palme", "baum", "busch", "eiche", "kiefer", "absperrung", "tribuene", "flutlicht", "laterne", "zaun",
-        "leitplanke", "wegweiser", "bank", "sonnenschirm", "pflanzkuebel", "steg", "zeitnahme")
+        "leitplanke", "wegweiser", "bank", "sonnenschirm", "pflanzkuebel", "steg", "zeitnahme",
+        "kran", "riesenrad", "lichtermast", "pinie", "agave", "foerderband", "karussell", "bruecke", "reifenwand")
 
 
 def cutout(path: Path) -> Path:

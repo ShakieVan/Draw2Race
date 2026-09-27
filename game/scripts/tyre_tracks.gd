@@ -8,10 +8,12 @@ const SAMPLE_DISTANCE := 0.18
 const WHEELS := [Vector2(0.63,0.5),Vector2(0.63,-0.5),Vector2(-0.63,0.5),Vector2(-0.63,-0.5)]
 var segments: Array[Dictionary] = []
 var cars: Dictionary = {}
+var total := 0          # Anzahl aller je hinzugefügten Stücke (für die Darstellung als Ringpuffer)
 
 func clear() -> void:
 	segments.clear()
 	cars.clear()
+	total = 0
 
 func sample(id: int, pos: Vector2, heading: float, speed: float, brake: float, slip: float, track: Circuit, time: float) -> void:
 	var forward := Vector2.from_angle(heading)
@@ -53,6 +55,7 @@ func sample(id: int, pos: Vector2, heading: float, speed: float, brake: float, s
 
 func add_segment(a: Vector2, b: Vector2, width: float, color: Color, height_a: float, height_b: float, time: float, kind: String) -> void:
 	segments.append({"a":a,"b":b,"width":width,"color":color,"height_a":height_a,"height_b":height_b,"time":time,"kind":kind})
+	total += 1
 	if segments.size()>MAX_SEGMENTS:
 		segments = segments.slice(128)
 

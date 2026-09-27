@@ -1213,32 +1213,60 @@ func car_model(color: Color, player := false, style := "coupe") -> Node3D:
 	car.add_child(dust)
 	return car
 
+const TRACK_SHADER := preload("res://assets/tyre_track.gdshader")
+var track_multi: MultiMesh
+var track_material: ShaderMaterial
+var track_head := 0
+var track_seen := 0
+
+func setup_track_ring() -> void:
+	# Ringpuffer: ein neues Spurstück überschreibt genau eine Instanz, statt das ganze Netz neu zu bauen
+	# (vorher alle 8 Takte bis zu ~25.000 Eckpunkte -> spürbares Ruckeln auf Schotter).
+	var quad := QuadMesh.new()
+	quad.size = Vector2(1, 1)
+	quad.orientation = PlaneMesh.FACE_Y
+	quad.center_offset = Vector3(0.5, 0, 0)
+	track_material = ShaderMaterial.new()
+	track_material.shader = TRACK_SHADER
+	track_material.set_shader_parameter("lifetime", TyreTracks.LIFETIME)
+	quad.material = track_material
+	track_multi = MultiMesh.new()
+	track_multi.transform_format = MultiMesh.TRANSFORM_3D
+	track_multi.use_colors = true
+	track_multi.use_custom_data = true
+	track_multi.mesh = quad
+	track_multi.instance_count = TyreTracks.MAX_SEGMENTS
+	track_multi.visible_instance_count = 0
+	var node := MultiMeshInstance3D.new()
+	node.multimesh = track_multi
+	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	node.layers = LAYER_FLAT
+	node.extra_cull_margin = 200.0
+	add_child(node)
+
 func update_tracks(time: float) -> void:
-	tyre_tracks.prune(time)
-	if tyre_tracks.segments.is_empty():
-		skid_mesh.mesh = null
-		return
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for segment in tyre_tracks.segments:
+	if track_multi == null:
+		setup_track_ring()
+	if tyre_tracks.total < track_seen:
+		# Spuren gelöscht (Neustart): Ring leeren.
+		track_seen = 0
+		track_head = 0
+		track_multi.visible_instance_count = 0
+	var fresh := mini(tyre_tracks.total - track_seen, tyre_tracks.segments.size())
+	for k in range(tyre_tracks.segments.size() - fresh, tyre_tracks.segments.size()):
+		var segment: Dictionary = tyre_tracks.segments[k]
 		var a: Vector2 = segment.a
 		var b: Vector2 = segment.b
 		if segment.kind=="soil":
-			# Small gaps suggest a tyre tread instead of a painted brown line.
+			# Kleine Lücken wirken wie Reifenprofil statt wie ein gemalter Strich.
 			b = a.lerp(b,0.80)
-		var side := (b-a).normalized().orthogonal()*float(segment.width)*0.5
-		var color: Color = segment.color
-		color.a *= clampf((TyreTracks.LIFETIME-(time-float(segment.time)))/12.0,0,1)
-		var points := [a-side,b+side,a+side,a-side,b-side,b+side]
-		for i in range(6):
-			var p: Vector2 = points[i]
-			st.set_color(color)
-			st.set_normal(Vector3.UP)
-			st.add_vertex(Vector3(p.x,float(segment.height_b) if i in [1,4,5] else float(segment.height_a),p.y))
-	var mat := StandardMaterial3D.new()
-	mat.vertex_color_use_as_albedo = true
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mat.roughness = 1.0
-	st.set_material(mat)
-	skid_mesh.mesh = st.commit()
+		var along := Vector3(b.x - a.x, float(segment.height_b) - float(segment.height_a), b.y - a.y)
+		var side := Vector3(-(b.y - a.y), 0, b.x - a.x).normalized() * float(segment.width)
+		track_multi.set_instance_transform(track_head, Transform3D(Basis(along, Vector3.UP * 0.001, side), Vector3(a.x, float(segment.height_a), a.y)))
+		track_multi.set_instance_color(track_head, segment.color)
+		track_multi.set_instance_custom_data(track_head, Color(float(segment.time), 0, 0, 0))
+		track_head = (track_head + 1) % TyreTracks.MAX_SEGMENTS
+		track_multi.visible_instance_count = maxi(track_multi.visible_instance_count, track_head if track_multi.visible_instance_count < TyreTracks.MAX_SEGMENTS and track_head > 0 else TyreTracks.MAX_SEGMENTS)
+	track_seen = tyre_tracks.total
+	track_material.set_shader_parameter("now", time)
+	tyre_tracks.prune(time)

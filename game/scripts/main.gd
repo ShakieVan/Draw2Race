@@ -230,7 +230,8 @@ func update_tyre_tracks() -> void:
 		if vehicles[i].finish_time<0:
 			record_tyre_tracks(i)
 	skid_tick += 1
-	if skid_tick%8==0:
+	# Ringpuffer: günstig genug für jeden zweiten Takt (flüssigeres Nachziehen der Spuren).
+	if skid_tick%2==0:
 		world.update_tracks(race_time)
 
 # Darstellung zwischen zwei Physikschritten interpolieren: Die Simulation läuft mit 60 Hz, das Display oft mit

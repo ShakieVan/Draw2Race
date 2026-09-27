@@ -95,6 +95,9 @@ func bake() -> void:
 			multi.set_instance_transform(i, batch.transforms[i])
 		var node := MultiMeshInstance3D.new()
 		node.multimesh = multi
+		var mat := batch.mesh.material as StandardMaterial3D
+		if mat != null:
+			node.material_overlay = lit_overlay_color(mat.albedo_color)
 		add_child(node)
 
 const THEMES := {
@@ -272,6 +275,7 @@ func curb_band(inner: float, outer: float) -> void:
 		var mat := material(color)
 		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		mesh.material_override = mat
+		mesh.material_overlay = lit_overlay_color(color)
 		add_child(mesh)
 
 func build_gravel_road() -> void:
@@ -312,6 +316,8 @@ func light_pool(head: Vector3, reach: float, color: Color) -> void:
 	# Über den Randsteinen (0,285 m), damit auch sie im Lichtkegel liegen; unter Linie und Autos kaum sichtbar.
 	pool.position = Vector3(head.x, 0.30, head.z)
 	pool.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Premium: Boden und Fahrbahn lesen das vorberechnete Laternenlicht (mit Schatten), keine Lichtscheibe.
+	pool.visible = not premium_rendering()
 	node.add_child(pool)
 	var glow := MeshInstance3D.new()
 	var gq := QuadMesh.new()
@@ -392,6 +398,9 @@ func place_ai(name: String, x: float, z: float, yaw: float, height: float, footp
 		var u := height / maxf(box.size.y, 0.001)
 		scale3 = Vector3(u, u, u)
 	var basis := Basis(Vector3.UP, yaw + deg_to_rad(float(AI_PROP_YAW.get(name, 0.0)))) * Basis.from_scale(scale3)
+	if footprint != Vector2.ZERO and box.size.y * scale3.y > 2.5:
+		# Größere Bauten werfen Laternenschatten (vorberechnet in Atmosphere.bake_rain_lights).
+		atmosphere.occluders.append([Vector2(x, z), Vector2(box.size.x * scale3.x, box.size.z * scale3.z) * 0.5, -yaw])
 	var anchor := Vector3(box.get_center().x, box.position.y, box.get_center().z)
 	var origin := Vector3(x, base_y, z) - basis * anchor
 	if not ai_prop_batches.has(name):
@@ -412,8 +421,31 @@ func flush_ai_props() -> void:
 		var node := MultiMeshInstance3D.new()
 		node.name = "KI_" + name
 		node.multimesh = multi
+		node.material_overlay = lit_overlay(multi.mesh)
 		add_child(node)
 	ai_prop_batches.clear()
+
+const LIT_OVERLAY := preload("res://assets/lit_overlay.gdshader")
+
+func lit_overlay(mesh: Mesh) -> ShaderMaterial:
+	# Laternenlicht direkt + indirekt als Zusatzdurchgang; nutzt die Farbtextur des Modells.
+	var mat := ShaderMaterial.new()
+	mat.shader = LIT_OVERLAY
+	var base := mesh.surface_get_material(0) as StandardMaterial3D if mesh.get_surface_count() > 0 else null
+	if base != null:
+		if base.albedo_texture != null:
+			mat.set_shader_parameter("albedo_tex", base.albedo_texture)
+		mat.set_shader_parameter("tint", base.albedo_color)
+	return mat
+
+func lit_overlay_color(color: Color) -> ShaderMaterial:
+	# Wie lit_overlay, aber für einfarbige Bauteile (Randsteine, Markierungen, Klötzchen-Deko).
+	if not premium_rendering():
+		return null
+	var mat := ShaderMaterial.new()
+	mat.shader = LIT_OVERLAY
+	mat.set_shader_parameter("tint", color)
+	return mat
 
 func premium_prop(prop: Dictionary) -> bool:
 	# true = als KI-Modell gebaut (samt Licht/Schrift), false = Klötzchen-Fassung verwenden.

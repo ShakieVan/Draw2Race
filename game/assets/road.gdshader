@@ -17,6 +17,8 @@ uniform float snow = 0.0;        // 0 kein Schnee, 1 Schneeschleier
 uniform float rain = 0.0;        // Regenstärke für die Wellen in der Spiegelung
 uniform float puddle_cover = 0.56; // Schwelle der Pfützen-Rauschtextur (kleiner = mehr Pfützen)
 
+#include "res://assets/lamp_light.gdshaderinc"
+
 varying vec2 world_xz;
 
 void vertex() {
@@ -66,4 +68,7 @@ void fragment() {
 	}
 	// Ringe hellen die Oberfläche kurz auf (spiegeln das Himmelslicht).
 	EMISSION += vec3(0.55, 0.62, 0.7) * rings * 0.35;
+	// Laternenlicht (vorberechnet, mit weichen Gebäudeschatten) als beleuchtete Albedo.
+	// Diffus (Farbe x Licht) plus Glanzanteil: Asphalt – vor allem nasser – wirft Laternenlicht auch als Schimmer zurück.
+	EMISSION += lamp_at(world_xz) * (ALBEDO * 2.6 + vec3(0.07 + 0.16 * wetness + 0.25 * puddle));
 }

@@ -7,10 +7,7 @@ render_mode unshaded, blend_add, depth_draw_never, cull_disabled, shadows_disabl
 // Zum Boden hin heller (Tiefenhinweis in der steilen Draufsicht), oben fast unsichtbar.
 
 uniform vec3 day_light = vec3(0.0);
-uniform float lamp_strength = 0.0;           // 0 = Laternen aus (Tag), 1 = an
-uniform sampler2D light_map : source_color, filter_linear, repeat_disable;
-uniform vec2 map_origin = vec2(0.0);
-uniform vec2 map_size = vec2(100.0);
+#include "res://assets/lamp_light.gdshaderinc"
 uniform int car_count = 0;
 uniform vec4 car_pos[8];                     // xyz = Position, w = Fahrtrichtung (Winkel)
 uniform float cars_lit = 0.0;                // 1 = Scheinwerfer an (Dämmerung/Nacht)
@@ -25,10 +22,7 @@ void vertex() {
 void fragment() {
 	vec2 xz = world_pos.xz;
 	vec3 light = day_light;
-	vec2 uv = (xz - map_origin) / map_size;
-	if (uv.x > 0.0 && uv.y > 0.0 && uv.x < 1.0 && uv.y < 1.0) {
-		light += texture(light_map, uv).rgb * lamp_strength;
-	}
+	light += lamp_at(xz) * 1.4;
 	for (int i = 0; i < car_count; i++) {
 		vec2 d = xz - car_pos[i].xz;
 		vec2 fwd = vec2(cos(car_pos[i].w), sin(car_pos[i].w));

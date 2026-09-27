@@ -18,6 +18,8 @@ uniform bool mow_stripes = false;
 uniform float snow = 0.0;
 uniform float wet = 0.0;
 
+#include "res://assets/lamp_light.gdshaderinc"
+
 varying vec2 world_xz;
 
 void vertex() {
@@ -50,4 +52,6 @@ void fragment() {
 	ALBEDO = col;
 	ROUGHNESS = mix(0.92, 0.55, wet);
 	SPECULAR = 0.35;
+	// Laternenlicht (vorberechnet, mit weichen Gebäudeschatten) als beleuchtete Albedo.
+	EMISSION += ALBEDO * lamp_at(world_xz) * 2.6;
 }

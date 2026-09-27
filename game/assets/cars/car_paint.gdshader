@@ -10,7 +10,14 @@ uniform vec4 paint_color : source_color = vec4(0.8, 0.15, 0.1, 1.0);
 uniform float paint_min_light = 0.36;   // sRGB-Helligkeit, ab der Lack beginnt (Lack der Vorlagen ≈ 0,6)
 uniform float paint_max_sat = 0.16;     // bis zu dieser Sättigung ist es Lack
 uniform float paint_reference = 0.64;   // typische Lackhelligkeit der Vorlage (sRGB)
+#include "res://assets/lamp_light.gdshaderinc"
 uniform float glow = 0.0;               // Hervorhebung des eigenen Autos (Puls aus main.gd)
+
+varying vec3 world_pos;
+
+void vertex() {
+	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
 
 void fragment() {
 	vec3 base = texture(albedo_tex, UV).rgb;          // linear (source_color)
@@ -34,5 +41,5 @@ void fragment() {
 	METALLIC = mix(metal, 0.45, mask);
 	CLEARCOAT = mask;
 	CLEARCOAT_ROUGHNESS = 0.06;
-	EMISSION = paint_color.rgb * glow * mask;
+	EMISSION = paint_color.rgb * glow * mask + ALBEDO * lamp_at(world_pos.xz) * 0.8;
 }

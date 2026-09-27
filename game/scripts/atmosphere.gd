@@ -59,6 +59,9 @@ func setup(owner_world: Node3D, sky: Color, bounds: Rect2) -> void:
 	add_child(holder)
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 150
+	# Halbschatten wie bei echter Sonne (Winkelgröße), dazu leicht weichgezeichnete Schattenkanten.
+	sun.light_angular_distance = 1.2
+	sun.shadow_blur = 1.5
 	add_child(sun)
 	var c := bounds.get_center()
 	var half := bounds.size*0.5 + Vector2(14,14)
@@ -231,25 +234,43 @@ func apply(new_conditions: Dictionary, new_quality: int) -> void:
 		var tod := str(conditions.time)
 		var sky_light := Color(t.ambient) * float(t.ambient_energy) + Color(t.sun) * sun_energy * 0.35
 		rain_material.set_shader_parameter("day_light", Vector3(sky_light.r, sky_light.g, sky_light.b) * (0.9 if tod == "day" else 0.35))
-		rain_material.set_shader_parameter("lamp_strength", 1.0 if is_dark() else 0.0)
 		rain_material.set_shader_parameter("cars_lit", 1.0 if is_dark() else 0.0)
+	RenderingServer.global_shader_parameter_set("lamp_strength", (1.0 if conditions.time == "night" else 0.6) if is_dark() else 0.0)
+	RenderingServer.global_shader_parameter_set("street_wet", 1.0 if weather == "rain" else 0.0)
 	if terrain_shader != null:
 		terrain_shader.set_shader_parameter("snow", 1.0 if weather == "snow" else 0.0)
 		terrain_shader.set_shader_parameter("wet", 1.0 if weather == "rain" else 0.0)
 	for node in night_lights:
 		node.visible = is_dark()
 
+var occluders: Array = []      # [Mitte Vector2, halbe Größe Vector2, Drehung] von Gebäuden (werfen Laternenschatten)
+
+func blocked(from: Vector2, to: Vector2, near: Array) -> float:
+	# Anteil des Wegs Laterne -> Punkt, der durch Gebäude verdeckt ist (0 frei, 1 verdeckt), in 0,4-m-Schritten.
+	var steps := maxi(2, int(from.distance_to(to) / 0.6))
+	for k in range(1, steps):
+		var p := from.lerp(to, float(k) / steps)
+		for o in near:
+			var local: Vector2 = (p - o[0]).rotated(-float(o[2]))
+			if absf(local.x) < o[1].x and absf(local.y) < o[1].y:
+				return 1.0
+	return 0.0
+
 func bake_rain_lights(area: Rect2) -> void:
-	# Lichtkarte der Straßenlichter (Draufsicht): Farbe x Stärke, weich zum Rand des Lichtkegels abfallend.
-	if rain_material == null:
-		return
+	# Vorberechnetes Laternenlicht (Draufsicht): Farbe x Stärke je Zelle, Gebäude werfen Schatten; danach
+	# weichgezeichnet (unscharfe Schattenkanten). Wird als globaler Shaderwert von Fahrbahn, Gelände, Kulisse,
+	# Autos und Regen gelesen.
 	var cells := 256
-	var img := Image.create(cells, cells, false, Image.FORMAT_RGBF)
+	var data := PackedFloat32Array()
+	data.resize(cells * cells * 3)
 	var cell := area.size / cells
 	for lamp in lamps:
 		var p: Vector3 = lamp[0]
-		var reach: float = lamp[1]
+		# Lichtradius am Boden: höher hängende Köpfe leuchten weiter als die frühere Lichtscheibe.
+		var reach: float = lamp[1] * 1.8
 		var col: Color = lamp[2]
+		var head := Vector2(p.x, p.z)
+		var near: Array = occluders.filter(func(o): return head.distance_to(o[0]) < reach + o[1].length())
 		var x0 := maxi(0, int((p.x - reach - area.position.x) / cell.x))
 		var x1 := mini(cells - 1, int((p.x + reach - area.position.x) / cell.x))
 		var y0 := maxi(0, int((p.z - reach - area.position.y) / cell.y))
@@ -257,14 +278,25 @@ func bake_rain_lights(area: Rect2) -> void:
 		for iy in range(y0, y1 + 1):
 			for ix in range(x0, x1 + 1):
 				var q := area.position + Vector2((ix + 0.5) * cell.x, (iy + 0.5) * cell.y)
-				var f := 1.0 - smoothstep(0.0, reach, q.distance_to(Vector2(p.x, p.z)))
-				if f <= 0.0:
+				var d := q.distance_to(head)
+				if d >= reach:
 					continue
-				var old := img.get_pixel(ix, iy)
-				img.set_pixel(ix, iy, old + Color(col.r, col.g, col.b) * f * f * 1.6)
-	rain_material.set_shader_parameter("light_map", ImageTexture.create_from_image(img))
-	rain_material.set_shader_parameter("map_origin", area.position)
-	rain_material.set_shader_parameter("map_size", area.size)
+				if not near.is_empty() and blocked(head, q, near) > 0.0:
+					continue
+				var f := 1.0 - smoothstep(0.0, reach, d)
+				f = f * f * 1.6
+				var k := (iy * cells + ix) * 3
+				data[k] += col.r * f
+				data[k + 1] += col.g * f
+				data[k + 2] += col.b * f
+	var img := Image.create_from_data(cells, cells, false, Image.FORMAT_RGBF, data.to_byte_array())
+	# Weiche Schatten: verkleinern und wieder vergrößern (bilinear) wirkt wie eine Unschärfe von ~1 m.
+	img.resize(cells / 3, cells / 3, Image.INTERPOLATE_BILINEAR)
+	img.resize(cells, cells, Image.INTERPOLATE_CUBIC)
+	var tex := ImageTexture.create_from_image(img)
+	RenderingServer.global_shader_parameter_set("lamp_light", tex)
+	RenderingServer.global_shader_parameter_set("lamp_origin", area.position)
+	RenderingServer.global_shader_parameter_set("lamp_size", area.size)
 
 func update_rain_cars(cars: Array) -> void:
 	# cars: [Vector3 Position, Fahrtrichtung] je Auto; höchstens 8.

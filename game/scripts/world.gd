@@ -185,6 +185,7 @@ func build(circuit: Circuit) -> void:
 	for prop in track.props:
 		build_prop(prop)
 	flush_ai_props()
+	flush_cards()
 	atmosphere.bake_rain_lights(track.bounds.grow(Circuit.HALF_WIDTH + 12.0))
 	bake()
 	for key in ["ground","stripe","shoulder","rim2"]:
@@ -476,6 +477,45 @@ func multimesh_node(mesh: Mesh, list: Array, label: String) -> MultiMeshInstance
 	add_child(node)
 	return node
 
+# --- Baumkarten (Billboards): ein Bild pro Baum statt eines 3D-Modells ---
+const CARD_SHADER := preload("res://assets/cards/tree_card.gdshader")
+const CARD_PATH := "res://assets/cards/%s.png"
+var card_batches := {}
+
+func place_card(name: String, x: float, z: float, height: float) -> bool:
+	if not ResourceLoader.exists(CARD_PATH % name):
+		return false
+	# Feste Zufallswerte je Position: Größe ±15 %, Spiegelung.
+	var h := fposmod(x * 12.9898 + z * 78.233, 1.0)
+	var size := height * (0.85 + 0.3 * h)
+	var flip := -1.0 if fposmod(x * 3.7 + z * 1.3, 2.0) < 1.0 else 1.0
+	if not card_batches.has(name):
+		card_batches[name] = []
+	card_batches[name].append(Transform3D(Basis.from_scale(Vector3(size * flip, size, size)), Vector3(x, 0.1, z)))
+	return true
+
+func flush_cards() -> void:
+	for name in card_batches:
+		var tex: Texture2D = load(CARD_PATH % name)
+		var quad := QuadMesh.new()
+		quad.size = Vector2(float(tex.get_width()) / tex.get_height(), 1.0)
+		quad.center_offset = Vector3(0, 0.5, 0)
+		var mat := ShaderMaterial.new()
+		mat.shader = CARD_SHADER
+		mat.set_shader_parameter("card", tex)
+		quad.material = mat
+		var chunks := {}
+		for t in card_batches[name]:
+			var key := Vector2i(floori(t.origin.x / CHUNK), floori(t.origin.z / CHUNK))
+			if not chunks.has(key):
+				chunks[key] = []
+			chunks[key].append(t)
+		for key in chunks:
+			var node := multimesh_node(quad, chunks[key], "Karte_%s_%d_%d" % [name, key.x, key.y])
+			# Kulling-Box: Karten sind im Schattendurchgang zur Kamera gedreht, großzügig bemessen.
+			node.extra_cull_margin = 8.0
+	card_batches.clear()
+
 func flush_ai_props() -> void:
 	# Je Modell und Kachel ein MultiMesh (Aussortieren außerhalb des Bildes), dazu eine vereinfachte Fassung
 	# (<name>_lo) für Schatten und Übersicht.
@@ -536,21 +576,21 @@ func premium_prop(prop: Dictionary) -> bool:
 	var spin := fposmod(x * 12.9898 + z * 78.233, TAU)
 	match str(prop.get("type","")):
 		"palm":
-			return place_ai("kueste_palme", x, z, spin, float(prop.get("h",3.5)) * 1.35)
+			return place_card("kueste_palme", x, z, float(prop.get("h",3.5)) * 1.35) or place_ai("kueste_palme", x, z, spin, float(prop.get("h",3.5)) * 1.35)
 		"parasol":
 			return place_ai("kueste_sonnenschirm", x, z, spin, 2.5)
 		"planter":
 			return place_ai("kueste_pflanzkuebel", x, z, rot, 0.0, Vector2(w, d), true)
 		"pine":
-			return place_ai("wald_kiefer", x, z, spin, 5.6 * sc)
+			return place_card("wald_kiefer", x, z, 5.6 * sc) or place_ai("wald_kiefer", x, z, spin, 5.6 * sc)
 		"oak":
-			return place_ai("wald_eiche", x, z, spin, 4.6 * sc)
+			return place_card("wald_eiche", x, z, 4.6 * sc) or place_ai("wald_eiche", x, z, spin, 4.6 * sc)
 		"rock":
 			return place_ai("wald_felsen" if track.theme == "forest" else "kueste_felsen", x, z, spin, 1.0 * sc)
 		"log":
 			return place_ai("wald_baumstamm", x, z, rot, 0.0, Vector2(3.2, 0.7), true)
 		"street_tree":
-			return place_ai("stadt_baum", x, z, spin, 4.6)
+			return place_card("stadt_baum", x, z, 4.6) or place_ai("stadt_baum", x, z, spin, 4.6)
 		"fountain":
 			return place_ai("stadt_brunnen", x, z, spin, 0.0, Vector2(5.0, 5.0))
 		"boathouse":

@@ -46,6 +46,7 @@ var camera_target := Vector3.ZERO
 var capture_frames := 0
 var run_record_path := "user://last_run.json"
 var turbo_actions: Array[Dictionary] = []
+var crash_wait := 0.0
 # Geisterauto: beste eigene Fahrt je Strecke/Herausforderung (Linie + Turbo-Einsätze), ungestört wiedergegeben.
 var ghost: RaceVehicle
 var ghost_model: Node3D
@@ -273,6 +274,7 @@ func begin_race() -> void:
 	phase = "countdown"
 	countdown = 3.0
 	race_time = 0.0
+	crash_wait = 0.0
 	turbo_actions.clear()
 	last_boost_input = false
 	world.marker.visible = false
@@ -340,16 +342,33 @@ func place_models() -> void:
 		var h := vehicles[i].heading if i >= prev_headings.size() else lerp_angle(prev_headings[i], vehicles[i].heading, alpha)
 		# 2,5D: Höhe (Fahrbahn, Sprung, Looping); im Looping dreht sich das Auto um seine Querachse.
 		var drop := 0.0
-		if vehicles[i].crashed:
+		if vehicles[i].crashed and not vehicles[i].rolled_back:
 			# Absturz: nur Darstellung – das Auto fällt aus dem Bild.
 			var fall: float = models[i].get_meta("fall", 0.0) + get_process_delta_time() * 9.81 * 0.5
 			models[i].set_meta("fall", fall)
 			drop = fall * fall
+			if vehicles[i].loop_fall:
+				# Aus dem Looping gefallen: in der Lage des Absturzes herunter bis auf die Fahrbahn (kopfüber
+				# liegt das Dach unten – dann bleibt die Autohöhe über dem Boden).
+				var height: float = vehicles[i].z - track.base_height(vehicles[i].previous_phase)
+				drop = minf(drop * 0.2, height - 0.65)
+				models[i].set_meta("tumble", clampf(drop / maxf(height - 0.65, 0.1), 0.0, 1.0))
 		models[i].position = Vector3(p.x,0.2 + vehicles[i].z - drop,p.y)
-		models[i].rotation = Vector3(0, -h, vehicles[i].loop_theta if vehicles[i].in_loop else 0.0)
+		if vehicles[i].in_loop or vehicles[i].loop_fall:
+			# Beim Herunterfallen kippt das Auto aus der Absturzlage aufs Dach (θ → 180°).
+			var th: float = lerpf(vehicles[i].loop_theta, PI, float(models[i].get_meta("tumble", 0.0))) if vehicles[i].loop_fall else vehicles[i].loop_theta
+			models[i].basis = track.loop_basis(vehicles[i].loop_forward, th, vehicles[i].loop_radius, vehicles[i].loop_entry)
+		else:
+			models[i].rotation = Vector3(0, -h, 0.0)
+		var halo := models[i].get_node_or_null("Halo") as Node3D
+		if halo != null:
+			halo.visible = not vehicles[i].in_loop and not vehicles[i].loop_fall
 	if ghost != null and is_instance_valid(ghost_model):
 		ghost_model.position = Vector3(ghost.pos.x, 0.2 + ghost.z, ghost.pos.y)
-		ghost_model.rotation = Vector3(0, -ghost.heading, ghost.loop_theta if ghost.in_loop else 0.0)
+		if ghost.in_loop:
+			ghost_model.basis = track.loop_basis(ghost.loop_forward, ghost.loop_theta, ghost.loop_radius, ghost.loop_entry)
+		else:
+			ghost_model.rotation = Vector3(0, -ghost.heading, 0.0)
 		ghost_model.visible = ghost.finish_time < 0.0 and not ghost.crashed
 	# Regen: Scheinwerfer- und Rücklicht-Positionen für die Beleuchtung der Tropfen.
 	var lit: Array = []
@@ -390,7 +409,10 @@ func _physics_process(dt: float) -> void:
 					contact_sparks(a,b,RaceVehicle.resolve_contact(vehicles[a],vehicles[b]))
 		update_tyre_tracks()
 		update_models()
-		if vehicles[0].finish_time>=0 or vehicles[0].crashed or (track.mode == "drift" and race_time > drift_limit()):
+		# Nach einem Absturz noch kurz zusehen lassen (Fall, Zurückrollen), dann das Ergebnis.
+		if vehicles[0].crashed:
+			crash_wait += dt
+		if vehicles[0].finish_time>=0 or crash_wait > 1.6 or (track.mode == "drift" and race_time > drift_limit()):
 			finish_race()
 		elif race_time > 180.0:
 			pause_game()

@@ -70,7 +70,11 @@ var in_loop := false
 var loop_theta := 0.0     # Winkel im Looping (0 unten, PI oben)
 var loop_speed := 0.0
 var loop_radius := 0.0
-var loop_origin := Vector2.ZERO
+var loop_origin := Vector2.ZERO    # Punkt der Mittellinie auf Höhe der Einfahrt
+var loop_forward := Vector2.RIGHT
+var loop_entry := 0.0              # seitlicher Versatz bei der Einfahrt
+var loop_fall := false             # im Looping abgestürzt (jenseits der Senkrechten ohne Anpresskraft)
+var rolled_back := false           # im Looping vor der Senkrechten stehen geblieben und zurückgerollt
 
 func _init(circuit: Circuit, plan: Array[Dictionary], start_s := 0.0, lane := 0.0, car := 0) -> void:
 	track = circuit
@@ -106,7 +110,19 @@ func step(dt: float, boost: bool, time: float) -> void:
 	var target_sum := Vector2.ZERO
 	var target_count := 0
 	while target_index < route.size() - 1 and ahead_distance < lookahead * 1.35:
-		ahead_distance += Vector2(route[target_index].p).distance_to(route[target_index+1].p)
+		# Nicht über eine Looping-Einfahrt hinaus zielen: dahinter liegt die Ausfahrtsspur (seitlich versetzt).
+		# Stattdessen geradeaus auf der Einfahrtsspur weiterzielen (gedachte Punkte in Streckenrichtung).
+		if not track.loops.is_empty() and not track.loop_between(float(route[target_index].s), float(route[target_index+1].s)).is_empty():
+			var last := Vector2(route[target_index].p)
+			var dir := track.tangent(float(route[target_index].s))
+			var extra := 0.0
+			while ahead_distance + extra < lookahead * 1.35:
+				extra += 0.5
+				if ahead_distance + extra >= lookahead * 0.65:
+					target_sum += last + dir * extra
+					target_count += 1
+			break
+		ahead_distance +=Vector2(route[target_index].p).distance_to(route[target_index+1].p)
 		target_index += 1
 		if ahead_distance >= lookahead * 0.65:
 			target_sum += Vector2(route[target_index].p)
@@ -296,25 +312,43 @@ func enter_loop(loop: Dictionary) -> void:
 	in_loop = true
 	loop_theta = 0.0
 	loop_radius = float(loop.radius)
-	loop_speed = maxf(0.0, velocity.dot(Vector2.from_angle(heading)))
-	loop_origin = pos
+	loop_forward = track.tangent(float(loop.s))
+	loop_speed = maxf(0.0, velocity.dot(loop_forward))
+	var center := track.at(float(loop.s))
+	var side := Vector2(-loop_forward.y, loop_forward.x)
+	loop_entry = clampf((pos - center).dot(side), -Circuit.HALF_WIDTH, Circuit.HALF_WIDTH)
+	loop_origin = center + loop_forward * (pos - center).dot(loop_forward)
+	heading = loop_forward.angle()
 
 func step_loop(dt: float) -> void:
-	# Autonome Durchfahrt mit dem Schwung: tangentiale Verzögerung durch Schwerkraft und Luftwiderstand;
-	# fehlt oben die Anpresskraft (v²/R + g·cos θ < 0) oder bleibt das Auto stehen, stürzt es ab.
-	loop_speed += (-GRAVITY * sin(loop_theta) - 0.010 * loop_speed * loop_speed) * dt
+	# Autonome Durchfahrt mit dem Schwung: tangentiale Verzögerung durch Schwerkraft und Luftwiderstand.
+	# Vor der Senkrechten (θ < 90°) drückt die Bahn immer an: reicht der Schwung nicht, rollt das Auto rückwärts
+	# wieder hinunter. Jenseits davon fällt es ab, sobald die Anpresskraft (v²/R + g·cos θ) fehlt.
+	loop_speed += (-GRAVITY * sin(loop_theta) - 0.010 * loop_speed * absf(loop_speed)) * dt
 	loop_theta += loop_speed / loop_radius * dt
 	var normal := loop_speed * loop_speed / loop_radius + GRAVITY * cos(loop_theta)
-	if normal < 0.0 or loop_speed < 0.5:
+	if loop_theta > PI * 0.5 and (normal < 0.0 or loop_speed < 0.5):
 		crashed = true
 		in_loop = false
+		loop_fall = true
 		return
-	var forward := Vector2.from_angle(heading)
-	pos = loop_origin + forward * loop_radius * sin(loop_theta)
+	if loop_theta <= 0.0:
+		# Rückwärts aus der Einfahrt gerollt: ausgeschieden, das Auto bleibt unten stehen.
+		in_loop = false
+		crashed = true
+		rolled_back = true
+		loop_theta = 0.0
+		pos = loop_origin + Vector2(-loop_forward.y, loop_forward.x) * track.loop_lateral(0.0, loop_entry)
+		z = track.ground_height(previous_phase)
+		velocity = Vector2.ZERO
+		return
+	var forward := loop_forward
+	var side := Vector2(-forward.y, forward.x)
+	pos = loop_origin + forward * loop_radius * sin(loop_theta) + side * track.loop_lateral(loop_theta, loop_entry)
 	z = track.base_height(previous_phase) + loop_radius * (1.0 - cos(loop_theta))
 	if loop_theta >= TAU:
 		in_loop = false
-		pos = loop_origin
+		pos = loop_origin - side * Circuit.LOOP_LANE
 		z = track.ground_height(previous_phase)
 		velocity = forward * loop_speed
 		yaw = 0.0

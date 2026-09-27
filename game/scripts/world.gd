@@ -408,50 +408,65 @@ func build_stunts() -> void:
 		build_loop(float(l.s), float(l.radius))
 
 func build_loop(s: float, radius: float) -> void:
-	# Looping als Band im Kreis (senkrecht in Fahrtrichtung), leicht seitlich versetzt wie ein Korkenzieher.
+	# Looping wie eine Spielzeugbahn: schmales Band (eine Spur) mit Seitenborden. Es steigt auf der rechten
+	# Fahrbahnhälfte auf, versetzt sich beim Überschlag seitlich (Spiralstück) und landet links daneben.
 	var origin := track.at(s)
 	var fwd := track.tangent(s)
 	var side := Vector2(-fwd.y, fwd.x)
 	var base := track.base_height(s) + 0.2
-	var n := 48
-	var w := Circuit.HALF_WIDTH - 0.6
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := 72
+	var w := Circuit.LOOP_BAND
+	var toy := track.theme == "kids"
+	var band := SurfaceTool.new()
+	band.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rails := SurfaceTool.new()
+	rails.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var point := func(th: float, lateral: float, lift: float) -> Vector3:
+		# Punkt auf dem Band: lift > 0 = zur Ringmitte hin (Innenseite, auf der das Auto fährt).
+		var c: Vector2 = origin + fwd * (radius - lift) * sin(th) + side * (track.loop_lateral(th) + lateral)
+		return Vector3(c.x, base + radius - (radius - lift) * cos(th), c.y)
 	for k in range(n):
-		var ring := []
-		for j in [k, k + 1]:
-			var th: float = TAU * j / n
-			var shift: float = lerpf(-1.2, 1.2, float(j) / n)
-			var c := origin + fwd * radius * sin(th) + side * shift
-			var y := base + radius * (1.0 - cos(th))
-			ring.append([Vector3(c.x - side.x * w, y, c.y - side.y * w), Vector3(c.x + side.x * w, y, c.y + side.y * w), th])
-		var quad := [ring[0][0], ring[0][1], ring[1][1], ring[1][0]]
-		var normal := Vector3(-fwd.x * sin(ring[0][2]), cos(ring[0][2]), -fwd.y * sin(ring[0][2]))
+		var t0: float = TAU * k / n
+		var t1: float = TAU * (k + 1) / n
+		var inward := Vector3(-fwd.x * sin(t0), cos(t0), -fwd.y * sin(t0))
+		var quad := [point.call(t0, -w, 0.0), point.call(t0, w, 0.0), point.call(t1, w, 0.0), point.call(t1, -w, 0.0)]
 		for j in [0, 1, 2, 0, 2, 3]:
-			st.set_normal(normal)
-			st.add_vertex(quad[j])
-	var node := MeshInstance3D.new()
-	node.mesh = st.commit()
-	# Eigenes Material (nicht das gemeinsame): halbtransparentes Stahlband, damit das Auto im Ring sichtbar bleibt.
+			band.set_normal(inward)
+			band.add_vertex(quad[j])
+		# Borde: senkrechte Streifen an beiden Bandkanten, 0,3 m zur Ringmitte hin.
+		for edge in [-w, w]:
+			var r := [point.call(t0, edge, 0.0), point.call(t0, edge, 0.3), point.call(t1, edge, 0.3), point.call(t1, edge, 0.0)]
+			var out := Vector3(side.x, 0.0, side.y) * signf(edge)
+			for j in [0, 1, 2, 0, 2, 3]:
+				rails.set_normal(out)
+				rails.add_vertex(r[j])
+	var band_node := MeshInstance3D.new()
+	band_node.mesh = band.commit()
+	# Halbtransparent, damit das Auto innen (oben kopfüber) aus der Draufsicht sichtbar bleibt.
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.82, 0.85, 0.88, 0.55)
+	mat.albedo_color = Color(0.95, 0.45, 0.12, 0.7) if toy else Color(0.72, 0.77, 0.82, 0.65)
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mat.metallic = 0.5
-	mat.roughness = 0.3
-	mat.emission_enabled = true
-	mat.emission = Color(0.35, 0.37, 0.4)
-	node.material_override = mat
-	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
-	add_child(node)
-	# Stahlstützen außen am Ring
-	for k in range(6):
-		var th: float = PI * 0.25 + PI * 0.5 * k / 5.0 + (0.0 if k < 3 else PI)
-		var c := origin + fwd * radius * sin(th)
-		var y := base + radius * (1.0 - cos(th))
-		for sgn in [-1.0, 1.0]:
-			var p: Vector2 = c + side * sgn * (w + 0.4)
-			shape("box", Vector3(p.x, y * 0.5, p.y), Vector3(0.3, y, 0.3), Color("5d6368"))
+	mat.metallic = 0.0 if toy else 0.5
+	mat.roughness = 0.35
+	band_node.material_override = mat
+	band_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	add_child(band_node)
+	var rail_node := MeshInstance3D.new()
+	rail_node.mesh = rails.commit()
+	var rail_mat := StandardMaterial3D.new()
+	rail_mat.albedo_color = Color("e8611a") if toy else Color("4f565c")
+	rail_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	rail_mat.metallic = 0.0 if toy else 0.6
+	rail_mat.roughness = 0.4
+	rail_node.material_override = rail_mat
+	add_child(rail_node)
+	# Stützen: je eine schlanke Säule außen an der vorderen und hinteren Ringseite (Höhe = Radius).
+	for th in [PI * 0.5, PI * 1.5]:
+		var lateral := track.loop_lateral(th)
+		var p: Vector2 = origin + fwd * radius * sin(th) + side * (lateral + signf(lateral) * (w + 0.25))
+		var y := base + radius
+		shape("box", Vector3(p.x, y * 0.5, p.y), Vector3(0.22, y, 0.22), Color("e8611a") if toy else Color("5d6368"))
 
 func curb_band(inner: float, outer: float) -> void:
 	# Je Farbe ein Netz (gleiches Material wie die übrigen Bauteile, daher gleiche Helligkeit).

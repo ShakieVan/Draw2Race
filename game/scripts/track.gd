@@ -379,6 +379,38 @@ func ground_height(s: float) -> float:
 		return base_height(s) - 40.0
 	return base_height(s) + ramp_height(s)
 
+# Looping wie eine Spielzeugbahn: Einfahrt auf der linken Fahrbahnhälfte, Ausfahrt auf der rechten. Die Bahn
+# ist ein Stück Schraubenlinie – ausgerollt eine gerade, schräg nach rechts führende Spur – und läuft so an
+# sich selbst vorbei. Beim Hineinfahren lenkt man also leicht nach rechts.
+const LOOP_LANE := 1.75        # Abstand der Spurmitten von der Mittellinie (m)
+const LOOP_BAND := 1.45        # halbe Breite des Loopingbandes (m)
+
+func loop_lateral(theta: float, entry := LOOP_LANE) -> float:
+	# Seitlicher Versatz (links positiv) bei Winkel theta: gleichmäßig von der linken zur rechten Spur.
+	# entry = tatsächlicher Versatz des Autos bei der Einfahrt; die Bahn führt es im ersten Zehntel in die Spur.
+	var u := clampf(theta / TAU, 0.0, 1.0)
+	var start := lerpf(entry, LOOP_LANE, smoothstep(0.0, 0.1, u))
+	return lerpf(start, -LOOP_LANE, u)
+
+func loop_basis(forward: Vector2, theta: float, radius: float, entry := LOOP_LANE) -> Basis:
+	# Lage des Autos auf der Schraubenlinie (nur Darstellung): x = Fahrtrichtung, y = Dach zur Ringmitte.
+	var f := Vector3(forward.x, 0.0, forward.y)
+	var side := Vector3(-forward.y, 0.0, forward.x)
+	var dl := (loop_lateral(theta + 0.01, entry) - loop_lateral(theta - 0.01, entry)) / 0.02
+	var t := (f * radius * cos(theta) + Vector3.UP * radius * sin(theta) + side * dl).normalized()
+	var n := (-f * sin(theta) + Vector3.UP * cos(theta)).normalized()
+	var z := t.cross(n).normalized()
+	return Basis(t, z.cross(t).normalized(), z)
+
+func loop_lane_bias(s: float) -> float:
+	# Für die KI: nach einem Looping von der Ausfahrtsspur zurück zur Mitte. Vor der Einfahrt kein Spurwechsel –
+	# der kostet Anlauftempo; in die Einfahrtsspur führt die Bahn beim Aufstieg (loop_lateral).
+	for l in loops:
+		var after := fposmod(s - float(l.s), 1.0) * length
+		if after < 18.0:
+			return -LOOP_LANE * smoothstep(18.0, 6.0, after)
+	return 0.0
+
 func loop_between(a: float, b: float) -> Dictionary:
 	# Looping, dessen Einfahrt zwischen den Streckenanteilen a und b liegt (in Fahrtrichtung).
 	for l in loops:
@@ -508,5 +540,7 @@ func ai_route(skill := 0.0, lane := 0.0) -> Array[Dictionary]:
 	var route: Array[Dictionary] = []
 	for i in range(count + 1):
 		var s := float(i) / span()
-		route.append({"p": at(s, lane), "speed": speeds[mini(i, count - 1)], "s": s})
+		var bias := loop_lane_bias(s)
+		var o: float = lane if bias == 0.0 else lerpf(lane, bias, absf(bias) / LOOP_LANE)
+		route.append({"p": at(s, o), "speed": speeds[mini(i, count - 1)], "s": s, "o": o})
 	return route

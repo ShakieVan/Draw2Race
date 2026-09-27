@@ -476,10 +476,13 @@ func results(rows: Array, rank: int, record: bool) -> void:
 	var p := panel(content,Rect2(427,140,586,700))
 	label(p,"VORFÜHRFAHRT" if app.demonstration else ("NEUE BESTZEIT" if record else "DEIN RENNERGEBNIS"),Vector2(34,28),15,ORANGE)
 	var crashed: bool = app.vehicles[0].crashed
-	label(p,"Abgestürzt!" if crashed else ("Linie mit Klasse." if rank==1 else "Die nächste Linie zählt."),Vector2(30,68),38)
+	var rolled: bool = app.vehicles[0].rolled_back
+	label(p,("Zurückgerollt!" if rolled else "Abgestürzt!") if crashed else ("Linie mit Klasse." if rank==1 else "Die nächste Linie zählt."),Vector2(30,68),38)
 	label(p,"AUSGESCHIEDEN" if crashed else "PLATZ %d" % rank,Vector2(34,128),21,MUTED)
 	label(p,"—" if crashed else app.format_time(app.vehicles[0].finish_time),Vector2(32,162),60)
 	var tip := "Mehr Schwung vor Sprung und Looping – oder weniger Tempo an der Kante." if crashed else "Früher bremsen. Am Ausgang Turbo halten."
+	if rolled:
+		tip = "Zu wenig Schwung für den Looping – plane davor mehr Tempo."
 	label(p,("★  Gold für Herausforderung %d" % (app.stage+1)) if rank==1 and not crashed and not app.demonstration else tip,Vector2(34,253),20,ORANGE,515)
 	for i in range(rows.size()):
 		var row: Dictionary = rows[i]

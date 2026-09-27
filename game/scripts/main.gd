@@ -440,6 +440,8 @@ func road_fill_size() -> float:
 func _process(dt: float) -> void:
 	if not vehicles.is_empty():
 		place_models()
+	# Detailstufe nach Zoom: nah volle KI-Modelle, in der Übersicht die vereinfachten.
+	world.set_detail(camera.size < 26.0)
 	var target := track_center()
 	var zoom := overview_size()
 	if phase == "draw" and recorder != null:

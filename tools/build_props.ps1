@@ -23,4 +23,10 @@ foreach ($Dir in Get-ChildItem (Join-Path $Root '.tools/ai3d/runs') -Directory) 
     if (-not $B) { $B = @(4000, 512) }
     $Dst = Join-Path $Root "game/assets/props/$Name.glb"
     & (Join-Path $PSScriptRoot 'blender.ps1') (Join-Path $PSScriptRoot 'ai_prop.py') $Src $Dst $B[0] $B[1] | Select-String 'AIPROP|Error|Traceback'
+    # Vereinfachte Fassung (<name>_lo.glb) für Schatten und Übersicht: ~1/6 der Dreiecke, halbe Textur.
+    if ($B[0] -ge 2500) {
+        $Lo = Join-Path $Root "game/assets/props/${Name}_lo.glb"
+        $LoTris = [Math]::Max(600, [int]($B[0] / 6))
+        & (Join-Path $PSScriptRoot 'blender.ps1') (Join-Path $PSScriptRoot 'ai_prop.py') $Src $Lo $LoTris ([Math]::Max(256, [int]($B[1] / 2))) | Select-String 'AIPROP|Error|Traceback'
+    }
 }

@@ -242,6 +242,8 @@ func apply(new_conditions: Dictionary, new_quality: int) -> void:
 		terrain_shader.set_shader_parameter("wet", 1.0 if weather == "rain" else 0.0)
 	for node in night_lights:
 		node.visible = is_dark()
+	if world != null and world.has_method("set_overlays"):
+		world.set_overlays(is_dark())
 
 var occluders: Array = []      # [Mitte Vector2, halbe Größe Vector2, Drehung] von Gebäuden (werfen Laternenschatten)
 

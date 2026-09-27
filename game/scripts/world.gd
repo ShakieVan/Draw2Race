@@ -97,7 +97,7 @@ func bake() -> void:
 		node.multimesh = multi
 		var mat := batch.mesh.material as StandardMaterial3D
 		if mat != null:
-			node.material_overlay = lit_overlay_color(mat.albedo_color)
+			add_overlay(node, lit_overlay_color(mat.albedo_color))
 		add_child(node)
 
 const THEMES := {
@@ -275,7 +275,7 @@ func curb_band(inner: float, outer: float) -> void:
 		var mat := material(color)
 		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		mesh.material_override = mat
-		mesh.material_overlay = lit_overlay_color(color)
+		add_overlay(mesh, lit_overlay_color(color))
 		add_child(mesh)
 
 func build_gravel_road() -> void:
@@ -437,21 +437,67 @@ func place_ai(name: String, x: float, z: float, yaw: float, height: float, footp
 	ai_prop_batches[name].append(Transform3D(basis, origin))
 	return true
 
+const CHUNK := 24.0            # Kachelgröße (m): Kacheln außerhalb des Bildes zeichnet die GPU nicht
+var detail_hi: Array[GeometryInstance3D] = []
+var detail_lo: Array[GeometryInstance3D] = []
+var overlay_nodes: Array = []  # [Knoten, Zusatzlicht-Material] – nur bei Dunkelheit eingehängt
+var detail_high := true
+
+func add_overlay(node: GeometryInstance3D, mat: Material) -> void:
+	if mat != null:
+		overlay_nodes.append([node, mat])
+
+func set_overlays(on: bool) -> void:
+	# Zusatzlicht (Laternen) kostet einen weiteren Durchgang; am Tag trägt es nichts bei.
+	for entry in overlay_nodes:
+		if is_instance_valid(entry[0]):
+			entry[0].material_overlay = entry[1] if on else null
+
+func set_detail(high: bool) -> void:
+	# Volle Modelle nur nah; in der Übersicht die vereinfachte Fassung. Schatten immer von der einfachen.
+	if high == detail_high:
+		return
+	detail_high = high
+	for node in detail_hi:
+		node.visible = high
+	for node in detail_lo:
+		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY if high else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+
+func multimesh_node(mesh: Mesh, list: Array, label: String) -> MultiMeshInstance3D:
+	var multi := MultiMesh.new()
+	multi.transform_format = MultiMesh.TRANSFORM_3D
+	multi.mesh = mesh
+	multi.instance_count = list.size()
+	for i in range(list.size()):
+		multi.set_instance_transform(i, list[i])
+	var node := MultiMeshInstance3D.new()
+	node.name = label
+	node.multimesh = multi
+	add_child(node)
+	return node
+
 func flush_ai_props() -> void:
-	# Ein MultiMesh je Modell: wenige Zeichenaufrufe auch bei ~270 Waldbäumen.
+	# Je Modell und Kachel ein MultiMesh (Aussortieren außerhalb des Bildes), dazu eine vereinfachte Fassung
+	# (<name>_lo) für Schatten und Übersicht.
 	for name in ai_prop_batches:
-		var list: Array = ai_prop_batches[name]
-		var multi := MultiMesh.new()
-		multi.transform_format = MultiMesh.TRANSFORM_3D
-		multi.mesh = ai_prop_mesh(name)
-		multi.instance_count = list.size()
-		for i in range(list.size()):
-			multi.set_instance_transform(i, list[i])
-		var node := MultiMeshInstance3D.new()
-		node.name = "KI_" + name
-		node.multimesh = multi
-		node.material_overlay = lit_overlay(multi.mesh)
-		add_child(node)
+		var chunks := {}
+		for t in ai_prop_batches[name]:
+			var key := Vector2i(floori(t.origin.x / CHUNK), floori(t.origin.z / CHUNK))
+			if not chunks.has(key):
+				chunks[key] = []
+			chunks[key].append(t)
+		var hi := ai_prop_mesh(name)
+		var lo := ai_prop_mesh(name + "_lo")
+		for key in chunks:
+			var node := multimesh_node(hi, chunks[key], "KI_%s_%d_%d" % [name, key.x, key.y])
+			add_overlay(node, lit_overlay(hi))
+			if lo != null:
+				node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				var simple := multimesh_node(lo, chunks[key], "KI_%s_lo_%d_%d" % [name, key.x, key.y])
+				simple.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+				add_overlay(simple, lit_overlay(lo))
+				detail_hi.append(node)
+				detail_lo.append(simple)
 	ai_prop_batches.clear()
 
 const LIT_OVERLAY := preload("res://assets/lit_overlay.gdshader")

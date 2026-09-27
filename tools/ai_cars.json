@@ -1,0 +1,8 @@
+{
+  "_info": "KI-Autos: Bildvorlage -> Stil (Spielmodell game/assets/cars/<stil>.glb). radius: Radradius-Vorgabe, wenn die Messung am Modell nicht passt (grobe Stollen). paint_sat: im Spiel erlaubte Lacksättigung, falls die KI den Lack farbstichig backt (in world.gd PAINT_SAT).",
+  "auto_sprint":     {"style": "coupe"},
+  "auto_grip":       {"style": "hatch"},
+  "auto_dirt_hawk":  {"style": "rally", "radius": 0.222},
+  "auto_thunder_v8": {"style": "muscle", "paint_sat": 0.34},
+  "auto_apex_gt":    {"style": "gt"}
+}

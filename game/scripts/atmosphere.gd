@@ -30,12 +30,21 @@ var conditions := {"time": "day", "weather": "dry", "fog": 0}
 var quality := 2
 var base_sky := Color("327d88")
 var rain := CPUParticles3D.new()
+var rain_material: ShaderMaterial
+var lamps: Array = []          # [Position, Reichweite, Farbe] aller Straßenlichter (für die Regen-Lichtkarte)
 var snow := CPUParticles3D.new()
 var fog_banks: Array[MeshInstance3D] = []
 var puddles: Array[MeshInstance3D] = []
 var night_lights: Array[Node3D] = []
 var tinted: Dictionary = {}
 var road_material: StandardMaterial3D
+var road_shader: ShaderMaterial            # Premium-Fahrbahn (world.gd), sonst null
+var terrain_shader: ShaderMaterial         # Premium-Gelände (world.gd), sonst null
+var premium := false                      # Premium-Grafik aktiv (setzt world.gd)
+var reflection_view: SubViewport
+var reflection_cam: Camera3D
+var reflecting := false
+const REFLECT_PLANE := 0.19                 # Höhe der Fahrbahnebene (Spiegelachse)
 var road_color := Color("394950")
 var clock := 0.0
 
@@ -59,17 +68,30 @@ func setup(owner_world: Node3D, sky: Color, bounds: Rect2) -> void:
 		p.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
 		p.emission_box_extents = Vector3(half.x, 1.0, half.y)
 		p.position = Vector3(c.x, 22.0, c.y)
+		# Niederschlag nicht spiegeln (Ebene 2): gespiegelte Tropfen „fallen“ in der Pfütze nach oben und irritieren.
+		p.layers = 2
+		p.set_meta("keep_layer", true)
 		add_child(p)
+	# Regen: Tropfen starten 9 m über dem Boden und enden genau am Boden (dort setzen die Aufschlagringe
+	# im Fahrbahn-Shader an); leicht schräg durch Wind, unterschiedlich schnell.
+	rain.position = Vector3(c.x, 9.0, c.y)
 	var drop := BoxMesh.new()
-	drop.size = Vector3(0.04, 0.9, 0.04)
-	drop.material = unshaded(Color(0.78, 0.86, 0.95, 0.55))
+	drop.size = Vector3(0.03, 0.75, 0.03)
+	# Tropfen reflektieren nur ankommendes Licht (Sonne, Laternen, Scheinwerfer, Rücklichter), siehe rain.gdshader.
+	rain_material = ShaderMaterial.new()
+	rain_material.shader = preload("res://assets/rain.gdshader")
+	rain_material.set_shader_parameter("spawn_height", 9.0)
+	drop.material = rain_material
 	rain.mesh = drop
-	rain.direction = Vector3(0.12, -1, 0.05)
-	rain.spread = 3.0
+	rain.particle_flag_align_y = true
+	rain.direction = Vector3(0.22, -1, 0.1)
+	rain.spread = 2.0
 	rain.gravity = Vector3.ZERO
-	rain.initial_velocity_min = 34.0
-	rain.initial_velocity_max = 40.0
-	rain.lifetime = 0.7
+	rain.initial_velocity_min = 26.0
+	rain.initial_velocity_max = 30.0
+	rain.lifetime = 0.33
+	rain.scale_amount_min = 0.7
+	rain.scale_amount_max = 1.2
 	var flake := SphereMesh.new()
 	flake.radius = 0.08
 	flake.height = 0.16
@@ -158,6 +180,12 @@ func apply(new_conditions: Dictionary, new_quality: int) -> void:
 	sun.light_color = Color(t.sun)
 	sun.light_energy = sun_energy
 	sun.rotation_degrees = Vector3(float(t.sun_angle), -32, 0)
+	# Premium: dezentes Leuchten sehr heller Lichter (Scheinwerfer, Rückleuchten, Funken), nicht des Lacks.
+	env.glow_enabled = premium and quality >= 1
+	env.glow_intensity = 0.55
+	env.glow_bloom = 0.0
+	env.glow_hdr_threshold = 1.15
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
 	# Qualität: Schatten, Kantenglättung, Partikelmengen.
 	sun.shadow_enabled = quality >= 1
 	RenderingServer.directional_shadow_atlas_set_size([1024, 2048, 4096][quality], true)
@@ -190,12 +218,109 @@ func apply(new_conditions: Dictionary, new_quality: int) -> void:
 		var original: Color = tinted[material]
 		material.albedo_color = original.lerp(Color("eef3f5"), 0.78) if weather == "snow" else original
 	for puddle in puddles:
-		puddle.visible = weather == "rain"
+		puddle.visible = weather == "rain" and road_shader == null
+	if road_shader != null:
+		# Premium-Fahrbahn: Nässe, Pfützen und echte Spiegelung (ab Qualität „Mittel“) statt Farbwechsel.
+		var wet := weather == "rain"
+		road_shader.set_shader_parameter("wetness", 1.0 if wet else 0.0)
+		road_shader.set_shader_parameter("puddles", 1.0 if wet else 0.0)
+		road_shader.set_shader_parameter("rain", 1.0 if wet else 0.0)
+		road_shader.set_shader_parameter("snow", 1.0 if weather == "snow" else 0.0)
+		set_reflection(wet and quality >= 1)
+	if rain_material != null:
+		var tod := str(conditions.time)
+		var sky_light := Color(t.ambient) * float(t.ambient_energy) + Color(t.sun) * sun_energy * 0.35
+		rain_material.set_shader_parameter("day_light", Vector3(sky_light.r, sky_light.g, sky_light.b) * (0.9 if tod == "day" else 0.35))
+		rain_material.set_shader_parameter("lamp_strength", 1.0 if is_dark() else 0.0)
+		rain_material.set_shader_parameter("cars_lit", 1.0 if is_dark() else 0.0)
+	if terrain_shader != null:
+		terrain_shader.set_shader_parameter("snow", 1.0 if weather == "snow" else 0.0)
+		terrain_shader.set_shader_parameter("wet", 1.0 if weather == "rain" else 0.0)
 	for node in night_lights:
 		node.visible = is_dark()
 
+func bake_rain_lights(area: Rect2) -> void:
+	# Lichtkarte der Straßenlichter (Draufsicht): Farbe x Stärke, weich zum Rand des Lichtkegels abfallend.
+	if rain_material == null:
+		return
+	var cells := 256
+	var img := Image.create(cells, cells, false, Image.FORMAT_RGBF)
+	var cell := area.size / cells
+	for lamp in lamps:
+		var p: Vector3 = lamp[0]
+		var reach: float = lamp[1]
+		var col: Color = lamp[2]
+		var x0 := maxi(0, int((p.x - reach - area.position.x) / cell.x))
+		var x1 := mini(cells - 1, int((p.x + reach - area.position.x) / cell.x))
+		var y0 := maxi(0, int((p.z - reach - area.position.y) / cell.y))
+		var y1 := mini(cells - 1, int((p.z + reach - area.position.y) / cell.y))
+		for iy in range(y0, y1 + 1):
+			for ix in range(x0, x1 + 1):
+				var q := area.position + Vector2((ix + 0.5) * cell.x, (iy + 0.5) * cell.y)
+				var f := 1.0 - smoothstep(0.0, reach, q.distance_to(Vector2(p.x, p.z)))
+				if f <= 0.0:
+					continue
+				var old := img.get_pixel(ix, iy)
+				img.set_pixel(ix, iy, old + Color(col.r, col.g, col.b) * f * f * 1.6)
+	rain_material.set_shader_parameter("light_map", ImageTexture.create_from_image(img))
+	rain_material.set_shader_parameter("map_origin", area.position)
+	rain_material.set_shader_parameter("map_size", area.size)
+
+func update_rain_cars(cars: Array) -> void:
+	# cars: [Vector3 Position, Fahrtrichtung] je Auto; höchstens 8.
+	if rain_material == null or not rain.emitting:
+		return
+	var data := PackedVector4Array()
+	for c in cars.slice(0, 8):
+		var p: Vector3 = c[0]
+		data.append(Vector4(p.x, p.y, p.z, float(c[1])))
+	while data.size() < 8:
+		data.append(Vector4.ZERO)
+	rain_material.set_shader_parameter("car_pos", data)
+	rain_material.set_shader_parameter("car_count", mini(cars.size(), 8))
+
+func set_reflection(on: bool) -> void:
+	# Spiegelkamera: rendert nur Aufragendes (Ebene 1) von unterhalb der Fahrbahnebene, halbe Auflösung.
+	if on and reflection_view == null:
+		reflection_view = SubViewport.new()
+		reflection_view.msaa_3d = Viewport.MSAA_DISABLED
+		add_child(reflection_view)
+		reflection_view.world_3d = get_viewport().find_world_3d()
+		reflection_cam = Camera3D.new()
+		reflection_cam.cull_mask = 1
+		reflection_view.add_child(reflection_cam)
+		reflection_cam.current = true
+		road_shader.set_shader_parameter("reflection_tex", reflection_view.get_texture())
+	reflecting = on
+	if reflection_view != null:
+		reflection_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS if on else SubViewport.UPDATE_DISABLED
+	if road_shader != null:
+		road_shader.set_shader_parameter("use_reflection", on)
+
+func update_reflection() -> void:
+	var main := get_viewport().get_camera_3d()
+	if main == null or main == reflection_cam:
+		return
+	var size := Vector2i(get_viewport().get_visible_rect().size * 0.5)
+	if reflection_view.size != size:
+		reflection_view.size = size
+	reflection_cam.projection = main.projection
+	reflection_cam.size = main.size
+	reflection_cam.fov = main.fov
+	reflection_cam.near = main.near
+	reflection_cam.far = main.far
+	reflection_cam.keep_aspect = main.keep_aspect
+	var t := main.global_transform
+	var o := t.origin
+	var forward := -t.basis.z
+	var up := t.basis.y
+	var mirrored := Vector3(o.x, 2.0*REFLECT_PLANE - o.y, o.z)
+	reflection_cam.look_at_from_position(mirrored, mirrored + Vector3(forward.x, -forward.y, forward.z), Vector3(up.x, -up.y, up.z))
+
 func _process(dt: float) -> void:
 	clock += dt
+	if reflecting:
+		update_reflection()
 	for bank in fog_banks:
 		if not bank.visible:
 			continue

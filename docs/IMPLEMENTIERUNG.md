@@ -168,3 +168,43 @@ Ersetzt Zeichen-Zoom-Regler, automatische Nachführung und Kamera-Stick (Nutzere
 - **Tests:** 10 neue Prüfungen in `test_core.gd` (Rekorderlogik mit festen Zeitstempeln), 9 in `test_flow.gd` (Kamera- und Fingerlogik). Kontrollbilder: `game/tests/resume_shots.gd`.
 - Nachtrag: Regler „Tempo der Linie“ (Schlüssel `draw_tempo`, 0..1, Standard 0,5). Mitte = Grundwert 0,38 wie vor der automatischen Kamera (Höchsttempo bei ~63 m/s Zeichentempo). Der Regler arbeitet logarithmisch: links −50 % (0,19), rechts +100 % (0,76). `LineRecorder.tempo_from_setting()`, 2 neue Prüfungen in `test_core.gd`.
 - Menü: Die Bedingung der Herausforderung steht in einer eigenen Zeile unter den Rivalen-Knöpfen (vorher überlappte sie die Überschrift).
+
+## Grafik-Umbau, Teil 1: Premium-Stufe (27.09.2026)
+
+**Renderer:** Mobile-Renderer (Vulkan) mit automatischem Rückfall auf OpenGL (`rendering_device/fallback_to_opengl3`). Premium-Grafik nur mit Vulkan (`Diorama.premium_rendering()`); auf OpenGL bleibt die bisherige Klötzchen-Grafik (Stufe für schwache Handys).
+
+**Asset-Kette (lokal, alles frei entworfen):**
+1. `tools/make_image_prompts.py` → `art/bildvorlagen/*.txt`: je Objekt ein Bild-Prompt mit festen Regeln (freigestellt, links vorne, 20–30° von oben, keine Schrift/Marken; Autos hellgrau). Bilder erzeugt der Nutzer mit ChatGPT → `art/bildvorlagen/bilder/`.
+2. `tools/cutout.py` → `art/bildvorlagen/freigestellt/`: weißen Hintergrund transparent machen (Durchblicke bei Pflanzen/Gittern).
+3. `tools/ai3d_batch.sh` / `tools/ai3d_batch.py`: TRELLIS.2 (vorhandene 3D-Werkstatt in WSL, zweite RTX 3090), Pipeline einmal laden, Ergebnisse nach `.tools/ai3d/runs/<name>/`.
+4. Autos: `tools/build_cars.ps1` + `tools/ai_car.py` (Einstellungen `tools/ai_cars.json`): Längsachse ausrichten, vorn/hinten an den roten Rückleuchten erkennen, auf Spiellänge skalieren, KI-Räder herausschneiden, Radradius am Modell messen, eigene bewegliche Räder (`make_car.py`) und dunkle Radhaus-Schalen einsetzen, Texturen 1024 px/JPEG → `game/assets/cars/<stil>.glb` (~2 MB je Auto).
+5. Kulisse: `tools/build_props.ps1` + `tools/ai_prop.py`: auf Höhe 1 normieren, auf Dreiecksbudget ausdünnen (Bäume 2.500, Häuser bis 9.000), Texturen 256–1024 px → `game/assets/props/<name>.glb`.
+
+**Im Spiel:**
+- Autos: Lack-Shader `assets/cars/car_paint.gdshader` tönt den eingebackenen hellgrauen Lack (helle, ungesättigte Texel, im sRGB-Raum erkannt) in der Wagenfarbe, mit Klarlack; Scheiben/Kunststoff bleiben. `PAINT_SAT` je Stil für farbstichig gebackenen Lack. Räder drehen mit dem gefahrenen Weg, lenken ein; die Karosserie nickt/wankt aus der Beschleunigung (nur Darstellung).
+- Fahrbahn: `assets/road.gdshader` mit Körnung, Nässe, Pfützen an festen Weltkoordinaten und echter Spiegelung: gespiegelte Kamera unter der Fahrbahnebene rendert Ebene 1 (Aufragendes) in halber Auflösung, nur bei Regen ab Qualität „Mittel“. Flaches liegt auf Ebene 2 (`sort_layers`).
+- Gelände: `assets/terrain.gdshader` – Rasen mit Farbschwankungen, trockenen Stellen, Mähstreifen (Küste); Erd-Bankett mit per Rauschen unregelmäßigem, weich auslaufendem Rand (Abstandskarte zur Streckenmitte, beim Aufbau berechnet); Schnee/Nässe.
+- Kulisse: Deko-Typen des Streckenformats werden auf KI-Modelle abgebildet (`premium_prop`), je Modell ein MultiMesh. Lichtflecken und Schriftzüge bleiben.
+- Funken bei Kollisionen (`RaceVehicle.resolve_contact` liefert die Aufprallgeschwindigkeit, Simulation unverändert).
+- Kontrollbilder: `tests/car_shots.gd`, `tests/car_lineup.gd`, `tests/mirror_test.gd`, `tests/spark_test.gd`.
+- Nachbesserungen nach Gerätetest (S24: 112 FPS bei höchster Qualität):
+  - Zittern in Fahrtrichtung behoben: Die Autos werden zwischen zwei 60-Hz-Physikschritten interpoliert dargestellt (`place_models`, `render_pos`), die Kamera folgt der interpolierten Position. Die Simulation bleibt unverändert.
+  - Regen: kürzere, schräge Tropfen, die am Boden enden; Aufschlagringe im Fahrbahn-Shader (in Pfützen kräftiger). Niederschlag liegt auf Ebene 2 und wird nicht gespiegelt (vorher „fielen“ die Tropfen in der Pfütze nach oben).
+  - Randsteine als durchgehendes Band je Seite (`curb_band`): Segmentgrenzen quer zur Strecke, keine Überlappung und kein Flackern in der Innenkurve, keine Lücken außen.
+  - Stadthäuser werden gleichmäßig skaliert statt gestreckt.
+- Waldbäume mit höherem Budget (Kiefer 9.000, Eiche 10.000 Dreiecke), sonst verschwinden Nadeln und Blätter beim Ausdünnen. Der Busch scheitert in TRELLIS am Grafikspeicher und wird nicht verwendet.
+- Lichtflecken der Laternen liegen über den Randsteinen (0,30 m), damit diese mitbeleuchtet werden.
+- Gezeichnete Linie im Rennen: 70 % durchsichtig und beleuchtet wie Fahrbahnmarkierung (nachts dunkel, unter Laternen hell) statt selbstleuchtend.
+
+## Update-Funktion (27.09.2026)
+
+- `game/scripts/updater.gd`: Prüft `https://api.github.com/repos/ShakieVan/Draw2Race/releases/latest` (automatisch höchstens einmal täglich beim Start auf dem Handy, sonst über Optionen → „Updates“). Angenommen wird nur ein fertiges Release (kein Entwurf/Vorabversion) mit Tag `vX.Y.Z`, genau einer Datei `Draw2Race-X.Y.Z.apk`, Größe ≤ 512 MB, SHA-256-Angabe der GitHub-API und exakt erwarteter Download-URL.
+- Download nach `user://updates/<sha256>.apk`, danach Größe und SHA-256 prüfen (in eigenem Thread).
+- `game/android/build/src/main/java/com/godot/game/Updater.java` (Aufruf per `JavaClassWrapper`): Paketname gleich, Versionscode höher, Versionsname wie im Release, Signatur identisch zur installierten App; dann System-Installer über den FileProvider der Godot-Bibliothek (`<paket>.fileprovider`). Fehlt die Android-Erlaubnis „Apps installieren“, öffnet sich die passende Einstellung.
+- Oberfläche: Menü-Knopf „Update ↓“, sobald eine neuere Version vorliegt; Dialog mit installierter/neuer Version, Release-Notizen, Fortschritt und Aktion (Suchen/Herunterladen/Installieren).
+- Voraussetzungen: Gradle-Export (`gradle_build/use_gradle_build=true`, Vorlage in `game/android/build`), Berechtigungen INTERNET und REQUEST_INSTALL_PACKAGES. `org.gradle.daemon=false`, sonst hält der Gradle-Dienst die Ausgabe offen und der Export kehrt nicht zurück.
+- Versionen: `application/config/version` in `project.godot` und `version/name` im Exportprofil müssen übereinstimmen, `version/code` muss je Release steigen (`tools/build.ps1` prüft die Namen und legt `builds/Draw2Race-<version>.apk` an).
+- Release veröffentlichen: `gh release create vX.Y.Z builds/Draw2Race-X.Y.Z.apk`.
+- Tests: 3 Prüfungen in `test_core.gd` (Versionsvergleich, gültiges Release, Ablehnung fremder URL/Entwurf/fehlender Prüfsumme).
+- Regen nur im Licht (`assets/rain.gdshader`): Tropfen ohne Eigenfarbe, additiv; Helligkeit = Tageslicht + Lichtkarte der Straßenlichter (beim Aufbau berechnet, `Atmosphere.bake_rain_lights`) + Scheinwerferkegel/Rücklichter der Autos (live, `update_rain_cars`). Zum Boden hin heller als Tiefenhinweis in der orthografischen Draufsicht.
+- Kontrollbild-Aufrufe immer mit `timeout`/`--quit-after`: Bricht ein Skript beim Laden ab, erreicht das Testskript sein `quit()` nie.

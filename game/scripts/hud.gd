@@ -228,6 +228,9 @@ func header(tag: String) -> void:
 	button(bar,"Menü" if app.phase != "menu" else "Optionen",Rect2(1221,15,130,54),app.pause_game if app.phase != "menu" else settings)
 	if app.phase == "menu":
 		button(bar,"Bestenliste",Rect2(1041,15,168,54),func(): leaderboard(app.track_id,app.stage))
+		if app.updater.available():
+			# Hinweis im Menü, sobald eine neuere Version auf GitHub liegt.
+			button(bar,"Update  ↓",Rect2(861,15,168,54),update_dialog,true)
 
 func menu() -> void:
 	clear()
@@ -509,8 +512,52 @@ func settings() -> void:
 		button(p,Atmosphere.QUALITY_NAMES[i],Rect2(34+i*194,470,184,56),func():
 			app.store.data["gfx"]=i; app.store.save(); app.apply_atmosphere()
 			p.get_parent().queue_free(); settings(),i==gfx)
-	button(p,"Sound & Musik  ♪",Rect2(34,562,572,62),func(): p.get_parent().queue_free(); sound_settings())
+	button(p,"Sound & Musik  ♪",Rect2(34,562,278,62),func(): p.get_parent().queue_free(); sound_settings())
+	button(p,"Updates",Rect2(328,562,278,62),func(): p.get_parent().queue_free(); update_dialog())
 	button(p,"Zurück",Rect2(34,666,572,66),func(): p.get_parent().queue_free(),true)
+
+func overlay_open() -> bool:
+	return content.get_children().any(func(c): return c is ColorRect)
+
+func update_dialog() -> void:
+	var up: Updater = app.updater
+	var p := overlay("Updates.","Installiert: Version %s" % Updater.current_version(),Vector2(760,760))
+	var y := 132.0
+	if up.available():
+		label(p,"Neu auf GitHub: Version %s  (%d MB)" % [up.release.version,int(up.release.size/1048576)],Vector2(34,y),20,ORANGE)
+		y += 44
+	var state := label(p,up.status + (" %d %%" % up.percent if up.busy and up.percent >= 0 else ""),Vector2(34,y),20,INK,690)
+	if up.available() and str(up.release.notes) != "":
+		var notes := RichTextLabel.new()
+		notes.position = Vector2(34,y+56)
+		notes.size = Vector2(692,300)
+		notes.bbcode_enabled = false
+		notes.text = str(up.release.notes)
+		notes.add_theme_color_override("default_color",MUTED)
+		notes.add_theme_font_size_override("normal_font_size",readable(16))
+		p.add_child(notes)
+	if OS.get_name() == "Android" and not up.can_install():
+		button(p,"Installation erlauben (Android-Einstellung)",Rect2(34,500,692,56),func(): up.open_permission())
+	var action_text := "Suchen"
+	var action := func(): up.check(true)
+	if up.busy:
+		action_text = "Bitte warten …"
+	elif up.apk_ready:
+		action_text = "Installieren"
+		action = func(): up.install()
+	elif up.available():
+		action_text = "Herunterladen"
+		action = func(): up.download()
+	var go := button(p,action_text,Rect2(34,580,440,66),action,true)
+	go.disabled = up.busy
+	button(p,"Schließen",Rect2(488,580,238,66),func(): p.get_parent().queue_free())
+	# Live aktualisieren, solange der Dialog offen ist.
+	var refresh := func():
+		if is_instance_valid(p):
+			p.get_parent().queue_free()
+			update_dialog()
+	up.changed.connect(refresh, CONNECT_ONE_SHOT)
+	p.tree_exiting.connect(func(): if up.changed.is_connected(refresh): up.changed.disconnect(refresh))
 
 func logo_tapped() -> void:
 	var now := Time.get_ticks_msec()

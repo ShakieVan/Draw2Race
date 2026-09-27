@@ -63,7 +63,27 @@ func shape_transform(kind: String, transform: Transform3D, color: Color) -> void
 	shape(kind, Vector3.ZERO, Vector3.ONE, color)
 	batches[kind + color.to_html()].transforms[-1] = transform
 
+const WATER_SHADER := preload("res://assets/water.gdshader")
+const WATER_COLORS := ["39959c", "4aa6a5", "53b3ac", "3f7f80"]
+var water_material: ShaderMaterial
+
+func premium_water() -> ShaderMaterial:
+	if water_material == null:
+		water_material = ShaderMaterial.new()
+		water_material.shader = WATER_SHADER
+		for key in ["wave_a", "wave_b"]:
+			var tex := noise_texture(0.02 if key == "wave_a" else 0.035, 3 if key == "wave_a" else 9, 256)
+			tex.as_normal_map = true
+			tex.bump_strength = 6.0
+			water_material.set_shader_parameter(key, tex)
+		water_material.set_shader_parameter("tint_noise", noise_texture(0.02, 13, 128))
+	return water_material
+
 func bake() -> void:
+	for key in batches:
+		# Premium: Wasserflächen (Meer, Lagune, Teich, Brunnen) mit bewegtem Wasser-Shader.
+		if premium_rendering() and WATER_COLORS.any(func(c): return key.contains(c)):
+			batches[key].mesh.material = premium_water()
 	for batch in batches.values():
 		if batch.transforms.is_empty():
 			continue
@@ -94,15 +114,20 @@ func build(circuit: Circuit) -> void:
 	atmosphere = Atmosphere.new()
 	add_child(atmosphere)
 	atmosphere.setup(self, Color(theme.sky), track.bounds)
+	atmosphere.premium = premium_rendering()
 	var c := track.bounds.get_center()
 	var half := track.bounds.size*0.5 + Vector2(Circuit.HALF_WIDTH+9.0, Circuit.HALF_WIDTH+9.0)
 	shape("box", Vector3(c.x,-2.5,c.y), Vector3(half.x*2+160,0.4,half.y*2+160), Color(theme.sea))
+	var fancy_ground := premium_rendering()
 	if theme.island:
 		# Insel: Sandsockel, Strand, Wiese mit Mähstreifen.
 		shape("disc", Vector3(c.x,-1.2,c.y), Vector3(half.x*2.35,2.0,half.y*2.35), Color(theme.rim))
 		shape("disc", Vector3(c.x,-0.18,c.y), Vector3(half.x*2.3,0.35,half.y*2.3), Color(theme.rim2))
-		shape("disc", Vector3(c.x,0.01,c.y), Vector3(half.x*2.15,0.15,half.y*2.15), Color(theme.ground))
-		for strip in range(-12,13):
+		if fancy_ground:
+			premium_ground(theme, Vector3(c.x,0.01,c.y), Vector3(half.x*2.15,0.15,half.y*2.15), true)
+		else:
+			shape("disc", Vector3(c.x,0.01,c.y), Vector3(half.x*2.15,0.15,half.y*2.15), Color(theme.ground))
+		for strip in range(-12 if not fancy_ground else 0,13 if not fancy_ground else 0):
 			var z := strip*2.2
 			var width := half.x*2.1*sqrt(maxf(0,1.0-pow(z/(half.y*1.05),2)))
 			if width > 1.0:
@@ -115,11 +140,15 @@ func build(circuit: Circuit) -> void:
 	else:
 		# Stadt/Wald: großflächiger Boden bis zum Horizont mit Randsockel.
 		shape("box", Vector3(c.x,-0.6,c.y), Vector3(half.x*2+70,1.2,half.y*2+60), Color(theme.rim))
-		shape("box", Vector3(c.x,0.02,c.y), Vector3(half.x*2+66,0.12,half.y*2+56), Color(theme.ground))
+		if fancy_ground:
+			premium_ground(theme, Vector3(c.x,0.02,c.y), Vector3(half.x*2+66,0.12,half.y*2+56), false)
+		else:
+			shape("box", Vector3(c.x,0.02,c.y), Vector3(half.x*2+66,0.12,half.y*2+56), Color(theme.ground))
 		if track.theme == "city":
 			for gx in range(-8,9):
 				shape("box",Vector3(c.x+gx*9.0,0.09,c.y),Vector3(0.12,0.01,half.y*2+50),Color(theme.stripe))
-	road_strip(-4.9, 4.9, 0.12, Color(theme.shoulder))
+	if not fancy_ground:
+		road_strip(-4.9, 4.9, 0.12, Color(theme.shoulder))
 	for zone in track.surfaces:
 		var sides: Array = [[4.05,4.9]] if zone.side=="outer" else ([[-4.9,-4.05]] if zone.side=="inner" else [[4.05,4.9],[-4.9,-4.05]])
 		for band in sides:
@@ -152,12 +181,18 @@ func build(circuit: Circuit) -> void:
 			shape("box", Vector3(center.x,0.20+s*0.004,center.y), Vector3(0.85,0.02,0.16), arrow_color, angle-sign_value*0.55)
 	for prop in track.props:
 		build_prop(prop)
+	flush_ai_props()
+	atmosphere.bake_rain_lights(track.bounds.grow(Circuit.HALF_WIDTH + 12.0))
 	bake()
 	for key in ["ground","stripe","shoulder","rim2"]:
 		atmosphere.register_tint(material(Color(theme[key])))
 	var road_color := Color("8b6f4e") if track.road == "gravel" else Color("394950")
 	atmosphere.road_material = material(road_color)
 	atmosphere.road_color = road_color
+	if premium_rendering() and road_mesh != null:
+		# Premium: Asphalt-/Schotter-Shader mit Nässe, Pfützen und Spiegelung statt Einfarbfläche.
+		atmosphere.road_shader = premium_road(road_color)
+		road_mesh.material_override = atmosphere.road_shader
 	build_puddles()
 	marker = Node3D.new()
 	add_child(marker)
@@ -174,27 +209,74 @@ func build(circuit: Circuit) -> void:
 	skid_mesh = MeshInstance3D.new()
 	skid_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(skid_mesh)
+	sort_layers(self)
+	for flat in [line_mesh, open_mesh, ghost_mesh, skid_mesh]:
+		flat.layers = LAYER_FLAT
 
 func build_asphalt_road() -> void:
-	road_strip(-3.5, 3.5, 0.17, Color("394950"), 0.0, 1.0, true)
+	road_mesh = road_strip(-3.5, 3.5, 0.17, Color("394950"), 0.0, 1.0, true)
 	road_strip(-3.37, -3.29, 0.185, Color("e8dfc8"), 0.0, 1.0, true, true)
 	road_strip(3.29, 3.37, 0.185, Color("e8dfc8"), 0.0, 1.0, true, true)
+	# Randsteine als durchgehendes Band je Seite: Segmentgrenzen quer zur Strecke, daher innen kürzer und außen
+	# länger – keine Überlappung (Flackern) in der Innenkurve, keine Lücken außen.
+	for edge in [-1.0, 1.0]:
+		curb_band(edge * 3.46, edge * 4.04)
 	var curb_count := int(track.length/0.86)
 	for i in range(curb_count):
 		var s := float(i) / curb_count
-		for edge in [-1.0, 1.0]:
-			var p := track.at(s, edge * 3.75)
-			# An der Kreuzung (Acht) keine Randsteine quer über die andere Fahrbahn.
-			if track.other_branch_distance(p, s) > Circuit.HALF_WIDTH + 0.6:
-				shape("box", Vector3(p.x,0.21,p.y), Vector3(0.86,0.15,0.58), CORAL if i % 4 < 2 else CREAM, -track.tangent(s).angle())
 		if i % 4 == 0:
 			var p := track.at(s)
 			if track.other_branch_distance(p, s) > Circuit.HALF_WIDTH + 0.2:
 				shape("box", Vector3(p.x,0.182+s*0.004,p.y), Vector3(0.8,0.016,0.06), Color("8b9390"), -track.tangent(s).angle())
 
+func curb_band(inner: float, outer: float) -> void:
+	# Je Farbe ein Netz (gleiches Material wie die übrigen Bauteile, daher gleiche Helligkeit).
+	var tools := {CORAL: SurfaceTool.new(), CREAM: SurfaceTool.new()}
+	for st in tools.values():
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var blocks := int(track.length / 0.86)
+	var steps := 3          # Unterteilung je Block, damit Kurven rund bleiben
+	var top := 0.285
+	var bottom := 0.14
+	var lo := minf(inner, outer)
+	var hi := maxf(inner, outer)
+	for b in range(blocks):
+		var st: SurfaceTool = tools[CORAL if b % 4 < 2 else CREAM]
+		for k in range(steps):
+			var s0 := (b + float(k) / steps) / blocks
+			var s1 := (b + float(k + 1) / steps) / blocks
+			var mid := track.at((s0 + s1) * 0.5, (lo + hi) * 0.5)
+			# An der Kreuzung (Acht) keine Randsteine quer über die andere Fahrbahn.
+			if track.other_branch_distance(mid, (s0 + s1) * 0.5) < Circuit.HALF_WIDTH + 0.6:
+				continue
+			var a0 := track.at(s0, lo)
+			var a1 := track.at(s0, hi)
+			var b0 := track.at(s1, lo)
+			var b1 := track.at(s1, hi)
+			var quads := [
+				[Vector3(a0.x, top, a0.y), Vector3(a1.x, top, a1.y), Vector3(b1.x, top, b1.y), Vector3(b0.x, top, b0.y)],
+				[Vector3(a1.x, bottom, a1.y), Vector3(b1.x, bottom, b1.y), Vector3(b1.x, top, b1.y), Vector3(a1.x, top, a1.y)],
+				[Vector3(b0.x, bottom, b0.y), Vector3(a0.x, bottom, a0.y), Vector3(a0.x, top, a0.y), Vector3(b0.x, top, b0.y)],
+			]
+			for qi in range(quads.size()):
+				var q: Array = quads[qi]
+				var e1: Vector3 = q[1] - q[0]
+				var e2: Vector3 = q[3] - q[0]
+				var n: Vector3 = Vector3.UP if qi == 0 else e1.cross(e2).normalized()
+				for idx in [0, 2, 1, 0, 3, 2]:
+					st.set_normal(n)
+					st.add_vertex(q[idx])
+	for color in tools:
+		var mesh := MeshInstance3D.new()
+		mesh.mesh = tools[color].commit()
+		var mat := material(color)
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		mesh.material_override = mat
+		add_child(mesh)
+
 func build_gravel_road() -> void:
 	# Schotterpiste: braune Fahrbahn mit Körnung, keine Randlinien; Holzpfosten und Feldsteine statt Randsteinen.
-	road_strip(-3.5, 3.5, 0.17, Color("8b6f4e"), 0.0, 1.0, true)
+	road_mesh = road_strip(-3.5, 3.5, 0.17, Color("8b6f4e"), 0.0, 1.0, true)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 23
 	for i in range(int(track.length*7.0)):
@@ -227,7 +309,8 @@ func light_pool(head: Vector3, reach: float, color: Color) -> void:
 	quad.orientation = PlaneMesh.FACE_Y
 	pool.mesh = quad
 	pool.material_override = Atmosphere.soft_material(color, true)
-	pool.position = Vector3(head.x, 0.24, head.z)
+	# Über den Randsteinen (0,285 m), damit auch sie im Lichtkegel liegen; unter Linie und Autos kaum sichtbar.
+	pool.position = Vector3(head.x, 0.30, head.z)
 	pool.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	node.add_child(pool)
 	var glow := MeshInstance3D.new()
@@ -241,6 +324,7 @@ func light_pool(head: Vector3, reach: float, color: Color) -> void:
 	node.add_child(glow)
 	node.visible = false
 	atmosphere.night_lights.append(node)
+	atmosphere.lamps.append([head, reach, Color(color.r, color.g, color.b)])
 
 func build_puddles() -> void:
 	# Glänzende Pfützen auf Asphalt, nur bei Regen sichtbar.
@@ -270,7 +354,136 @@ func build_puddles() -> void:
 		add_child(puddle)
 		atmosphere.puddles.append(puddle)
 
+# --- Premium-Kulisse: KI-Modelle (tools/build_props.ps1) statt Klötzchen, gleiche Modelle gebündelt ---
+const AI_PROP_PATH := "res://assets/props/%s.glb"
+# Drehung je Modell (Grad), damit die Schauseite zur Strecke bzw. in +z zeigt (TRELLIS-Grundausrichtung).
+const AI_PROP_YAW := {}
+var ai_prop_meshes := {}
+var ai_prop_batches := {}
+
+func ai_prop_mesh(name: String) -> Mesh:
+	if not ai_prop_meshes.has(name):
+		var mesh: Mesh = null
+		if ResourceLoader.exists(AI_PROP_PATH % name):
+			var scene: Node = load(AI_PROP_PATH % name).instantiate()
+			var found := scene.find_children("*", "MeshInstance3D", true, false)
+			if not found.is_empty():
+				mesh = (found[0] as MeshInstance3D).mesh
+			scene.free()
+		ai_prop_meshes[name] = mesh
+	return ai_prop_meshes[name]
+
+func place_ai(name: String, x: float, z: float, yaw: float, height: float, footprint := Vector2.ZERO, stretch := false, base_y := 0.0) -> bool:
+	# Modell auf Höhe/Grundfläche bringen und zum Bündel hinzufügen. false = Modell fehlt (Klötzchen bauen).
+	var mesh := ai_prop_mesh(name)
+	if mesh == null:
+		return false
+	var box := mesh.get_aabb()
+	var scale3: Vector3
+	if footprint != Vector2.ZERO:
+		var sx := footprint.x / maxf(box.size.x, 0.001)
+		var sz := footprint.y / maxf(box.size.z, 0.001)
+		if stretch:
+			scale3 = Vector3(sx, height / maxf(box.size.y, 0.001) if height > 0.0 else (sx + sz) * 0.5, sz)
+		else:
+			var u := minf(sx, sz)
+			scale3 = Vector3(u, u, u)
+	else:
+		var u := height / maxf(box.size.y, 0.001)
+		scale3 = Vector3(u, u, u)
+	var basis := Basis(Vector3.UP, yaw + deg_to_rad(float(AI_PROP_YAW.get(name, 0.0)))) * Basis.from_scale(scale3)
+	var anchor := Vector3(box.get_center().x, box.position.y, box.get_center().z)
+	var origin := Vector3(x, base_y, z) - basis * anchor
+	if not ai_prop_batches.has(name):
+		ai_prop_batches[name] = []
+	ai_prop_batches[name].append(Transform3D(basis, origin))
+	return true
+
+func flush_ai_props() -> void:
+	# Ein MultiMesh je Modell: wenige Zeichenaufrufe auch bei ~270 Waldbäumen.
+	for name in ai_prop_batches:
+		var list: Array = ai_prop_batches[name]
+		var multi := MultiMesh.new()
+		multi.transform_format = MultiMesh.TRANSFORM_3D
+		multi.mesh = ai_prop_mesh(name)
+		multi.instance_count = list.size()
+		for i in range(list.size()):
+			multi.set_instance_transform(i, list[i])
+		var node := MultiMeshInstance3D.new()
+		node.name = "KI_" + name
+		node.multimesh = multi
+		add_child(node)
+	ai_prop_batches.clear()
+
+func premium_prop(prop: Dictionary) -> bool:
+	# true = als KI-Modell gebaut (samt Licht/Schrift), false = Klötzchen-Fassung verwenden.
+	if not premium_rendering():
+		return false
+	var x := float(prop.get("x",0.0))
+	var z := float(prop.get("z",0.0))
+	var rot := -deg_to_rad(float(prop.get("rot",0.0)))
+	var w := float(prop.get("w",2.0))
+	var d := float(prop.get("d",2.0))
+	var sc := float(prop.get("scale",1.0))
+	# Zufällige, aber feste Drehung für ungerichtete Objekte (Bäume, Felsen).
+	var spin := fposmod(x * 12.9898 + z * 78.233, TAU)
+	match str(prop.get("type","")):
+		"palm":
+			return place_ai("kueste_palme", x, z, spin, float(prop.get("h",3.5)) * 1.35)
+		"parasol":
+			return place_ai("kueste_sonnenschirm", x, z, spin, 2.5)
+		"planter":
+			return place_ai("kueste_pflanzkuebel", x, z, rot, 0.0, Vector2(w, d), true)
+		"pine":
+			return place_ai("wald_kiefer", x, z, spin, 5.6 * sc)
+		"oak":
+			return place_ai("wald_eiche", x, z, spin, 4.6 * sc)
+		"rock":
+			return place_ai("wald_felsen" if track.theme == "forest" else "kueste_felsen", x, z, spin, 1.0 * sc)
+		"log":
+			return place_ai("wald_baumstamm", x, z, rot, 0.0, Vector2(3.2, 0.7), true)
+		"street_tree":
+			return place_ai("stadt_baum", x, z, spin, 4.6)
+		"fountain":
+			return place_ai("stadt_brunnen", x, z, spin, 0.0, Vector2(5.0, 5.0))
+		"boathouse":
+			return place_ai("kueste_bootshaus", x, z, rot, 0.0, Vector2(4.5, 5.0), false, -0.5)
+		"cabin":
+			return place_ai("wald_huette", x, z, rot, 0.0, Vector2(5.0, 4.0))
+		"stand":
+			return place_ai("kueste_tribuene", x, z, rot, 0.0, Vector2(w, d + 2.0), true)
+		"tower":
+			return place_ai("kueste_zeitnahme", x, z, rot, 5.5)
+		"pavilion":
+			if place_ai("kueste_clubhaus", x, z, rot, 0.0, Vector2(w + 1.0, d + 1.0)):
+				label3d(str(prop.get("text","")), Vector3(x, 3.4, z + d * 0.62), 62, CREAM)
+				return true
+			return false
+		"building":
+			var kinds := ["stadt_altbau", "stadt_eckladen", "stadt_wohnblock", "stadt_buero"]
+			var pick: String = kinds[int(absf(x * 3.0 + z * 7.0)) % kinds.size()]
+			# Gleichmäßig skalieren (nicht strecken): KI-Häuser behalten ihre Proportionen.
+			return place_ai(pick, x, z, rot, 0.0, Vector2(w, d))
+		"lamp":
+			if place_ai("stadt_laterne" if track.theme == "city" else "kueste_laterne", x, z, spin, 4.2):
+				light_pool(Vector3(x,3.9,z), 4.0, Color(1.0,0.82,0.5,0.5))
+				return true
+			return false
+		"floodlight":
+			if place_ai("kueste_flutlicht", x, z, rot, 9.0):
+				light_pool(Vector3(x,8.6,z), float(prop.get("reach",11.0)), Color(0.95,0.95,1.0,0.42))
+				return true
+			return false
+		"lantern":
+			if place_ai("wald_laterne", x, z, spin, 1.7):
+				light_pool(Vector3(x,1.55,z), 3.2, Color(1.0,0.75,0.4,0.55))
+				return true
+			return false
+	return false
+
 func build_prop(prop: Dictionary) -> void:
+	if premium_prop(prop):
+		return
 	var x := float(prop.get("x",0.0))
 	var z := float(prop.get("z",0.0))
 	var rot := -deg_to_rad(float(prop.get("rot",0.0)))
@@ -408,7 +621,7 @@ func label3d(text: String, pos: Vector3, font_size: int, color: Color, flat := f
 		label.rotation_degrees.x = -90
 	add_child(label)
 
-func road_strip(inner: float, outer: float, y: float, color: Color, start_s := 0.0, end_s := 1.0, stagger := false, skip_crossing := false) -> void:
+func road_strip(inner: float, outer: float, y: float, color: Color, start_s := 0.0, end_s := 1.0, stagger := false, skip_crossing := false) -> MeshInstance3D:
 	var surface := SurfaceTool.new()
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var count := maxi(1,ceili(track.length/0.5*(end_s-start_s)))
@@ -431,6 +644,7 @@ func road_strip(inner: float, outer: float, y: float, color: Color, start_s := 0
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	mesh.material_override = mat
 	add_child(mesh)
+	return mesh
 
 static func line_half_width(speed: float) -> float:
 	# Langsam = 3x so breit wie früher (0,32 m), damit langsam und schnell klar unterscheidbar sind.
@@ -442,7 +656,14 @@ static func line_color(speed: float) -> Color:
 func draw_route(route: Array[Dictionary], subdued := false, open_from := -1, ghost: Array[Dictionary] = []) -> void:
 	# open_from: Routenindex, ab dem die Linie offen ist (schimmert); ghost: alter Rest während einer Probe.
 	var split := route.size() if open_from < 0 else clampi(open_from, 0, route.size())
-	line_mesh.mesh = route_mesh(route, 0, split, subdued, line_material(false))
+	var line_mat := line_material(subdued)
+	if subdued:
+		# Im Rennen: Linie zu 70 % durchsichtig, damit Fahrbahn, Pfützen und Autos darunter sichtbar bleiben.
+		line_mat.albedo_color = Color(1, 1, 1, 0.3)
+		# Wie Fahrbahnmarkierung beleuchtet (Tag hell, Nacht dunkel, unter Laternen hell) statt selbstleuchtend.
+		line_mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		line_mat.roughness = 0.9
+	line_mesh.mesh = route_mesh(route, 0, split, subdued, line_mat)
 	open_mesh.mesh = route_mesh(route, maxi(split, 1) - 1, route.size(), false, open_line_material()) if split < route.size() else null
 	# Deckend, damit sich überlappende Segmente nicht streifig addieren; der Altrest wirkt wie ein Schatten.
 	var ghost_mat := line_material(false)
@@ -514,16 +735,198 @@ const CAR_STYLES := {
 	"gt": {"len":2.1,"wid":1.0,"y":0.38,"h":0.28,"cab_x":-0.2,"cab_len":0.9,"cab_h":0.28,"wheel":0.40},
 }
 
-func car_model(color: Color, player := false, style := "coupe") -> Node3D:
+# Premium-Autos: frei entworfene Modelle aus tools/make_car.py (Blender). Nur mit Vulkan-Renderer;
+# auf OpenGL-Geräten (und per Entwickler-Schalter) bleibt die einfache Klötzchen-Grafik.
+var premium := true
+var road_mesh: MeshInstance3D
+const ROAD_SHADER := preload("res://assets/road.gdshader")
+# Sichtbarkeitsebenen: 1 = aufragend (wird gespiegelt), 2 = flach am Boden (Spiegelkamera lässt es aus).
+const LAYER_TALL := 1
+const LAYER_FLAT := 2
+
+func premium_rendering() -> bool:
+	return premium and RenderingServer.get_current_rendering_method() != "gl_compatibility"
+
+func noise_texture(frequency: float, seed_value: int, size := 512) -> NoiseTexture2D:
+	var noise := FastNoiseLite.new()
+	noise.seed = seed_value
+	noise.frequency = frequency
+	noise.fractal_octaves = 4
+	var tex := NoiseTexture2D.new()
+	tex.noise = noise
+	tex.seamless = true
+	tex.width = size
+	tex.height = size
+	return tex
+
+func premium_road(color: Color) -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = ROAD_SHADER
+	mat.set_shader_parameter("base_color", color)
+	mat.set_shader_parameter("grain_tex", noise_texture(0.06, 7))
+	mat.set_shader_parameter("puddle_tex", noise_texture(0.012, 41, 256))
+	mat.set_shader_parameter("grain_strength", 0.5 if track.road == "gravel" else 0.35)
+	return mat
+
+var spark_pool: Array[CPUParticles3D] = []
+var spark_next := 0
+
+func sparks(at: Vector3, side: Vector3, strength: float) -> void:
+	# Funkenregen bei Kollisionen: kleiner Vorrat an Einmal-Emittern, reihum wiederverwendet.
+	if atmosphere != null and atmosphere.quality == 0:
+		return
+	if spark_pool.is_empty():
+		var streak := BoxMesh.new()
+		streak.size = Vector3(0.03, 0.03, 0.24)
+		var hot := StandardMaterial3D.new()
+		hot.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		hot.vertex_color_use_as_albedo = true
+		streak.material = hot
+		# Weißglut -> Gelb -> Orange -> glimmendes Rot (Farbe über die Lebensdauer).
+		var ramp := Gradient.new()
+		ramp.offsets = PackedFloat32Array([0.0, 0.25, 0.65, 1.0])
+		ramp.colors = PackedColorArray([Color(1.0, 0.97, 0.75), Color(1.0, 0.8, 0.25), Color(1.0, 0.45, 0.08), Color(0.6, 0.12, 0.02)])
+		for i in range(4):
+			var p := CPUParticles3D.new()
+			p.one_shot = true
+			p.emitting = false
+			p.explosiveness = 0.9
+			p.lifetime = 0.5
+			p.mesh = streak
+			p.local_coords = false
+			p.particle_flag_align_y = true
+			p.spread = 55.0
+			p.gravity = Vector3(0, -9.8, 0)
+			p.initial_velocity_min = 3.0
+			p.initial_velocity_max = 8.0
+			p.scale_amount_min = 0.6
+			p.scale_amount_max = 1.3
+			p.color_ramp = ramp
+			p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(p)
+			spark_pool.append(p)
+	var emitter := spark_pool[spark_next]
+	spark_next = (spark_next + 1) % spark_pool.size()
+	if emitter.emitting:
+		return
+	emitter.global_position = at
+	emitter.direction = (side + Vector3(0, 0.9, 0)).normalized()
+	emitter.amount = int(lerpf(12.0, 48.0, strength))
+	emitter.restart()
+
+const TERRAIN_SHADER := preload("res://assets/terrain.gdshader")
+
+func distance_texture(margin: float, cells: int) -> Dictionary:
+	# Abstand zur Streckenmitte auf einem groben Raster (für weiche Bankett-Übergänge im Gelände-Shader).
+	var area := track.bounds.grow(margin)
+	var img := Image.create(cells, cells, false, Image.FORMAT_RF)
+	var max_d := 24.0
+	for iy in range(cells):
+		for ix in range(cells):
+			var p := area.position + Vector2((ix + 0.5) / cells * area.size.x, (iy + 0.5) / cells * area.size.y)
+			img.set_pixel(ix, iy, Color(minf(track.center_distance(p), max_d) / max_d, 0, 0))
+	return {"tex": ImageTexture.create_from_image(img), "origin": area.position, "size": area.size, "max": max_d}
+
+func premium_ground(theme: Dictionary, pos: Vector3, size: Vector3, disc: bool) -> void:
+	var node := MeshInstance3D.new()
+	if disc:
+		var cyl := CylinderMesh.new()
+		cyl.top_radius = 0.5
+		cyl.bottom_radius = 0.5
+		cyl.height = 1.0
+		cyl.radial_segments = 64
+		node.mesh = cyl
+	else:
+		node.mesh = BoxMesh.new()
+	node.scale = size
+	node.position = pos
+	var mat := ShaderMaterial.new()
+	mat.shader = TERRAIN_SHADER
+	var base := Color(theme.ground)
+	var dirt := Color(theme.shoulder)
+	mat.set_shader_parameter("grass_a", base.lightened(0.04))
+	mat.set_shader_parameter("grass_b", base.darkened(0.08))
+	mat.set_shader_parameter("grass_dry", base.lerp(Color("c9b98a"), 0.55))
+	mat.set_shader_parameter("dirt_a", dirt)
+	mat.set_shader_parameter("dirt_b", dirt.darkened(0.25))
+	mat.set_shader_parameter("noise_tex", noise_texture(0.03, 19))
+	mat.set_shader_parameter("mow_stripes", theme.island)
+	var field := distance_texture(26.0, 192)
+	mat.set_shader_parameter("dist_tex", field.tex)
+	mat.set_shader_parameter("dist_origin", field.origin)
+	mat.set_shader_parameter("dist_size", field.size)
+	mat.set_shader_parameter("dist_max", field.max)
+	node.material_override = mat
+	add_child(node)
+	if atmosphere != null:
+		atmosphere.terrain_shader = mat
+
+func sort_layers(root: Node) -> void:
+	# Flaches (Boden, Fahrbahn, Linien, Lichtflecken) auf Ebene 2, alles Aufragende auf Ebene 1.
+	for node in root.find_children("*", "GeometryInstance3D", true, false):
+		var geo := node as GeometryInstance3D
+		if geo.has_meta("keep_layer"):
+			continue
+		var box := geo.global_transform * geo.get_aabb()
+		geo.layers = LAYER_FLAT if box.end.y < 0.45 else LAYER_TALL
+const CAR_PAINT := preload("res://assets/cars/car_paint.gdshader")
+# Lacksättigung je Stil, wenn die KI den Lack farbstichig gebacken hat (siehe tools/ai_cars.json).
+const PAINT_SAT := {"muscle": 0.34}
+
+func premium_car_path(style: String) -> String:
+	return "res://assets/cars/%s.glb" % style
+
+func uses_premium(style: String) -> bool:
+	return premium and RenderingServer.get_current_rendering_method() != "gl_compatibility" \
+		and ResourceLoader.exists(premium_car_path(style))
+
+func premium_car(car: Node3D, color: Color, style: String) -> StandardMaterial3D:
+	var model: Node3D = load(premium_car_path(style)).instantiate()
+	model.name = "Model"
+	car.add_child(model)
+	# Lack je Auto: das Material "Paint" aller Teile durch eine eigene Kopie in der Wagenfarbe ersetzen.
+	var paint: StandardMaterial3D = null
+	var wheels: Array[Node3D] = []
+	for node in model.find_children("*", "MeshInstance3D", true, false):
+		var mesh_node := node as MeshInstance3D
+		if mesh_node.name.begins_with("Wheel_"):
+			wheels.append(mesh_node)
+		for i in range(mesh_node.mesh.get_surface_count()):
+			var mat := mesh_node.mesh.surface_get_material(i) as StandardMaterial3D
+			if mat != null and mat.resource_name.begins_with("AIBody"):
+				# KI-Karosserie: Lack-Shader tönt den eingebackenen hellgrauen Lack in der Wagenfarbe.
+				var shaded := ShaderMaterial.new()
+				shaded.shader = CAR_PAINT
+				shaded.set_shader_parameter("albedo_tex", mat.albedo_texture)
+				shaded.set_shader_parameter("paint_color", color)
+				shaded.set_shader_parameter("paint_max_sat", float(PAINT_SAT.get(style, 0.16)))
+				if mat.roughness_texture != null:
+					shaded.set_shader_parameter("orm_tex", mat.roughness_texture)
+					shaded.set_shader_parameter("has_orm", true)
+				mesh_node.set_surface_override_material(i, shaded)
+				car.set_meta("paint_shader", shaded)
+				continue
+			if mat != null and mat.resource_name == "Paint":
+				if paint == null:
+					paint = mat.duplicate()
+					paint.albedo_color = color
+					paint.clearcoat_enabled = true
+					paint.clearcoat = 1.0
+					paint.clearcoat_roughness = 0.05
+				mesh_node.set_surface_override_material(i, paint)
+	car.set_meta("wheels", wheels)
+	car.set_meta("body", model.find_child("Body", true, false))
+	return paint
+
+func classic_body(car: Node3D, color: Color, player: bool, style: String) -> void:
+	# Einfache Klötzchen-Grafik (schwache Geräte / OpenGL).
 	var st: Dictionary = CAR_STYLES.get(style, CAR_STYLES.coupe)
 	var L: float = st.len
 	var W: float = st.wid
 	var Y: float = st.y
-	var car := Node3D.new()
-	add_child(car)
 	var body := shape("box",Vector3(0,Y,0),Vector3(L,st.h,W),color,0,car)
 	if player:
-		# Eigenes Auto: leicht selbstleuchtende Karosserie und pulsierender Lichtkranz am Boden.
+		# Eigenes Auto: leicht selbstleuchtende Karosserie (Puls in main.gd).
 		var glow := StandardMaterial3D.new()
 		glow.albedo_color = color.lightened(0.12)
 		glow.roughness = 0.5
@@ -531,23 +934,7 @@ func car_model(color: Color, player := false, style := "coupe") -> Node3D:
 		glow.emission = color
 		glow.emission_energy_multiplier = 0.35
 		body.material_override = glow
-		body.name = "Body"
-		var halo := MeshInstance3D.new()
-		halo.name = "Halo"
-		var disc := CylinderMesh.new()
-		disc.top_radius = 1.55
-		disc.bottom_radius = 1.55
-		disc.height = 0.02
-		disc.radial_segments = 32
-		halo.mesh = disc
-		var halo_mat := StandardMaterial3D.new()
-		halo_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		halo_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		halo_mat.albedo_color = Color(1.0, 0.86, 0.45, 0.38)
-		halo.material_override = halo_mat
-		halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		halo.position = Vector3(0, 0.05, 0)
-		car.add_child(halo)
+		car.set_meta("paint", glow)
 	var cab_y: float = Y + st.h*0.5 + st.cab_h*0.5 - 0.02
 	shape("box",Vector3(st.cab_x,cab_y,0),Vector3(st.cab_len,st.cab_h,W*0.83),Color("23404a"),0,car)
 	shape("box",Vector3(st.cab_x-0.02,cab_y+st.cab_h*0.5+0.03,0),Vector3(st.cab_len*0.74,0.07,W*0.84),color,0,car)
@@ -574,6 +961,43 @@ func car_model(color: Color, player := false, style := "coupe") -> Node3D:
 			for z in [-W*0.35,W*0.35]:
 				shape("box",Vector3(-L*0.44,Y+0.3,z),Vector3(0.08,0.3,0.08),DARK,0,car)
 			shape("box",Vector3(-L*0.46,Y+0.47,0),Vector3(0.35,0.05,W*1.2),DARK,0,car)
+
+func car_model(color: Color, player := false, style := "coupe") -> Node3D:
+	var st: Dictionary = CAR_STYLES.get(style, CAR_STYLES.coupe)
+	var L: float = st.len
+	var W: float = st.wid
+	var Y: float = st.y
+	var car := Node3D.new()
+	add_child(car)
+	if uses_premium(style):
+		var paint := premium_car(car, color, style)
+		if player and car.has_meta("paint_shader"):
+			car.get_meta("paint_shader").set_shader_parameter("glow", 0.25)
+		if player and paint != null:
+			# Eigenes Auto: leicht leuchtender Lack (Puls in main.gd).
+			paint.emission_enabled = true
+			paint.emission = color
+			paint.emission_energy_multiplier = 0.25
+			car.set_meta("paint", paint)
+	else:
+		classic_body(car, color, player, style)
+	if player:
+		var halo := MeshInstance3D.new()
+		halo.name = "Halo"
+		var disc := CylinderMesh.new()
+		disc.top_radius = 1.55
+		disc.bottom_radius = 1.55
+		disc.height = 0.02
+		disc.radial_segments = 32
+		halo.mesh = disc
+		var halo_mat := StandardMaterial3D.new()
+		halo_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		halo_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		halo_mat.albedo_color = Color(1.0, 0.86, 0.45, 0.38)
+		halo.material_override = halo_mat
+		halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		halo.position = Vector3(0, 0.05, 0)
+		car.add_child(halo)
 	var exhaust := Node3D.new()
 	exhaust.name = "Turbo"
 	car.add_child(exhaust)

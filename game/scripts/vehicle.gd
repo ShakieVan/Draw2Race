@@ -164,11 +164,13 @@ static func update_avoidance(cars: Array, dt: float) -> void:
 				goal = -signf(side if absf(side) > 0.05 else 1.0) * 1.7
 		me.avoid_offset = move_toward(me.avoid_offset, goal, dt * 3.0)
 
-static func resolve_contact(a: RaceVehicle, b: RaceVehicle) -> void:
+static func resolve_contact(a: RaceVehicle, b: RaceVehicle) -> float:
+	# Rückgabe: Aufprallgeschwindigkeit (m/s) für Funken/Geräusch; 0 = keine Berührung. Nur Information,
+	# die Simulation selbst bleibt unverändert.
 	var delta := b.pos - a.pos
 	var dist := delta.length()
 	if dist > 1.15 or dist < 0.001:
-		return
+		return 0.0
 	var normal := delta / dist
 	var overlap := (1.15 - dist) * 0.5
 	a.pos -= normal * overlap
@@ -178,3 +180,5 @@ static func resolve_contact(a: RaceVehicle, b: RaceVehicle) -> void:
 		var impulse := -closing * 0.65
 		a.velocity -= normal * impulse
 		b.velocity += normal * impulse
+		return -closing
+	return 0.0

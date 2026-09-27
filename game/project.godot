@@ -2,8 +2,9 @@ config_version=5
 
 [application]
 config/name="Draw2Race"
+config/version="0.2.1"
 run/main_scene="res://main.tscn"
-config/features=PackedStringArray("4.6", "GL Compatibility")
+config/features=PackedStringArray("4.6", "Mobile")
 config/icon="res://assets/icon.svg"
 boot_splash/bg_color=Color(0.047, 0.196, 0.224, 1)
 boot_splash/image="res://assets/splash.png"
@@ -18,8 +19,12 @@ window/stretch/aspect="expand"
 window/handheld/orientation=0
 
 [rendering]
-renderer/rendering_method="gl_compatibility"
-renderer/rendering_method.mobile="gl_compatibility"
+
+# Premium-Grafik über Vulkan (Mobile-Renderer); Geräte ohne Vulkan fallen automatisch auf OpenGL zurück
+# und bekommen die einfache Grafikstufe.
+rendering_device/fallback_to_opengl3=true
+renderer/rendering_method="mobile"
+renderer/rendering_method.mobile="mobile"
 textures/default_filters/use_nearest_mipmap_filter=false
 textures/vram_compression/import_etc2_astc=true
 anti_aliasing/quality/msaa_3d=2

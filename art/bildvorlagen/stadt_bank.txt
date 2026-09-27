@@ -1,0 +1,18 @@
+Objekt: Parkbank
+
+Eine Parkbank mit gusseisernen Seitenteilen und Holzlatten.
+
+Bildregeln (für die Umrechnung in ein 3D-Modell, bitte genau einhalten):
+- Genau EIN Objekt, vollständig im Bild, mittig, füllt etwa 80 % der Bildfläche, nichts abgeschnitten.
+- Perspektive (verbindlich, hat Vorrang vor allen anderen Wünschen):
+  - Kamera links vorne, leicht erhöht. Man sieht vor allem die LINKE Seite des Objekts und schräg ein Stück der Vorderseite
+    (horizontal etwa 30–40° aus der reinen Seitenansicht in Richtung Front gedreht – also mehr Seite als Front).
+  - Kamera etwa 20–30° über der Horizontalen, Blick leicht von oben, sodass auch die Oberseite (Dach) sichtbar ist.
+  - Niemals von unten, keine Froschperspektive, keine Unterseite, keine reine Draufsicht, keine reine Front- oder Seitenansicht.
+  - Natürliche Verdeckung ist ausdrücklich erwünscht: Was auf der abgewandten Seite liegt, darf verdeckt sein.
+  - Brennweite wie ein Teleobjektiv / Produktfoto, also kaum perspektivische Verzerrung.
+- Hintergrund: freigestellt (transparent) oder reines, gleichmäßiges Weiß. Kein Boden, keine Bodenschatten, keine Spiegelung, keine Umgebung.
+- Licht: weich und gleichmäßig wie in einer Studio-Softbox, neutralweiß, keine harten Schatten, keine farbigen Lichter, keine Gegenlicht-Effekte.
+- Stil: fotorealistisch, hochwertiges 3D-Rendering, realistische Materialien und Gebrauchsspuren, aber sauber und klar lesbar.
+- Keine Schrift, keine Zahlen, keine Logos, keine Markenembleme, keine Kennzeichen, keine Wasserzeichen, keine Personen oder Tiere.
+- Format: quadratisch (1024 × 1024), PNG.

@@ -12,3 +12,15 @@ docs/reference/*
 !docs/reference/README.md
 # Große Arbeits-/Entwurfsdateien; spielfertige Musik liegt in game/assets/music/
 audio/entwurf/
+# Gradle-Export: Vorlage und eigener Update-Code (Updater.java, Manifest) versionieren, Erzeugtes nicht
+game/android/build/build/
+game/android/build/.gradle/
+game/android/build/src/main/assets/
+game/android/build/src/instrumented/assets/
+game/android/build/assetPackInstallTime/src/main/assets/
+game/android/build/local.properties
+game/android/build/libs/
+# Abgeleitet (tools/cutout.py) bzw. überholt
+art/bildvorlagen/freigestellt/
+art/bildvorlagen/bilder/1. Versuch/
+art/bildvorlagen/ERZEUGUNG.json

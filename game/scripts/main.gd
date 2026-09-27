@@ -10,6 +10,7 @@ var world := Diorama.new()
 var hud := RaceHUD.new()
 var camera := Camera3D.new()
 var sound := RaceSound.new()
+var updater := Updater.new()
 var vehicles: Array[RaceVehicle] = []
 var models: Array[Node3D] = []
 var phase := "menu"
@@ -68,8 +69,14 @@ func _ready() -> void:
 	camera_target = track_center()
 	set_camera(camera_target)
 	add_child(sound)
+	add_child(updater)
+	updater.setup(store)
 	add_child(hud)
 	hud.setup(self)
+	updater.changed.connect(func(): if phase == "menu" and not hud.overlay_open(): hud.menu())
+	# Automatische Prüfung höchstens einmal täglich, nur auf dem Handy.
+	if OS.get_name() == "Android":
+		updater.check(false)
 	show_menu()
 	if "--demo" in OS.get_cmdline_user_args():
 		demo()
@@ -206,7 +213,9 @@ func begin_race() -> void:
 			models.append(world.car_model(Color(spec.color),true,str(spec.style)))
 		else:
 			models.append(world.car_model(Color(rival_colors[i-1]),false,"coupe"))
+	snapshot_vehicles()
 	update_models()
+	place_models()
 	for i in range(vehicles.size()):
 		record_tyre_tracks(i)
 	hud.race()
@@ -224,9 +233,40 @@ func update_tyre_tracks() -> void:
 	if skid_tick%8==0:
 		world.update_tracks(race_time)
 
+# Darstellung zwischen zwei Physikschritten interpolieren: Die Simulation läuft mit 60 Hz, das Display oft mit
+# 120 Hz. Ohne Zwischenwerte springt das Auto nur jedes zweite Bild, während die Kamera gleitet -> Zittern.
+var prev_poses: Array[Vector2] = []
+var prev_headings: Array[float] = []
+
+func snapshot_vehicles() -> void:
+	prev_poses.resize(vehicles.size())
+	prev_headings.resize(vehicles.size())
+	for i in range(vehicles.size()):
+		prev_poses[i] = vehicles[i].pos
+		prev_headings[i] = vehicles[i].heading
+
+func render_pos(i: int) -> Vector2:
+	if i >= prev_poses.size():
+		return vehicles[i].pos
+	return prev_poses[i].lerp(vehicles[i].pos, Engine.get_physics_interpolation_fraction())
+
+func place_models() -> void:
+	var alpha := Engine.get_physics_interpolation_fraction()
+	for i in range(mini(vehicles.size(), models.size())):
+		var p := render_pos(i)
+		var h := vehicles[i].heading if i >= prev_headings.size() else lerp_angle(prev_headings[i], vehicles[i].heading, alpha)
+		models[i].position = Vector3(p.x,0.2,p.y)
+		models[i].rotation.y = -h
+	# Regen: Scheinwerfer- und Rücklicht-Positionen für die Beleuchtung der Tropfen.
+	var lit: Array = []
+	for i in range(mini(vehicles.size(), models.size())):
+		lit.append([models[i].position, vehicles[i].heading])
+	world.atmosphere.update_rain_cars(lit)
+
 func _physics_process(dt: float) -> void:
 	if paused:
 		return
+	snapshot_vehicles()
 	if phase == "draw":
 		draw_clock += dt
 	elif phase == "countdown":
@@ -251,7 +291,7 @@ func _physics_process(dt: float) -> void:
 		for a in range(vehicles.size()):
 			for b in range(a+1,vehicles.size()):
 				if vehicles[a].finish_time<0 and vehicles[b].finish_time<0:
-					RaceVehicle.resolve_contact(vehicles[a],vehicles[b])
+					contact_sparks(a,b,RaceVehicle.resolve_contact(vehicles[a],vehicles[b]))
 		update_tyre_tracks()
 		update_models()
 		if vehicles[0].finish_time>=0:
@@ -272,7 +312,7 @@ func _physics_process(dt: float) -> void:
 		for a in range(1,vehicles.size()):
 			for b in range(a+1,vehicles.size()):
 				if vehicles[a].finish_time<0 and vehicles[b].finish_time<0:
-					RaceVehicle.resolve_contact(vehicles[a],vehicles[b])
+					contact_sparks(a,b,RaceVehicle.resolve_contact(vehicles[a],vehicles[b]))
 		if new_finish:
 			var rows := sorted_results()
 			hud.results(rows,player_result_rank(rows),result_record)
@@ -281,22 +321,61 @@ func _physics_process(dt: float) -> void:
 
 func update_models() -> void:
 	for i in range(vehicles.size()):
-		models[i].position = Vector3(vehicles[i].pos.x,0.2,vehicles[i].pos.y)
-		models[i].rotation.y = -vehicles[i].heading
 		models[i].get_node("Turbo").visible = vehicles[i].boosting and phase=="race"
 		models[i].get_node("Lights").visible = world.atmosphere.is_dark()
 		# Staub nur auf losem Grund, ab Schrittgeschwindigkeit und nicht in der niedrigsten Grafikstufe.
 		var dust: CPUParticles3D = models[i].get_node("Dust")
 		var loose: bool = str(track.surface_at(vehicles[i].pos).kind) in ["gravel","dirt","mud","sand","grass"]
 		dust.emitting = loose and world.atmosphere.quality>=1 and vehicles[i].velocity.length()>4.0 and world.atmosphere.conditions.weather!="rain"
+		animate_car(i)
 	if not models.is_empty() and models[0].has_node("Halo"):
 		# Sanftes Pulsieren (nur Darstellung) hebt das eigene Auto hervor.
 		var pulse := 0.5 + 0.5*sin(Time.get_ticks_msec()*0.004)
 		var halo: MeshInstance3D = models[0].get_node("Halo")
 		halo.material_override.albedo_color.a = 0.22 + 0.22*pulse
 		halo.scale = Vector3.ONE*(0.92 + 0.12*pulse)
-		var body: MeshInstance3D = models[0].get_node("Body")
-		body.material_override.emission_energy_multiplier = 0.22 + 0.25*pulse
+		if models[0].has_meta("paint_shader"):
+			models[0].get_meta("paint_shader").set_shader_parameter("glow",0.12 + 0.18*pulse)
+		elif models[0].has_meta("paint"):
+			var paint: StandardMaterial3D = models[0].get_meta("paint")
+			paint.emission_energy_multiplier = 0.18 + 0.22*pulse
+
+func contact_sparks(a: int, b: int, impact: float) -> void:
+	# Funken am Berührpunkt ab spürbarem Stoß (nur Darstellung).
+	if impact < 0.8:
+		return
+	var p := (vehicles[a].pos+vehicles[b].pos)*0.5
+	var away := (vehicles[b].pos-vehicles[a].pos).normalized().orthogonal()
+	world.sparks(Vector3(p.x,0.45,p.y),Vector3(away.x,0,away.y),clampf(impact/5.0,0.2,1.0))
+
+func animate_car(i: int) -> void:
+	# Nur Darstellung (Leitplanke 4): Räder rollen mit dem gefahrenen Weg und lenken ein, die Karosserie
+	# nickt beim Bremsen/Beschleunigen und wankt in Kurven – abgeleitet aus der Fahrzeugbewegung.
+	var car := models[i]
+	if not car.has_meta("wheels"):
+		return
+	var v := vehicles[i]
+	var dt := 1.0/60.0
+	var forward := Vector2(cos(v.heading),sin(v.heading))
+	var speed := v.velocity.dot(forward)
+	var spin: float = float(car.get_meta("spin",0.0)) + speed*dt/0.155
+	car.set_meta("spin",spin)
+	for wheel: Node3D in car.get_meta("wheels"):
+		# Auf die Grundausrichtung aus dem Modell aufsetzen (nicht ersetzen): Einlenken um die Hochachse,
+		# Rollen um die Radachse (lokal z).
+		if not wheel.has_meta("rest"):
+			wheel.set_meta("rest",wheel.basis)
+		var steer := -v.steering*0.6 if wheel.name.begins_with("Wheel_F") else 0.0
+		wheel.basis = Basis(Vector3.UP,steer)*Basis(Vector3.BACK,-spin)*Basis(wheel.get_meta("rest"))
+	var last: Vector2 = car.get_meta("last_velocity",v.velocity)
+	car.set_meta("last_velocity",v.velocity)
+	var accel := (v.velocity-last)/dt
+	var along := accel.dot(forward)
+	var lateral := accel.dot(Vector2(-forward.y,forward.x))
+	var body: Node3D = car.get_meta("body")
+	if body != null:
+		var target := Vector3(clampf(lateral*0.006,-0.07,0.07),0,clampf(along*0.005,-0.06,0.06))
+		body.rotation = body.rotation.lerp(target,0.15)
 
 func overview_size() -> float:
 	# Strecke samt Bankett bildschirmfüllend: Breite und (geneigte) Tiefe müssen zwischen die HUD-Leisten passen.
@@ -359,6 +438,8 @@ func road_fill_size() -> float:
 	return road if screen.y<=screen.x else road*screen.y/screen.x
 
 func _process(dt: float) -> void:
+	if not vehicles.is_empty():
+		place_models()
 	var target := track_center()
 	var zoom := overview_size()
 	if phase == "draw" and recorder != null:
@@ -369,7 +450,7 @@ func _process(dt: float) -> void:
 	elif phase in ["race","countdown"] and bool(store.data.camera):
 		# Zoom-Regler: 0 = bisherige Folgeansicht (48), 1 = Fahrbahnbreite füllt die kürzere Bildschirmseite.
 		var f := clampf(float(store.data.get("camera_zoom",0.4)),0.0,1.0)
-		var p := vehicles[0].pos + vehicles[0].velocity*0.28
+		var p := render_pos(0) + vehicles[0].velocity*0.28
 		var follow := lerpf(0.45,1.0,sqrt(f))
 		var c := track_center()
 		target = c + (Vector3(p.x,0,p.y)-c)*follow

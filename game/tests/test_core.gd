@@ -170,6 +170,21 @@ func _init() -> void:
 		for i in range(1,31):
 			rec.sample(track.at(i/600.0),i/60.0)
 	check(float(eager.route[-1].speed)>float(calm.route[-1].speed)+2.0,"Höherer Tempo-Faktor ergibt bei gleicher Geste schnellere Vorgabe")
+	# Update-Funktion: Versionsvergleich und strenge Release-Prüfung.
+	check(Updater.compare_versions("0.10.0","0.9.9")>0 and Updater.compare_versions("1.2.3","1.2.3")==0,"Update: Versionen numerisch verglichen")
+	var digest := "sha256:" + "ab".repeat(32)
+	var good := {"draft": false, "prerelease": false, "tag_name": "v0.3.0", "body": "Neu",
+		"assets": [{"name": "Draw2Race-0.3.0.apk", "size": 1234, "digest": digest,
+			"browser_download_url": "https://github.com/ShakieVan/Draw2Race/releases/download/v0.3.0/Draw2Race-0.3.0.apk"}]}
+	var parsed := Updater.parse(JSON.stringify(good))
+	check(parsed.get("version") == "0.3.0" and parsed.get("sha256") == "ab".repeat(32),"Update: gültiges Release erkannt")
+	var bad_url := good.duplicate(true)
+	bad_url.assets[0].browser_download_url = "https://evil.example/Draw2Race-0.3.0.apk"
+	var draft := good.duplicate(true)
+	draft.draft = true
+	var no_digest := good.duplicate(true)
+	no_digest.assets[0].erase("digest")
+	check(Updater.parse(JSON.stringify(bad_url)).is_empty() and Updater.parse(JSON.stringify(draft)).is_empty() and Updater.parse(JSON.stringify(no_digest)).is_empty(),"Update: fremde URL, Entwurf oder fehlende Prüfsumme abgelehnt")
 	# Wetter: feste Bedingungen je Herausforderung; Nässe senkt Haftung und damit das Tempo der KI.
 	var coast := Circuit.load_track("azure")
 	check(coast.conditions_for(2).weather=="rain" and coast.conditions_for(0).time=="day","Strecke liefert Bedingungen je Herausforderung")

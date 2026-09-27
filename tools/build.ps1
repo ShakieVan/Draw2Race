@@ -19,6 +19,14 @@ if ($Target -in @('All','Windows')) {
     Invoke-Godot -Arguments @('--headless','--path',$gamePath,'--export-release','Windows',(Join-Path $projectRoot 'builds/Draw2Race.exe'))
 }
 if ($Target -in @('All','Android')) {
+    # Godot-Bibliotheken (je ~100 MB) nicht im Repo: bei Bedarf aus der Exportvorlage nachziehen.
+    $libs = Join-Path $gamePath 'android/build/libs'
+    if (-not (Test-Path (Join-Path $libs 'debug/godot-lib.template_debug.aar'))) {
+        $tmp = Join-Path $env:TEMP 'draw2race-android-template'
+        Expand-Archive -LiteralPath (Join-Path $projectRoot '.tools/export/templates/android_source.zip') -DestinationPath $tmp -Force
+        Copy-Item -Recurse -Force (Join-Path $tmp 'libs') (Join-Path $gamePath 'android/build/')
+        Remove-Item -Recurse -Force $tmp
+    }
     # Fester Projekt-Debugschlüssel: Updates auf dem Gerät bleiben möglich, auch wenn %APPDATA%\Godot neu entsteht.
     $keystore = Join-Path $projectRoot '.tools/draw2race-debug.keystore'
     if (Test-Path -LiteralPath $keystore) {
@@ -27,6 +35,11 @@ if ($Target -in @('All','Android')) {
         $env:GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD = 'android'
     }
     Invoke-Godot -Arguments @('--headless','--path',$gamePath,'--export-debug','Android',(Join-Path $projectRoot 'builds/Draw2Race.apk'))
+    # Release-Datei für GitHub: Die Update-Funktion erwartet genau "Draw2Race-<version>.apk" (version = config/version).
+    $version = (Select-String -LiteralPath (Join-Path $gamePath 'project.godot') -Pattern '^config/version="(.+)"').Matches[0].Groups[1].Value
+    $preset = Select-String -LiteralPath (Join-Path $gamePath 'export_presets.cfg') -Pattern '^version/name="(.+)"'
+    if ($preset.Matches[0].Groups[1].Value -ne $version) { throw "Version in project.godot ($version) und Exportprofil unterscheiden sich." }
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'builds/Draw2Race.apk') -Destination (Join-Path $projectRoot "builds/Draw2Race-$version.apk") -Force
 }
 Copy-Item -LiteralPath (Join-Path $gamePath 'assets/OFL.txt') -Destination (Join-Path $projectRoot 'builds/Outfit-LICENSE.txt') -Force
 Copy-Item -LiteralPath (Join-Path $gamePath 'assets/Godot-LICENSE.txt') -Destination (Join-Path $projectRoot 'builds/Godot-LICENSE.txt') -Force

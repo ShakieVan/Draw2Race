@@ -625,6 +625,8 @@ const AI_PROP_YAW := {"hafen_lagerhalle": 90.0, "hafen_frachtschiff": 90.0, "haf
 var ai_prop_meshes := {}
 var ai_prop_batches := {}
 
+const METAL_SCALE := {"hafen_kran": 0.15}
+
 func ai_prop_mesh(name: String) -> Mesh:
 	if not ai_prop_meshes.has(name):
 		var mesh: Mesh = null
@@ -633,6 +635,14 @@ func ai_prop_mesh(name: String) -> Mesh:
 			var found := scene.find_children("*", "MeshInstance3D", true, false)
 			if not found.is_empty():
 				mesh = (found[0] as MeshInstance3D).mesh
+				if METAL_SCALE.has(name.trim_suffix("_lo")):
+					# Lack statt blankem Metall: die KI hält glänzende weiße Farbe teils für Metall (wirkt silbrig).
+					for i in range(mesh.get_surface_count()):
+						var mat := mesh.surface_get_material(i) as StandardMaterial3D
+						if mat != null:
+							mat = mat.duplicate()
+							mat.metallic = float(METAL_SCALE[name.trim_suffix("_lo")])
+							mesh.surface_set_material(i, mat)
 			scene.free()
 		ai_prop_meshes[name] = mesh
 	return ai_prop_meshes[name]
@@ -776,6 +786,8 @@ func flush_cards() -> void:
 			node.extra_cull_margin = 8.0
 	card_batches.clear()
 
+const ALWAYS_FULL := ["hafen_kran", "hafen_frachtschiff", "hafen_frachtschiff_einfach"]
+
 func flush_ai_props() -> void:
 	# Je Modell und Kachel ein MultiMesh (Aussortieren außerhalb des Bildes), dazu eine vereinfachte Fassung
 	# (<name>_lo) für Schatten und Übersicht.
@@ -787,7 +799,8 @@ func flush_ai_props() -> void:
 				chunks[key] = []
 			chunks[key].append(t)
 		var hi := ai_prop_mesh(name)
-		var lo := ai_prop_mesh(name + "_lo")
+		# Wenige große Blickfänge (Kräne, Schiff) immer voll zeigen: vereinfacht zerfallen ihre feinen Teile.
+		var lo: Mesh = null if name in ALWAYS_FULL else ai_prop_mesh(name + "_lo")
 		for key in chunks:
 			var node := multimesh_node(hi, chunks[key], "KI_%s_%d_%d" % [name, key.x, key.y])
 			add_overlay(node, lit_overlay(hi))

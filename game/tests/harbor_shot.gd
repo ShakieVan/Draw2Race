@@ -15,6 +15,12 @@ func run() -> void:
 	for k in range(30):
 		await process_frame
 	root.get_texture().get_image().save_png("user://harbor_nah.png")
+	# Übersicht wie beim Zeichnen (weit herausgezoomt: hier greifen sonst die vereinfachten Modelle).
+	app.view_zoom = 34.0
+	app.view_focus = Vector3(0, 0, -30)
+	for k in range(30):
+		await process_frame
+	root.get_texture().get_image().save_png("user://harbor_weit.png")
 	var cam := Camera3D.new()
 	cam.fov = 50.0
 	app.add_child(cam)

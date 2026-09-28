@@ -127,7 +127,11 @@ func build(circuit: Circuit) -> void:
 	var half := track.bounds.size*0.5 + Vector2(Circuit.HALF_WIDTH+9.0, Circuit.HALF_WIDTH+9.0)
 	shape("box", Vector3(c.x,-2.5,c.y), Vector3(half.x*2+160,0.4,half.y*2+160), Color(theme.sea))
 	var fancy_ground := premium_rendering()
-	if not track.terrain.is_empty():
+	diorama = premium_rendering() and ResourceLoader.exists(DIORAMA_PATH % track.id)
+	if diorama:
+		# Gebackenes Diorama (Blender, tools/diorama.py): Boden, Straße, Häuser, Bäume, Umgebungsverdeckung.
+		build_diorama()
+	elif not track.terrain.is_empty():
 		# Gelände mit Höhenrelief (Berg, Steilküste): Netz aus dem Höhenraster der Strecke.
 		build_terrain(theme, fancy_ground)
 	elif theme.island:
@@ -188,7 +192,9 @@ func build(circuit: Circuit) -> void:
 		var sides: Array = [[4.05,4.9]] if zone.side=="outer" else ([[-4.9,-4.05]] if zone.side=="inner" else [[4.05,4.9],[-4.9,-4.05]])
 		for band in sides:
 			road_strip(band[0],band[1],0.13,Color(theme.mud),float(zone.from),float(zone.to))
-	if track.road == "gravel":
+	if diorama:
+		pass
+	elif track.road == "gravel":
 		build_gravel_road()
 	else:
 		build_asphalt_road()
@@ -217,6 +223,8 @@ func build(circuit: Circuit) -> void:
 	build_stunts()
 	build_shortcuts()
 	for prop in track.props:
+		if diorama and str(prop.get("type", "")) in DIORAMA_BAKED:
+			continue   # im Diorama enthalten
 		build_prop(prop)
 	flush_ai_props()
 	flush_cards()
@@ -955,6 +963,43 @@ func build_ship(x: float, z: float, rot: float, length: float) -> void:
 			for k in range(layers):
 				block(f, Vector3(bay, 3.2 + 1.3 + k * 2.6, row), Vector3(6.0, 2.5, 2.4), Color(colors[rng.randi() % colors.size()]))
 		bay += 6.3
+
+const DIORAMA_PATH := "res://dioramas/%s.glb"
+# Bausteine, die das Diorama selbst enthält (Laternen, Schilder usw. bleiben Laufzeit-Bauteile).
+const DIORAMA_BAKED := ["building", "street_tree", "fountain", "stand", "tower"]
+# Farbtöne der Diorama-Materialien (Fototexturen angleichen).
+const DIORAMA_TINT := {"D_Asphalt": Color(0.42, 0.44, 0.46), "D_Randstein": Color(0.8, 0.8, 0.78),
+	"D_Gehweg": Color(0.78, 0.76, 0.72), "D_Pflaster": Color(0.86, 0.84, 0.8), "D_Gras": Color(0.9, 0.95, 0.85),
+	"D_Stein": Color(0.9, 0.88, 0.84), "D_Weite": Color(0.8, 0.78, 0.74)}
+var diorama := false
+
+func build_diorama() -> void:
+	var scene: Node3D = load(DIORAMA_PATH % track.id).instantiate()
+	scene.name = "Diorama"
+	add_child(scene)
+	var ao_path: String = (DIORAMA_PATH % track.id).replace(".glb", "_ao.jpg")
+	var ao: Texture2D = load(ao_path) if ResourceLoader.exists(ao_path) else null
+	for node in scene.find_children("*", "MeshInstance3D", true, false):
+		var mi := node as MeshInstance3D
+		for i in range(mi.mesh.get_surface_count()):
+			var mat := mi.mesh.surface_get_material(i) as StandardMaterial3D
+			if mat == null:
+				continue
+			var mname := mat.resource_name
+			if mname == "D_Wasser":
+				mi.set_surface_override_material(i, premium_water())
+				continue
+			if mname.begins_with("D_"):
+				if DIORAMA_TINT.has(mname):
+					mat.albedo_color = DIORAMA_TINT[mname]
+				# Gebackene Umgebungsverdeckung (zweite UV-Ebene); dunkelt auch direktes Licht ab (Kontaktschatten).
+				if ao != null and mi.mesh.surface_get_format(i) & Mesh.ARRAY_FORMAT_TEX_UV2:
+					mat.ao_enabled = true
+					mat.ao_texture = ao
+					mat.ao_on_uv2 = true
+					mat.ao_light_affect = 0.85
+					mat.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+		add_overlay(mi, lit_overlay(mi.mesh))
 
 func premium_prop(prop: Dictionary) -> bool:
 	# true = als KI-Modell gebaut (samt Licht/Schrift), false = Klötzchen-Fassung verwenden.

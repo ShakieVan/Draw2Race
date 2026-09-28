@@ -11,6 +11,13 @@ var store := ProgressStore.new()
 var world := Diorama.new()
 var hud := RaceHUD.new()
 var camera := Camera3D.new()
+# Perspektivische Kamera (wie DrawRace 2): beim Zeichnen senkrecht von oben, im Rennen leicht geneigt.
+# "cam_zoom" ist die sichtbare Höhe im Blickzentrum (Meter, wie früher die Ortho-Größe); daraus folgt der Abstand.
+const PITCH_DRAW := deg_to_rad(90.0)
+const PITCH_RACE := deg_to_rad(72.0)
+const CAM_FOV := 40.0
+var cam_zoom := 60.0
+var cam_pitch := PITCH_DRAW
 var sound := RaceSound.new()
 var updater := Updater.new()
 var vehicles: Array[RaceVehicle] = []
@@ -71,9 +78,11 @@ func _ready() -> void:
 	world.build(track)
 	apply_atmosphere()
 	add_child(camera)
-	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
-	camera.size = overview_size()
-	camera.far = 300
+	camera.projection = Camera3D.PROJECTION_PERSPECTIVE
+	camera.fov = CAM_FOV
+	camera.near = 0.5
+	camera.far = 900
+	cam_zoom = overview_size()
 	camera_target = track_center()
 	set_camera(camera_target)
 	add_child(sound)
@@ -177,8 +186,11 @@ func select_track(new_id: String) -> void:
 	camera_target = track_center()
 
 func set_camera(target: Vector3) -> void:
-	camera.position = target + Vector3(0,64,48)
-	camera.look_at(target,Vector3.UP)
+	# Abstand so, dass im Blickzentrum cam_zoom Meter (senkrecht zur Blickrichtung) sichtbar sind.
+	var distance := cam_zoom*0.5/tan(deg_to_rad(CAM_FOV)*0.5)
+	camera.position = target + Vector3(0,sin(cam_pitch),cos(cam_pitch))*distance
+	# Bildschirm oben = Welt −z (auch senkrecht von oben eindeutig).
+	camera.look_at(target,Vector3(0,0,-1))
 
 func clear_cars() -> void:
 	for model in models:
@@ -261,7 +273,7 @@ func start_drawing() -> void:
 	var start := track.at(0.0)
 	world.marker.position = Vector3(start.x,0.31 + track.surface_z(0.0),start.y)
 	camera_target = track_center()
-	camera.size = overview_size()
+	cam_zoom = overview_size()
 	set_camera(camera_target)
 	hud.drawing()
 
@@ -548,7 +560,7 @@ func overview_size() -> float:
 	var aspect := screen.x/maxf(1.0,screen.y)
 	var half_x := track.bounds.size.x*0.5 + Circuit.HALF_WIDTH + 2.0
 	var half_z := track.bounds.size.y*0.5 + Circuit.HALF_WIDTH + 2.0
-	var pitch := sin(atan2(64.0,48.0))
+	var pitch := maxf(0.5,sin(cam_pitch))
 	return maxf(2.0*half_x/aspect, 2.0*half_z*pitch/0.74)
 
 func reset_view() -> void:
@@ -569,7 +581,7 @@ func clamp_view_state() -> void:
 func screen_scale() -> Vector2:
 	# Meter pro Bildpunkt auf dem Boden (x, z) beim aktuellen Zoom.
 	var h := maxf(1.0,get_viewport().get_visible_rect().size.y)
-	return Vector2(view_zoom/h,view_zoom/h/sin(atan2(64.0,48.0)))
+	return Vector2(view_zoom/h,view_zoom/h/maxf(0.5,sin(cam_pitch)))
 
 func pan_view(delta: Vector2) -> void:
 	var k := screen_scale()
@@ -587,14 +599,14 @@ func zoom_view(factor: float, anchor: Vector2) -> void:
 	view_focus.x = w.x-(w.x-view_focus.x)*k
 	view_focus.z = w.y-(w.y-view_focus.z)*k
 	clamp_view_state()
-	camera.size = view_zoom
+	cam_zoom = view_zoom
 	set_camera(Vector3(view_focus.x,0,view_focus.z-band_shift(view_zoom)))
 
 func band_shift(zoom: float) -> float:
 	# Bildschirm nach unten = Welt +z: um so viel versetzen, dass der Fokus in der Mitte des freien Bereichs erscheint.
 	var screen := get_viewport().get_visible_rect().size
 	var band: Vector2 = hud.free_band()
-	return ((band.x+band.y)*0.5-screen.y*0.5)*zoom/maxf(1.0,screen.y)/sin(atan2(64.0,48.0))
+	return ((band.x+band.y)*0.5-screen.y*0.5)*zoom/maxf(1.0,screen.y)/maxf(0.5,sin(cam_pitch))
 
 func road_fill_size() -> float:
 	# Ortho-Größe, bei der die Fahrbahn (plus Randsteine) die kürzere Bildschirmseite füllt.
@@ -606,7 +618,7 @@ func _process(dt: float) -> void:
 	if not vehicles.is_empty():
 		place_models()
 	# Detailstufe nach Zoom: nah volle KI-Modelle, in der Übersicht die vereinfachten.
-	world.set_detail(camera.size < 26.0)
+	world.set_detail(cam_zoom < 26.0)
 	var target := track_center()
 	var zoom := overview_size()
 	if phase == "draw" and recorder != null:
@@ -623,13 +635,15 @@ func _process(dt: float) -> void:
 		target = c + (Vector3(p.x,vehicles[0].z,p.y)-c)*follow
 		zoom = minf(overview_size(),48.0*pow(road_fill_size()/48.0,f))
 	if not paused:
+		var pitch_goal := PITCH_DRAW if phase in ["draw","menu"] else PITCH_RACE
+		cam_pitch = lerpf(cam_pitch,pitch_goal,1.0-exp(-dt*2.0))
 		if phase=="draw":
 			# Handkamera folgt den Fingern unmittelbar.
 			camera_target = target
-			camera.size = zoom
+			cam_zoom = zoom
 		else:
 			camera_target = camera_target.lerp(target,1.0-exp(-dt*3.5))
-			camera.size = lerpf(camera.size,zoom,1.0-exp(-dt*2.5))
+			cam_zoom = lerpf(cam_zoom,zoom,1.0-exp(-dt*2.5))
 		set_camera(camera_target)
 		world.marker.scale = Vector3.ONE*(1.0+sin(Time.get_ticks_msec()*0.006)*0.10)
 		# Malzeit läuft auch bei ruhendem Finger (Verweilen = langsam, Altern des offenen Bereichs, Probe).

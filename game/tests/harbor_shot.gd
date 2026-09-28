@@ -11,7 +11,7 @@ func run() -> void:
 	app.select_track("harbor")
 	app.start_drawing()
 	app.view_zoom = 14.0
-	app.view_focus = Vector3(-10, 0, -36)
+	app.view_focus = Vector3(-10, 0, -34)
 	for k in range(30):
 		await process_frame
 	root.get_texture().get_image().save_png("user://harbor_nah.png")

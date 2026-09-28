@@ -67,6 +67,7 @@ func _ready() -> void:
 	track = Circuit.load_track(track_id)
 	car_choice = clampi(int(store.data.get("car",0)),0,RaceVehicle.CARS.size()-1)
 	add_child(world)
+	world.low_detail = int(store.data.get("gfx",2)) == 0
 	world.build(track)
 	apply_atmosphere()
 	add_child(camera)
@@ -169,6 +170,7 @@ func select_track(new_id: String) -> void:
 	world = Diorama.new()
 	add_child(world)
 	move_child(world,0)
+	world.low_detail = int(store.data.get("gfx",2)) == 0
 	world.build(track)
 	apply_atmosphere()
 	world.visible = phase != "menu"

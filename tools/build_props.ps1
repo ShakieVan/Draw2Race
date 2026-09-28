@@ -11,7 +11,7 @@ $Budget = @{
     'stadt_altbau' = @(9000, 1024); 'stadt_eckladen' = @(9000, 1024); 'stadt_wohnblock' = @(8000, 1024); 'stadt_buero' = @(6000, 1024)
     'kueste_clubhaus' = @(9000, 1024); 'kueste_tribuene' = @(12000, 1024); 'kueste_bootshaus' = @(8000, 1024); 'wald_huette' = @(8000, 1024)
     'kueste_zeitnahme' = @(6000, 1024)
-    'hafen_lagerhalle' = @(10000, 1024); 'hafen_frachtschiff' = @(30000, 2048); 'hafen_kran' = @(30000, 2048); 'hafen_laterne' = @(1200, 256)
+    'hafen_lagerhalle' = @(10000, 1024); 'hafen_frachtschiff' = @(30000, 2048); 'hafen_frachtschiff_einfach' = @(8000, 1024); 'hafen_kran' = @(30000, 2048); 'hafen_laterne' = @(1200, 256)
     'hafen_poller' = @(600, 256); 'hafen_container' = @(1500, 512); 'hafen_faesser' = @(1500, 512); 'hafen_paletten' = @(1200, 512)
     'jahrmarkt_riesenrad' = @(10000, 1024); 'jahrmarkt_karussell' = @(8000, 1024); 'jahrmarkt_zelt' = @(6000, 1024); 'jahrmarkt_lichtermast' = @(1200, 256)
     'jahrmarkt_autoscooter' = @(8000, 1024); 'jahrmarkt_bude' = @(4000, 512); 'jahrmarkt_losbude' = @(4000, 512); 'jahrmarkt_bruecke' = @(4000, 512)

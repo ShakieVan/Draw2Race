@@ -104,12 +104,18 @@ OBJEKTE = {
     # --- Hafenviertel ---
     "hafen_container": ("Container-Stapel", "Drei übereinander gestapelte Schiffscontainer aus Stahl mit Wellblechwänden, Farben rostrot, blaugrau und grün, leichte Gebrauchsspuren und Rost, ohne Schrift oder Logos."),
     # Runde 3: ohne Gitterfachwerk und Seile – dünne Streben zerfallen bei der 3D-Umrechnung.
-    "hafen_kran": ("Containerbrücke (Kastenbauweise)", "Eine moderne Hafen-Containerbrücke in rot-weißer Lackierung, gebaut ausschließlich aus "
-                   "GESCHLOSSENEN, kräftigen Kastenträgern (rechteckige Stahlrohre, glatte Flächen): vier dicke Stützen als Portal, "
-                   "darüber ein langer, waagerechter Ausleger, der nach einer Seite weit übersteht, ein kompaktes Maschinenhaus "
-                   "hinten auf dem Ausleger, ein kleines Führerhaus darunter. Wichtig: KEIN Gitterfachwerk, KEINE Seile, "
-                   "KEINE dünnen Streben, keine Durchblicke durch Gitter – alle Bauteile massiv und kräftig. "
-                   "Das ganze Bauwerk vollständig im Bild, inklusive Auslegerspitze."),
+    "hafen_kran": ("Containerbrücke (realistisch, Kastenbauweise)", "Eine realistische, moderne Hafen-Containerbrücke (Ship-to-Shore-Kran) "
+                   "in rot-weißer Lackierung mit leichten Gebrauchsspuren, fotorealistisch wie in einem großen europäischen Containerhafen. "
+                   "Bauteile: vier hohe, schlanke, senkrechte Portalstützen auf Fahrwerken mit Rädern – die vier Stützen stehen exakt an den vier Ecken "
+                   "eines Rechtecks, paarweise parallel und spiegelsymmetrisch, alle gleich hoch, jede Stütze mit ihrem eigenen Fahrwerk genau darunter; darüber ein sehr langer, waagerechter Ausleger, "
+                   "der zu einer Seite weit übersteht (über das Wasser) und zur anderen Seite kürzer; oben auf dem Portal ein hoher A-Rahmen "
+                   "(Apex), von dessen Spitze schräge Abspannungen zur Auslegerspitze und nach hinten laufen; unter dem Ausleger eine "
+                   "Laufkatze mit Führerhaus und darunter ein gelber Spreader (Containergreifer), der mit einem kompakten, dicken "
+                   "Hubgeschirr fest an der Laufkatze hängt; hinten auf dem Ausleger das Maschinenhaus. "
+                   "Wichtig für die 3D-Umrechnung: Alle Bauteile – auch A-Rahmen, Abspannungen und Hubgeschirr – sind geschlossene, "
+                   "kräftige Stahlträger mit rechteckigem Querschnitt, KEINE dünnen Seile, KEIN filigranes Gitterfachwerk, keine frei "
+                   "schwebenden Teile. Realistische Proportionen: deutlich höher als breit, Ausleger etwa doppelt so lang wie das Portal hoch ist. "
+                   "Kein Spielzeug-Look, keine Bauklötze. Das ganze Bauwerk vollständig im Bild, inklusive Auslegerspitze und A-Rahmen."),
     "hafen_lagerhalle": ("Lagerhalle mit offenem Tor", "Eine lange Hafen-Lagerhalle aus Wellblech mit flachem Satteldach, an der Stirnseite ein großes, weit offenes Rolltor, durch das man hindurchfahren könnte; kein Schriftzug."),
     "hafen_poller": ("Hafenpoller", "Ein schwerer gusseiserner Hafenpoller, schwarz lackiert, mit um den Kopf gelegtem dickem Tau."),
     "hafen_faesser": ("Ölfässer", "Eine Gruppe aus sechs stehenden Stahlfässern, teils blau, teils rot lackiert, mit Dellen und Rost."),

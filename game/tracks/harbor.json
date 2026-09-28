@@ -1271,7 +1271,7 @@
    -25.0
   ]
  ],
- "quay_z": -37.5,
+ "quay_z": -40.0,
  "conditions": [
   {
    "time": "day",
@@ -1354,7 +1354,7 @@
    "type": "ai",
    "model": "hafen_frachtschiff",
    "x": -8,
-   "z": -45.0,
+   "z": -47.5,
    "rot": 0,
    "color": "1f3550",
    "w": 36,
@@ -1365,7 +1365,7 @@
    "type": "ai",
    "model": "hafen_poller",
    "x": -60,
-   "z": -36.7,
+   "z": -39.2,
    "rot": -0.0,
    "color": "2b2b2b",
    "h": 0.9
@@ -1374,7 +1374,7 @@
    "type": "ai",
    "model": "hafen_poller",
    "x": -48,
-   "z": -36.7,
+   "z": -39.2,
    "rot": -0.0,
    "color": "2b2b2b",
    "h": 0.9
@@ -1383,7 +1383,7 @@
    "type": "ai",
    "model": "hafen_poller",
    "x": -36,
-   "z": -36.7,
+   "z": -39.2,
    "rot": -0.0,
    "color": "2b2b2b",
    "h": 0.9
@@ -1392,7 +1392,7 @@
    "type": "ai",
    "model": "hafen_poller",
    "x": -24,
-   "z": -36.7,
+   "z": -39.2,
    "rot": -0.0,
    "color": "2b2b2b",
    "h": 0.9
@@ -1401,7 +1401,7 @@
    "type": "ai",
    "model": "hafen_poller",
    "x": -12,
-   "z": -36.7,
+   "z": -39.2,
    "rot": -0.0,
    "color": "2b2b2b",
    "h": 0.9
@@ -1410,7 +1410,7 @@
    "type": "ai",
    "model": "hafen_poller",
    "x": 0,
-   "z": -36.7,
+   "z": -39.2,
    "rot": -0.0,
    "color": "2b2b2b",
    "h": 0.9
@@ -1419,7 +1419,7 @@
    "type": "ai",
    "model": "hafen_poller",
    "x": 12,
-   "z": -36.7,
+   "z": -39.2,
    "rot": -0.0,
    "color": "2b2b2b",
    "h": 0.9
@@ -1428,7 +1428,7 @@
    "type": "ai",
    "model": "hafen_poller",
    "x": 24,
-   "z": -36.7,
+   "z": -39.2,
    "rot": -0.0,
    "color": "2b2b2b",
    "h": 0.9
@@ -1437,7 +1437,7 @@
    "type": "ai",
    "model": "hafen_poller",
    "x": 36,
-   "z": -36.7,
+   "z": -39.2,
    "rot": -0.0,
    "color": "2b2b2b",
    "h": 0.9
@@ -1446,7 +1446,7 @@
    "type": "ai",
    "model": "hafen_poller",
    "x": 48,
-   "z": -36.7,
+   "z": -39.2,
    "rot": -0.0,
    "color": "2b2b2b",
    "h": 0.9
@@ -1455,31 +1455,49 @@
    "type": "ai",
    "model": "hafen_poller",
    "x": 60,
-   "z": -36.7,
+   "z": -39.2,
    "rot": -0.0,
    "color": "2b2b2b",
    "h": 0.9
   },
   {
-   "type": "crane",
+   "type": "ai",
+   "model": "hafen_kran",
    "x": -24,
-   "z": -33.5,
+   "z": -40.6,
    "rot": 180,
-   "h": 16
+   "h": 22,
+   "color": "b8392b",
+   "feet": [
+    -24,
+    -36.0
+   ]
   },
   {
-   "type": "crane",
+   "type": "ai",
+   "model": "hafen_kran",
    "x": -2,
-   "z": -33.5,
+   "z": -40.6,
    "rot": 180,
-   "h": 16
+   "h": 22,
+   "color": "b8392b",
+   "feet": [
+    -2,
+    -36.0
+   ]
   },
   {
-   "type": "crane",
+   "type": "ai",
+   "model": "hafen_kran",
    "x": 36,
-   "z": -33.5,
+   "z": -40.6,
    "rot": 180,
-   "h": 16
+   "h": 22,
+   "color": "b8392b",
+   "feet": [
+    36,
+    -36.0
+   ]
   },
   {
    "type": "ai",

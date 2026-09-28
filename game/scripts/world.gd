@@ -620,8 +620,8 @@ func build_puddles() -> void:
 const AI_PROP_PATH := "res://assets/props/%s.glb"
 # Drehung je Modell (Grad), damit die Schauseite zur Strecke bzw. in +z zeigt (TRELLIS-Grundausrichtung).
 # Modelle, deren Längsachse in der KI-Ausgabe entlang z liegt; das Streckenformat erwartet w (Breite) entlang x.
-const AI_PROP_YAW := {"hafen_lagerhalle": 90.0, "hafen_frachtschiff": 90.0, "hafen_container": 90.0,
-	"drift_betonblock": 90.0, "serra_leitplanke": 90.0, "drift_parkhaus": 90.0, "drift_reifenwand": 90.0}
+const AI_PROP_YAW := {"hafen_lagerhalle": 90.0, "hafen_frachtschiff": 90.0, "hafen_frachtschiff_einfach": 90.0, "hafen_container": 90.0,
+	"hafen_kran": -90.0, "drift_betonblock": 90.0, "serra_leitplanke": 90.0, "drift_parkhaus": 90.0, "drift_reifenwand": 90.0}
 var ai_prop_meshes := {}
 var ai_prop_batches := {}
 
@@ -840,6 +840,8 @@ func generic_prop(prop: Dictionary) -> bool:
 			return true
 		"ai":
 			var model := str(prop.get("model",""))
+			if low_detail and LOW_VARIANTS.has(model) and ResourceLoader.exists(AI_PROP_PATH % LOW_VARIANTS[model]):
+				model = LOW_VARIANTS[model]
 			var h := float(prop.get("h", 0.0))
 			var fp := Vector2(float(prop.get("w", 0.0)), float(prop.get("d", 0.0)))
 			# Bäume als Bildkarten (billig, weiche Kronen), sonst KI-Modell.
@@ -848,7 +850,10 @@ func generic_prop(prop: Dictionary) -> bool:
 			# "y": Fußpunkt über/unter dem Gelände (z. B. Schiffsrumpf unter der Wasserlinie).
 			if premium_rendering() and place_ai(model, x, z, rot, h, fp, false, float(prop.get("y", 0.0))):
 				return true
-			if model == "hafen_frachtschiff":
+			if model == "hafen_kran" and prop.has("feet"):
+				build_crane(float(prop.feet[0]), float(prop.feet[1]), rot, 16.0)   # einfache Grafik: Grundformen
+				return true
+			if model.begins_with("hafen_frachtschiff"):
 				build_ship(x, z, rot, fp.x)   # einfache Grafik: Frachter aus Grundformen statt Klotz
 				return true
 			# Ersatz, solange das Modell fehlt (oder einfache Grafik): Klotz in Grundfarbe.
@@ -1276,6 +1281,9 @@ const CAR_STYLES := {
 # Premium-Autos: frei entworfene Modelle aus tools/make_car.py (Blender). Nur mit Vulkan-Renderer;
 # auf OpenGL-Geräten (und per Entwickler-Schalter) bleibt die einfache Klötzchen-Grafik.
 var premium := true
+var low_detail := false   # Grafikqualität „Niedrig“: einfachere KI-Modelle, wo vorhanden (LOW_VARIANTS)
+# Einfachere Fassung einzelner KI-Modelle für die Qualitätsstufe „Niedrig“ (ruhigere Form, weniger Dreiecke).
+const LOW_VARIANTS := {"hafen_frachtschiff": "hafen_frachtschiff_einfach"}
 var road_mesh: MeshInstance3D
 const ROAD_SHADER := preload("res://assets/road.gdshader")
 # Sichtbarkeitsebenen: 1 = aufragend (wird gespiegelt), 2 = flach am Boden (Spiegelkamera lässt es aus).

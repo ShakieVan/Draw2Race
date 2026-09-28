@@ -381,7 +381,9 @@ def mirror_z(data):
         sc["path"] = [[x, -z] for x, z in sc["path"]]
     for p in data["props"]:
         p["z"] = -p["z"]
-        if p["type"] == "crane":
+        if "feet" in p:
+            p["feet"] = [p["feet"][0], -p["feet"][1]]
+        if p["type"] == "crane" or p.get("model") == "hafen_kran":
             p["rot"] = 180 - p.get("rot", 0)   # Ausleger (lokal +z) muss mit zur Wasserseite klappen
         elif "rot" in p:
             p["rot"] = -p["rot"]
@@ -410,7 +412,7 @@ def harbor():
     gap_to = gap_from + 7.5 / total
     props = []
     # Kaimauer (Land endet bei z = QUAY, dahinter offenes Meer), Frachter längsseits.
-    QUAY = 37.5
+    QUAY = 40.0
     # Frachter als KI-Modell; Kiel 1,4 m unter der Wasserlinie (Meer bei y = −2,3). Ersatz ohne Modell: Grundformen.
     ship = ai("hafen_frachtschiff", -8, QUAY + 7.5, rot=0, w=36, d=9, color="1f3550")
     ship["y"] = -3.7
@@ -434,9 +436,11 @@ def harbor():
     hall_kept = [hall] if keep([hall], dense, 1.2) else []
     props.append(ai("hafen_absperrung_kaputt", ax + 2.5, az - 3.5, rot=20, h=1.0, color="d8d0c0"))
     # Kräne, Container, Fässer, Paletten, Stapler.
-    # Containerbrücken ganz auf dem Kai (Beine 2,5 m vor der Kante), Ausleger über das Wasser.
+    # Containerbrücken (KI-Modell, 22 m hoch): Beine auf dem Kai, Ausleger über das Wasser. Das Modell steht mit seinen
+    # Beinen ~5,5 m hinter der Modellmitte; "feet" = Beinmitte für den Ersatz aus Grundformen (einfache Grafik).
     for x in (-24, -2, 36):
-        props.append({"type": "crane", "x": x, "z": QUAY - 4.0, "rot": 0, "h": 16})
+        props.append({"type": "ai", "model": "hafen_kran", "x": x, "z": QUAY + 0.6, "rot": 0, "h": 22,
+                      "color": "b8392b", "feet": [x, QUAY - 4.0]})
     rng = random.Random(21)
     for x, z in [(-40, 5), (-25, 8), (-10, 3), (-38, -12), (22, -14), (40, -12), (70, 20), (75, -5), (-80, 10), (-78, -25)]:
         props.append(ai("hafen_container", x, z, rot=rng.choice([0, 90]), w=6, d=2.5, color=rng.choice(["8e3b2e", "3d5a6b", "4a6b3d"])))

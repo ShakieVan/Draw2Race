@@ -2,19 +2,19 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dsr5b6g8ulxkj"
-path="res://.godot/imported/hafen_kran_Image_0.jpg-1ed744691bb171196d70ae47197579a3.ctex"
+uid="uid://davfapsdnl8q4"
+path="res://.godot/imported/hafen_frachtschiff_einfach_lo_Image_0.jpg-8ee229b2ab02a5460a2f02cba7632e00.ctex"
 metadata={
 "vram_texture": false
 }
 generator_parameters={
-"md5": "097b9198e8b257ad1465f14ba3cb25ac"
+"md5": "84fd15903491702788ad938d5105c23c"
 }
 
 [deps]
 
-source_file="res://assets/props/hafen_kran_Image_0.jpg"
-dest_files=["res://.godot/imported/hafen_kran_Image_0.jpg-1ed744691bb171196d70ae47197579a3.ctex"]
+source_file="res://assets/props/hafen_frachtschiff_einfach_lo_Image_0.jpg"
+dest_files=["res://.godot/imported/hafen_frachtschiff_einfach_lo_Image_0.jpg-8ee229b2ab02a5460a2f02cba7632e00.ctex"]
 
 [params]
 

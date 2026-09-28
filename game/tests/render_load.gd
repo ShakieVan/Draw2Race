@@ -12,7 +12,7 @@ func run() -> void:
 	var app: Node = load("res://main.tscn").instantiate()
 	root.add_child(app)
 	app.store = ProgressStore.new("user://shots_%s.json" % Time.get_ticks_usec())
-	for id in ["azure","city","forest"]:
+	for id in (OS.get_environment("ONLY").split(",") if OS.get_environment("ONLY") != "" else app.TRACKS):
 		app.select_track(id)
 		for tod in ["day","night"]:
 			app.debug_data()["override"] = {"time": tod, "weather": "dry", "fog": 0}

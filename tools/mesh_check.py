@@ -13,6 +13,7 @@ from mathutils import Vector
 args = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else sys.argv[-2:]
 src, out_dir = Path(args[0]), Path(args[1])
 out_dir.mkdir(parents=True, exist_ok=True)
+label = src.parent.name if src.stem == "model" else src.stem
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=str(src))
 meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
@@ -51,7 +52,7 @@ for obj in meshes:
     bm.free()
 
 # Grobe Einordnung: Kanten mit offenem Rand oder Bruchstücke sind bei KI-Modellen üblich, solange es wenige sind.
-print("MESHCHECK %s %s" % (src.parent.name, " ".join(f"{k}={v}" for k, v in total.items())))
+print("MESHCHECK %s %s" % (label, " ".join(f"{k}={v}" for k, v in total.items())))
 
 # Vorschau: zwei Ansichten, neutrales Licht.
 scene = bpy.context.scene
@@ -76,5 +77,5 @@ for name, az, el in (("vorn", -35, 25), ("hinten", 145, 35)):
     cam.location = center + d * radius * 3.2
     cam.rotation_euler = (center - cam.location).to_track_quat("-Z", "Y").to_euler()
     cam.data.lens = 50
-    scene.render.filepath = str(out_dir / f"{src.parent.name}_{name}.png")
+    scene.render.filepath = str(out_dir / f"{label}_{name}.png")
     bpy.ops.render.render(write_still=True)

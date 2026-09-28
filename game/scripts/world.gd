@@ -787,6 +787,7 @@ func flush_cards() -> void:
 	card_batches.clear()
 
 const ALWAYS_FULL := ["hafen_kran", "hafen_frachtschiff", "hafen_frachtschiff_einfach"]
+const MASS_COUNT := 6   # ab so vielen Exemplaren je Strecke gilt ein Modell als Massenware
 
 func flush_ai_props() -> void:
 	# Je Modell und Kachel ein MultiMesh (Aussortieren außerhalb des Bildes), dazu eine vereinfachte Fassung
@@ -799,8 +800,10 @@ func flush_ai_props() -> void:
 				chunks[key] = []
 			chunks[key].append(t)
 		var hi := ai_prop_mesh(name)
-		# Wenige große Blickfänge (Kräne, Schiff) immer voll zeigen: vereinfacht zerfallen ihre feinen Teile.
-		var lo: Mesh = null if name in ALWAYS_FULL else ai_prop_mesh(name + "_lo")
+		# Vereinfachte Fassung nur für Massenware (Bäume, Laternen, Zäune …): dort spart sie viel und fällt nicht auf.
+		# Einzelne Bauten und Blickfänge bleiben immer voll – vereinfacht zerfallen ihre Formen sichtbar.
+		var mass: bool = ai_prop_batches[name].size() >= MASS_COUNT and not name in ALWAYS_FULL
+		var lo: Mesh = ai_prop_mesh(name + "_lo") if mass else null
 		for key in chunks:
 			var node := multimesh_node(hi, chunks[key], "KI_%s_%d_%d" % [name, key.x, key.y])
 			add_overlay(node, lit_overlay(hi))

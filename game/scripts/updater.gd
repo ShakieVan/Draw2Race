@@ -9,6 +9,8 @@ signal changed
 
 const REPOSITORY := "ShakieVan/Draw2Race"
 const ENDPOINT := "https://api.github.com/repos/%s/releases/latest" % REPOSITORY
+# Beta-Kanal: alle Releases einschließlich Vorabversionen (GitHub „Pre-release“); die höchste Version gewinnt.
+const ENDPOINT_ALL := "https://api.github.com/repos/%s/releases?per_page=20" % REPOSITORY
 const MAX_APK_BYTES := 512 * 1024 * 1024
 const DAY_MS := 24 * 60 * 60 * 1000
 const DIR := "user://updates"
@@ -42,13 +44,23 @@ static func compare_versions(a: String, b: String) -> int:
 			return 1 if int(x[i]) > int(y[i]) else -1
 	return 0
 
-static func parse(json_text: String) -> Dictionary:
+static func parse(json_text: String, allow_beta := false) -> Dictionary:
 	# Nur fertige Releases mit genau einer passenden APK, Größe und SHA-256-Angabe; sonst {}.
+	# Vorabversionen nur mit allow_beta. Eine Liste (Beta-Kanal) liefert das Release mit der höchsten Version.
 	var json := JSON.new()
 	if json_text.strip_edges() == "" or json.parse(json_text) != OK:
 		return {}
-	var data = json.data
-	if not data is Dictionary or bool(data.get("draft", true)) or bool(data.get("prerelease", true)):
+	if json.data is Array:
+		var best := {}
+		for entry in json.data:
+			var found := parse_release(entry, allow_beta)
+			if not found.is_empty() and (best.is_empty() or compare_versions(found.version, best.version) > 0):
+				best = found
+		return best
+	return parse_release(json.data, allow_beta)
+
+static func parse_release(data, allow_beta := false) -> Dictionary:
+	if not data is Dictionary or bool(data.get("draft", true)) or (bool(data.get("prerelease", true)) and not allow_beta):
 		return {}
 	var tag := str(data.get("tag_name", ""))
 	if not tag.begins_with("v") or not valid_version(tag.substr(1)):
@@ -67,7 +79,20 @@ static func parse(json_text: String) -> Dictionary:
 	if url != "https://github.com/%s/releases/download/%s/%s" % [REPOSITORY, tag, name]:
 		return {}
 	return {"version": version, "notes": str(data.get("body", "")).left(6000), "size": size,
-		"sha256": digest.substr(7).to_lower(), "url": url}
+		"sha256": digest.substr(7).to_lower(), "url": url, "beta": bool(data.get("prerelease", false)),
+		"raw": JSON.stringify(data)}
+
+func beta() -> bool:
+	return bool(store.data.get("update_beta", false))
+
+func set_beta(on: bool) -> void:
+	# Kanal gewechselt: zwischengespeichertes Ergebnis verwerfen und sofort neu suchen.
+	store.data["update_beta"] = on
+	store.data.erase("update_release")
+	store.save()
+	release = {}
+	apk_ready = false
+	check(true)
 
 func setup(progress_store: ProgressStore) -> void:
 	store = progress_store
@@ -75,7 +100,7 @@ func setup(progress_store: ProgressStore) -> void:
 	http.use_threads = true
 	http.timeout = 30.0
 	add_child(http)
-	var cached := parse(str(store.data.get("update_release", "")))
+	var cached := parse(str(store.data.get("update_release", "")), beta())
 	if not cached.is_empty() and compare_versions(cached.version, current_version()) > 0:
 		release = cached
 		status = "Neue Version verfügbar."
@@ -103,7 +128,7 @@ func check(manual: bool) -> void:
 		"Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"])
 	http.download_file = ""
 	http.request_completed.connect(_checked, CONNECT_ONE_SHOT)
-	if http.request(ENDPOINT, headers) != OK:
+	if http.request(ENDPOINT_ALL if beta() else ENDPOINT, headers) != OK:
 		http.request_completed.disconnect(_checked)
 		busy = false
 		publish("Keine Verbindung.")
@@ -121,11 +146,11 @@ func _checked(result: int, code: int, _headers: PackedStringArray, body: PackedB
 		publish("Update-Prüfung fehlgeschlagen.")
 		return
 	var text := body.get_string_from_utf8()
-	var found := parse(text)
+	var found := parse(text, beta())
 	if found.is_empty():
 		publish("Das neueste Release enthält keine passende APK.")
 		return
-	store.data["update_release"] = text
+	store.data["update_release"] = str(found.raw)
 	store.save()
 	if compare_versions(found.version, current_version()) > 0:
 		release = found

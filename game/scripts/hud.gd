@@ -565,13 +565,13 @@ func update_dialog() -> void:
 	var p := overlay("Updates.","Installiert: Version %s" % Updater.current_version(),Vector2(760,760))
 	var y := 132.0
 	if up.available():
-		label(p,"Neu auf GitHub: Version %s  (%d MB)" % [up.release.version,int(up.release.size/1048576)],Vector2(34,y),20,ORANGE)
+		label(p,"Neu auf GitHub: Version %s%s  (%d MB)" % [up.release.version," · Beta" if up.release.get("beta",false) else "",int(up.release.size/1048576)],Vector2(34,y),20,ORANGE)
 		y += 44
 	var state := label(p,up.status + (" %d %%" % up.percent if up.busy and up.percent >= 0 else ""),Vector2(34,y),20,INK,690)
 	if up.available() and str(up.release.notes) != "":
 		var notes := RichTextLabel.new()
 		notes.position = Vector2(34,y+56)
-		notes.size = Vector2(692,300)
+		notes.size = Vector2(692,200)
 		notes.bbcode_enabled = false
 		notes.text = str(up.release.notes)
 		notes.add_theme_color_override("default_color",MUTED)
@@ -589,6 +589,9 @@ func update_dialog() -> void:
 	elif up.available():
 		action_text = "Herunterladen"
 		action = func(): up.download()
+	# Beta-Kanal: auch Vorabversionen (GitHub „Pre-release“) anbieten – zum Testen unterwegs.
+	toggle(p,"Beta-Versionen erhalten (Vorabversionen zum Testen)",Vector2(30,506 if not (OS.get_name() == "Android" and not up.can_install()) else 450),up.beta(),
+		func(on: bool): up.set_beta(on))
 	var go := button(p,action_text,Rect2(34,580,440,66),action,true)
 	go.disabled = up.busy
 	button(p,"Schließen",Rect2(488,580,238,66),func(): p.get_parent().queue_free())

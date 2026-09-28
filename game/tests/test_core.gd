@@ -185,6 +185,15 @@ func _init() -> void:
 	var no_digest := good.duplicate(true)
 	no_digest.assets[0].erase("digest")
 	check(Updater.parse(JSON.stringify(bad_url)).is_empty() and Updater.parse(JSON.stringify(draft)).is_empty() and Updater.parse(JSON.stringify(no_digest)).is_empty(),"Update: fremde URL, Entwurf oder fehlende Prüfsumme abgelehnt")
+	# Beta-Kanal: Vorabversion nur mit allow_beta; aus einer Liste gewinnt die höchste gültige Version.
+	var pre := good.duplicate(true)
+	pre.prerelease = true
+	pre.tag_name = "v0.3.1"
+	pre.assets[0].name = "Draw2Race-0.3.1.apk"
+	pre.assets[0].browser_download_url = "https://github.com/ShakieVan/Draw2Race/releases/download/v0.3.1/Draw2Race-0.3.1.apk"
+	var listing := JSON.stringify([good, pre, draft])
+	check(Updater.parse(JSON.stringify(pre)).is_empty() and Updater.parse(JSON.stringify(pre), true).get("beta") == true,"Update: Vorabversion nur im Beta-Kanal")
+	check(Updater.parse(listing, true).get("version") == "0.3.1" and Updater.parse(listing, false).get("version") == "0.3.0","Update: Beta-Liste wählt höchste Version")
 	# Wetter: feste Bedingungen je Herausforderung; Nässe senkt Haftung und damit das Tempo der KI.
 	var coast := Circuit.load_track("azure")
 	check(coast.conditions_for(2).weather=="rain" and coast.conditions_for(0).time=="day","Strecke liefert Bedingungen je Herausforderung")

@@ -6,6 +6,7 @@ werden übersprungen. Start über tools/ai3d_batch.sh (setzt die Umgebung wie ru
 Aufruf: ai3d_batch.sh <dreiecke> <textur_px> name [name ...]
 """
 import gc
+import os
 import hashlib
 import json
 import sys
@@ -52,7 +53,9 @@ def convert(pipeline, name, triangles, texture):
         run.mkdir(parents=True, exist_ok=True)
         image.save(run / "input.png")
         mesh = pipeline.run(image, seed=42, pipeline_type="1024_cascade")[0]
-        mesh.simplify(16_777_216)
+        # Rohnetz vor der Nachbearbeitung begrenzen: bei feingliedrigen Objekten (Latten, Laub) sprengt ein Rohnetz
+        # mit vielen Millionen Dreiecken sonst den Grafikspeicher. Fürs Endergebnis (wenige tausend) ohne Bedeutung.
+        mesh.simplify(int(os.environ.get("AI3D_RAW_FACES", "16777216")))
         glb = o_voxel.postprocess.to_glb(
             vertices=mesh.vertices, faces=mesh.faces, attr_volume=mesh.attrs,
             coords=mesh.coords, attr_layout=mesh.layout, voxel_size=mesh.voxel_size,

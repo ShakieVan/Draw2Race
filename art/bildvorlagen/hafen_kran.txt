@@ -1,6 +1,6 @@
-Objekt: Portalkran
+Objekt: Containerbrücke (Kastenbauweise)
 
-Ein großer Hafen-Portalkran aus rot-weißem Stahlfachwerk auf vier Stützen mit Laufkatze und Führerhaus.
+Eine moderne Hafen-Containerbrücke in rot-weißer Lackierung, gebaut ausschließlich aus GESCHLOSSENEN, kräftigen Kastenträgern (rechteckige Stahlrohre, glatte Flächen): vier dicke Stützen als Portal, darüber ein langer, waagerechter Ausleger, der nach einer Seite weit übersteht, ein kompaktes Maschinenhaus hinten auf dem Ausleger, ein kleines Führerhaus darunter. Wichtig: KEIN Gitterfachwerk, KEINE Seile, KEINE dünnen Streben, keine Durchblicke durch Gitter – alle Bauteile massiv und kräftig. Das ganze Bauwerk vollständig im Bild, inklusive Auslegerspitze.
 
 Bildregeln (für die Umrechnung in ein 3D-Modell, bitte genau einhalten):
 - Genau EIN Objekt, vollständig im Bild, mittig, füllt etwa 80 % der Bildfläche, nichts abgeschnitten.

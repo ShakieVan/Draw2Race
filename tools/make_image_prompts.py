@@ -103,13 +103,23 @@ OBJEKTE = {
         "und Zusatzscheinwerfern, kräftiger Rammschutz vorne."),
     # --- Hafenviertel ---
     "hafen_container": ("Container-Stapel", "Drei übereinander gestapelte Schiffscontainer aus Stahl mit Wellblechwänden, Farben rostrot, blaugrau und grün, leichte Gebrauchsspuren und Rost, ohne Schrift oder Logos."),
-    "hafen_kran": ("Portalkran", "Ein großer Hafen-Portalkran aus rot-weißem Stahlfachwerk auf vier Stützen mit Laufkatze und Führerhaus."),
+    # Runde 3: ohne Gitterfachwerk und Seile – dünne Streben zerfallen bei der 3D-Umrechnung.
+    "hafen_kran": ("Containerbrücke (Kastenbauweise)", "Eine moderne Hafen-Containerbrücke in rot-weißer Lackierung, gebaut ausschließlich aus "
+                   "GESCHLOSSENEN, kräftigen Kastenträgern (rechteckige Stahlrohre, glatte Flächen): vier dicke Stützen als Portal, "
+                   "darüber ein langer, waagerechter Ausleger, der nach einer Seite weit übersteht, ein kompaktes Maschinenhaus "
+                   "hinten auf dem Ausleger, ein kleines Führerhaus darunter. Wichtig: KEIN Gitterfachwerk, KEINE Seile, "
+                   "KEINE dünnen Streben, keine Durchblicke durch Gitter – alle Bauteile massiv und kräftig. "
+                   "Das ganze Bauwerk vollständig im Bild, inklusive Auslegerspitze."),
     "hafen_lagerhalle": ("Lagerhalle mit offenem Tor", "Eine lange Hafen-Lagerhalle aus Wellblech mit flachem Satteldach, an der Stirnseite ein großes, weit offenes Rolltor, durch das man hindurchfahren könnte; kein Schriftzug."),
     "hafen_poller": ("Hafenpoller", "Ein schwerer gusseiserner Hafenpoller, schwarz lackiert, mit um den Kopf gelegtem dickem Tau."),
     "hafen_faesser": ("Ölfässer", "Eine Gruppe aus sechs stehenden Stahlfässern, teils blau, teils rot lackiert, mit Dellen und Rost."),
     "hafen_paletten": ("Palettenstapel", "Ein Stapel aus acht hölzernen Europaletten, leicht verwittert, ohne Aufdrucke."),
     "hafen_gabelstapler": ("Gabelstapler", "Ein gelber Industrie-Gabelstapler mit Fahrerschutzdach und abgesenkter Gabel, ohne Schrift."),
-    "hafen_frachtschiff": ("Kleines Frachtschiff", "Ein kleines Küstenfrachtschiff mit dunkelblauem Rumpf, weißem Brückenaufbau am Heck und einigen Containern an Deck, ganz ohne Wasser dargestellt."),
+    "hafen_frachtschiff": ("Kleiner Containerfrachter", "Ein kleiner Containerfrachter mit dunkelblauem Rumpf und rotem Unterwasserschiff, "
+                           "spitzem Bug, weißem, kastenförmigem Brückenaufbau am Heck mit Schornstein. An Deck ordentliche, dicht "
+                           "gestapelte, glatte Container in wenigen kräftigen Farben (rot, blau, grün, orange) in sauberen Reihen. "
+                           "Klare, ruhige Formen: keine Kräne an Bord, keine Masten, keine Antennen, keine Seile, keine Reling-Gitter, "
+                           "keine Kleinteile. Ganz ohne Wasser dargestellt, das ganze Schiff vollständig im Bild."),
     "hafen_laterne": ("Hafen-Laterne", "Eine hohe Hafen-Straßenlaterne aus verzinktem Stahl mit zwei nach beiden Seiten auskragenden Leuchtenköpfen."),
     "hafen_absperrung_kaputt": ("Umgefahrene Absperrung", "Eine rot-weiße Baustellen-Absperrschranke, die umgefahren wurde: ein Fuß umgekippt, die Latte schräg am Boden liegend und leicht verbogen – ein Hinweis auf eine Durchfahrt."),
     # --- Jahrmarkt ---

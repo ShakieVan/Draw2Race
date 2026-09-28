@@ -373,6 +373,24 @@ def ai(model, x, z, rot=0.0, h=None, w=None, d=None, color="a3aaa9"):
 
 
 # ---------------------------------------------------------------------------------------------------------
+def mirror_z(data):
+    """Strecke an der x-Achse spiegeln (Mittellinie, Abkürzungspfade, Bausteine, Kaikante). Die Reihenfolge der
+    Punkte bleibt, damit gelten Anteile s (Schanzen, Lücken, Abkürzungen) unverändert."""
+    data["points"] = [[x, -z] for x, z in data["points"]]
+    for sc in data.get("shortcuts", []):
+        sc["path"] = [[x, -z] for x, z in sc["path"]]
+    for p in data["props"]:
+        p["z"] = -p["z"]
+        if p["type"] == "crane":
+            p["rot"] = 180 - p.get("rot", 0)   # Ausleger (lokal +z) muss mit zur Wasserseite klappen
+        elif "rot" in p:
+            p["rot"] = -p["rot"]
+    if "quay_z" in data:
+        data["quay_z"] = -data["quay_z"]
+        data["quay_dir"] = -data.get("quay_dir", 1)
+    return data
+
+
 def harbor():
     """Hafenviertel: schräge Straßenzüge, Abkürzung durch eine Lagerhalle, Schanze über ein Hafenbecken."""
     corners = [(-60, 25), (10, 25), (30, 5), (55, 5), (62, -15), (40, -32), (15, -32), (0, -15),
@@ -391,11 +409,11 @@ def harbor():
     gap_from = ramp_s + 5.0 / total
     gap_to = gap_from + 7.5 / total
     props = []
-    # Kaimauer und Hafenbecken im Norden, Frachtschiff.
-    props.append({"type": "water", "x": 0, "z": 50, "w": 170, "d": 26})
-    props.append(ai("hafen_frachtschiff", -10, 52, rot=0, w=38, d=10, color="2e4a6b"))
+    # Kaimauer (Land endet bei z = QUAY, dahinter offenes Meer), Frachter längsseits.
+    QUAY = 37.5
+    props.append({"type": "ship", "x": -8, "z": QUAY + 7.5, "rot": 0, "length": 36})
     for x in range(-60, 61, 12):
-        props.append(ai("hafen_poller", x, 36.5, h=0.9, color="2b2b2b"))
+        props.append(ai("hafen_poller", x, QUAY - 0.8, h=0.9, color="2b2b2b"))
     # Becken unter dem Sprung (quer zur Straße).
     (gx, gz), gh = point_at(dense, (gap_from + gap_to) / 2)
     props.append({"type": "water", "x": gx, "z": gz, "w": 6.5, "d": 34, "rot": 0})
@@ -406,15 +424,16 @@ def harbor():
     nx, nz = -dz / ln, dx / ln
     hall_rot = math.degrees(math.atan2(dz, dx))
     for side in (1, -1):
-        hall = ai("hafen_lagerhalle", round((ax + bx) / 2 + nx * 7.5 * side, 2), round((az + bz) / 2 + nz * 7.5 * side, 2),
+        hall = ai("hafen_lagerhalle", round((ax + bx) / 2 + nx * 12.0 * side, 2), round((az + bz) / 2 + nz * 12.0 * side, 2),
                   rot=round(hall_rot, 1), w=min(16, ln * 0.7), d=9, color="8c969a")
         if keep([hall], dense, 1.2):
             break
     hall_kept = [hall] if keep([hall], dense, 1.2) else []
     props.append(ai("hafen_absperrung_kaputt", ax + 2.5, az - 3.5, rot=20, h=1.0, color="d8d0c0"))
     # Kräne, Container, Fässer, Paletten, Stapler.
-    for x, z in [(-35, 38), (25, 38), (48, 30)]:
-        props.append(ai("hafen_kran", x, z, rot=0, h=16, color="c0392b"))
+    # Containerbrücken ganz auf dem Kai (Beine 2,5 m vor der Kante), Ausleger über das Wasser.
+    for x in (-24, -2, 36):
+        props.append({"type": "crane", "x": x, "z": QUAY - 4.0, "rot": 0, "h": 16})
     rng = random.Random(21)
     for x, z in [(-40, 5), (-25, 8), (-10, 3), (-38, -12), (22, -14), (40, -12), (70, 20), (75, -5), (-80, 10), (-78, -25)]:
         props.append(ai("hafen_container", x, z, rot=rng.choice([0, 90]), w=6, d=2.5, color=rng.choice(["8e3b2e", "3d5a6b", "4a6b3d"])))
@@ -427,14 +446,16 @@ def harbor():
         (x, z), _ = point_at(dense, i / 22 + 0.01, 5.8 if i % 2 else -5.8)
         props.append({"type": "lamp", "x": x, "z": z, "model": "hafen_laterne"})
     data = {"format": 1, "id": "harbor", "name": "Harbour Run", "subtitle": "Kräne, Container – und eine Abkürzung an der Lagerhalle vorbei.",
-            "theme": "harbor", "half_width": HALF_WIDTH, "points": pts,
+            "theme": "harbor", "half_width": HALF_WIDTH, "points": pts, "quay_z": QUAY,
             "conditions": [{"time": "day", "weather": "dry", "fog": 0}, {"time": "dusk", "weather": "rain", "fog": 0},
                            {"time": "night", "weather": "dry", "fog": 1}],
             "ramps": [{"s": round(ramp_s, 4), "length": 5.0, "height": 1.5}],
             "gaps": [{"from": round(gap_from, 4), "to": round(gap_to, 4)}],
             "shortcuts": [shortcut], "surfaces": [],
             "props": keep(props, dense, 1.2) + hall_kept}
-    save(data)
+    # Gespiegelt (z → −z): so liegt das Meer im Norden, und die hohen Kräne kippen in der Schrägansicht von der
+    # Strecke weg statt über sie.
+    save(mirror_z(data))
 
 
 def serra():

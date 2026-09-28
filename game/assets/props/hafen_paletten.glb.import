@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://n7to4qwgvn2y"
-path="res://.godot/imported/hafen_frachtschiff.glb-9eee047ee4bb78f1223f8190b8aedc62.scn"
+uid="uid://dva40t743sgxa"
+path="res://.godot/imported/hafen_paletten.glb-bda2d3c6b179b9238608b78615eef711.scn"
 
 [deps]
 
-source_file="res://assets/props/hafen_frachtschiff.glb"
-dest_files=["res://.godot/imported/hafen_frachtschiff.glb-9eee047ee4bb78f1223f8190b8aedc62.scn"]
+source_file="res://assets/props/hafen_paletten.glb"
+dest_files=["res://.godot/imported/hafen_paletten.glb-bda2d3c6b179b9238608b78615eef711.scn"]
 
 [params]
 

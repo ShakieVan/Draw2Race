@@ -149,8 +149,24 @@ func build(circuit: Circuit) -> void:
 			if Vector2(x/(half.x*1.2),z/(half.y*1.2)).length() > 1.0:
 				shape("box", Vector3(c.x+x,-2.27,c.y+z),Vector3(1.4+fposmod(i,3),0.015,0.08), Color("68b4b7"))
 	else:
-		# Stadt/Wald: großflächiger Boden bis zum Horizont mit Randsockel.
-		shape("box", Vector3(c.x,-0.6,c.y), Vector3(half.x*2+70,1.2,half.y*2+60), Color(theme.rim))
+		# Stadt/Wald: großflächiger Boden bis zum Horizont mit Randsockel. Mit Kaikante (quay_z) endet das Land dort an
+		# einer Kaimauer; dahinter liegt das Meer (Wasserfläche des Themas, tiefer als der Kai) bis zum Horizont.
+		var rim_z := Vector2(c.y - (half.y*2+60)*0.5, c.y + (half.y*2+60)*0.5)
+		var ground_z := Vector2(c.y - (half.y*2+56)*0.5, c.y + (half.y*2+56)*0.5)
+		var quay := track.quay_z < 1e8
+		if quay and track.quay_dir > 0.0:
+			rim_z.y = minf(rim_z.y, track.quay_z)
+			ground_z.y = minf(ground_z.y, track.quay_z)
+		elif quay:
+			rim_z.x = maxf(rim_z.x, track.quay_z)
+			ground_z.x = maxf(ground_z.x, track.quay_z)
+		var gz := (ground_z.x + ground_z.y)*0.5
+		var gd := ground_z.y - ground_z.x
+		shape("box", Vector3(c.x,-0.6,(rim_z.x + rim_z.y)*0.5), Vector3(half.x*2+70,1.2,rim_z.y - rim_z.x), Color(theme.rim))
+		if quay:
+			# Kaimauer und heller Kantenstein auf der Landseite der Kante.
+			shape("box", Vector3(c.x,-1.25,track.quay_z-0.45*track.quay_dir), Vector3(half.x*2+70,2.5,0.9), Color("767b7d"))
+			shape("box", Vector3(c.x,0.1,track.quay_z-0.35*track.quay_dir), Vector3(half.x*2+70,0.2,0.7), Color("b9b8b0"))
 		if theme.get("planks", false):
 			# Kinderzimmer: Parkett aus 2,4 m breiten Dielen in zwei Holztönen mit Fugen, Spielzeugbahn liegt direkt darauf.
 			var width := half.x*2+66
@@ -158,11 +174,11 @@ func build(circuit: Circuit) -> void:
 			for k in range(count):
 				var x := c.x - width*0.5 + (k + 0.5)*2.4
 				var tone := Color(theme.ground).lerp(Color(theme.stripe), 0.5 + 0.5*sin(k*2.3))
-				shape("box", Vector3(x,0.02,c.y), Vector3(2.36,0.12,half.y*2+56), tone)
+				shape("box", Vector3(x,0.02,gz), Vector3(2.36,0.12,gd), tone)
 		elif fancy_ground:
-			premium_ground(theme, Vector3(c.x,0.02,c.y), Vector3(half.x*2+66,0.12,half.y*2+56), false)
+			premium_ground(theme, Vector3(c.x,0.02,gz), Vector3(half.x*2+66,0.12,gd), false)
 		else:
-			shape("box", Vector3(c.x,0.02,c.y), Vector3(half.x*2+66,0.12,half.y*2+56), Color(theme.ground))
+			shape("box", Vector3(c.x,0.02,gz), Vector3(half.x*2+66,0.12,gd), Color(theme.ground))
 		if track.theme == "city":
 			for gx in range(-8,9):
 				shape("box",Vector3(c.x+gx*9.0,0.09,c.y),Vector3(0.12,0.01,half.y*2+50),Color(theme.stripe))
@@ -812,6 +828,12 @@ func generic_prop(prop: Dictionary) -> bool:
 	var z := float(prop.get("z",0.0))
 	var rot := -deg_to_rad(float(prop.get("rot",0.0)))
 	match str(prop.get("type","")):
+		"crane":
+			build_crane(x, z, rot, float(prop.get("h", 16.0)))
+			return true
+		"ship":
+			build_ship(x, z, rot, float(prop.get("length", 34.0)))
+			return true
 		"water":
 			# Wasserfläche knapp über dem Boden, unter der Fahrbahn (Wasser-Shader über die Farbe).
 			shape("box", Vector3(x, 0.06 + track.terrain_height(Vector2(x, z)), z), Vector3(float(prop.get("w",4.0)), 0.12, float(prop.get("d",4.0))), Color("3f7f80"), rot)
@@ -831,6 +853,83 @@ func generic_prop(prop: Dictionary) -> bool:
 			shape("box", Vector3(x, base + size.y * 0.5, z), size, Color(str(prop.get("color","a3aaa9"))), rot)
 			return true
 	return false
+
+func beam(frame: Transform3D, a: Vector3, b: Vector3, thick: float, color: Color) -> void:
+	# Stab von a nach b (lokale Koordinaten des Rahmens), quadratischer Querschnitt.
+	var d := b - a
+	var up := d.normalized()
+	var axis := Vector3.UP.cross(up)
+	var rot := Basis() if axis.length() < 1e-4 else Basis(axis.normalized(), Vector3.UP.angle_to(up))
+	shape_transform("box", frame * Transform3D(rot * Basis.from_scale(Vector3(thick, d.length(), thick)), (a + b) * 0.5), color)
+
+func block(frame: Transform3D, center: Vector3, size: Vector3, color: Color) -> void:
+	shape_transform("box", frame * Transform3D(Basis.from_scale(size), center), color)
+
+func build_crane(x: float, z: float, rot: float, h: float) -> void:
+	# Containerbrücke aus Grundformen: Portal mit vier Beinen auf der Kaifläche, Ausleger über das Wasser
+	# (lokal +z), Maschinenhaus, Führerhaus, A-Rahmen mit Abspannung, Laufkatze mit Spreader.
+	var f := Transform3D(Basis(Vector3.UP, rot), Vector3(x, track.terrain_height(Vector2(x, z)), z))
+	var red := Color("b8392b")
+	var white := Color("e9e6df")
+	var steel := Color("4a4f54")
+	for lx in [-5.0, 5.0]:
+		block(f, Vector3(lx, 0.45, 0.0), Vector3(1.1, 0.9, 7.0), steel)
+		for lz in [-2.5, 2.5]:
+			beam(f, Vector3(lx, 0.9, lz), Vector3(lx, h, lz), 0.75, red)
+		block(f, Vector3(lx, h - 0.45, 0.0), Vector3(0.85, 0.9, 5.8), red)
+		beam(f, Vector3(lx, 1.5, -2.5), Vector3(lx, h - 1.0, 2.5), 0.3, red)
+	for lz in [-2.5, 2.5]:
+		block(f, Vector3(0.0, h - 0.45, lz), Vector3(10.8, 0.9, 0.85), red)
+		block(f, Vector3(0.0, 5.0, lz), Vector3(10.4, 0.5, 0.5), red)
+	var back := -8.0
+	var tip := 24.0
+	for gx in [-1.7, 1.7]:
+		block(f, Vector3(gx, h + 0.55, (back + tip) * 0.5), Vector3(0.65, 1.1, tip - back), white)
+		beam(f, Vector3(gx, h + 1.1, -1.5), Vector3(gx, h + 9.0, 0.0), 0.55, red)
+		beam(f, Vector3(gx, h + 1.1, 2.0), Vector3(gx, h + 9.0, 0.0), 0.45, red)
+		beam(f, Vector3(gx, h + 9.0, 0.0), Vector3(gx, h + 1.1, tip - 1.0), 0.15, steel)
+		beam(f, Vector3(gx, h + 9.0, 0.0), Vector3(gx, h + 1.1, back + 1.0), 0.15, steel)
+	block(f, Vector3(0.0, h + 9.1, 0.0), Vector3(4.0, 0.4, 0.6), red)
+	block(f, Vector3(0.0, h + 2.3, back + 3.0), Vector3(5.0, 2.4, 4.5), white)
+	block(f, Vector3(0.0, h - 1.0, 6.5), Vector3(1.8, 1.6, 2.2), white)
+	block(f, Vector3(0.0, h - 1.0, 7.6), Vector3(1.6, 0.9, 0.1), Color("24313a"))
+	var trolley_z := 15.0
+	block(f, Vector3(0.0, h + 1.3, trolley_z), Vector3(4.2, 0.9, 2.6), steel)
+	var low := h - 10.0
+	for cx in [-1.2, 1.2]:
+		for cz in [-0.6, 0.6]:
+			beam(f, Vector3(cx, h + 0.8, trolley_z + cz), Vector3(cx, low + 0.3, trolley_z + cz), 0.06, Color("222222"))
+	block(f, Vector3(0.0, low, trolley_z), Vector3(6.2, 0.45, 2.5), Color("e2b31d"))
+
+func build_ship(x: float, z: float, rot: float, length: float) -> void:
+	# Containerfrachter aus Grundformen, liegt im Meer vor der Kaimauer (Wasserlinie = Meeresfläche).
+	var wl := -2.3
+	var f := Transform3D(Basis(Vector3.UP, rot), Vector3(x, wl, z))
+	var width := 9.0
+	var hull := Color("1f3550")
+	# Rumpf, Bug als übereck gestellter Block (Spitze in +x), rote Wasserlinie, Deckfläche.
+	block(f, Vector3(0.0, 1.0, 0.0), Vector3(length, 4.2, width), hull)
+	shape_transform("box", f * Transform3D(Basis(Vector3.UP, PI * 0.25) * Basis.from_scale(Vector3(width * 0.707, 4.2, width * 0.707)), Vector3(length * 0.5, 1.0, 0.0)), hull)
+	block(f, Vector3(0.0, 0.05, 0.0), Vector3(length + 0.1, 0.4, width + 0.1), Color("9c3326"))
+	block(f, Vector3(0.0, 3.15, 0.0), Vector3(length - 0.4, 0.1, width - 0.6), Color("5c6468"))
+	# Brücke und Schornstein am Heck (−x).
+	var stern := -length * 0.5
+	block(f, Vector3(stern + 3.0, 6.6, 0.0), Vector3(4.2, 7.0, width - 1.0), Color("ecebe6"))
+	block(f, Vector3(stern + 3.0, 9.3, 0.0), Vector3(4.3, 0.7, width - 0.9), Color("26323a"))
+	block(f, Vector3(stern + 3.0, 10.2, 0.0), Vector3(4.6, 0.3, width + 1.4), Color("ecebe6"))
+	block(f, Vector3(stern + 0.8, 8.0, 0.0), Vector3(1.8, 4.0, 1.8), Color("b8392b"))
+	block(f, Vector3(stern + 0.8, 10.2, 0.0), Vector3(1.9, 0.5, 1.9), Color("1b1b1b"))
+	# Containerstapel: Buchten zu 6,1 m, drei Reihen quer, ein bis drei Lagen.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(absf(x) * 31.0 + absf(z) * 7.0) + 5
+	var colors := ["8e3b2e", "3d5a6b", "4a6b3d", "c07a2c", "6b6f73", "2c4f8a", "a8a39a"]
+	var bay := stern + 7.2
+	while bay + 3.05 < length * 0.5 - 3.0:
+		for row in [-2.55, 0.0, 2.55]:
+			var layers := rng.randi_range(1, 3)
+			for k in range(layers):
+				block(f, Vector3(bay, 3.2 + 1.3 + k * 2.6, row), Vector3(6.0, 2.5, 2.4), Color(colors[rng.randi() % colors.size()]))
+		bay += 6.3
 
 func premium_prop(prop: Dictionary) -> bool:
 	# true = als KI-Modell gebaut (samt Licht/Schrift), false = Klötzchen-Fassung verwenden.

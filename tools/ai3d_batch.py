@@ -18,6 +18,7 @@ import lab  # Modul der lokalen 3D-Werkstatt (Pfad über PYTHONPATH, siehe ai3d_
 D2R = Path(__file__).resolve().parents[1]
 SRC = D2R / "art" / "bildvorlagen" / "freigestellt"
 RUNS = D2R / ".tools" / "ai3d" / "runs"
+PIPELINE = os.environ.get("AI3D_PIPELINE", "1024_cascade")
 
 
 def main():
@@ -52,7 +53,8 @@ def convert(pipeline, name, triangles, texture):
         run = RUNS / name
         run.mkdir(parents=True, exist_ok=True)
         image.save(run / "input.png")
-        mesh = pipeline.run(image, seed=42, pipeline_type="1024_cascade")[0]
+        # Stufe über AI3D_PIPELINE wählbar: 1024_cascade (Standard) oder 1536_cascade (feiner, mehr Grafikspeicher).
+        mesh = pipeline.run(image, seed=42, pipeline_type=PIPELINE)[0]
         # Rohnetz vor der Nachbearbeitung begrenzen: bei feingliedrigen Objekten (Latten, Laub) sprengt ein Rohnetz
         # mit vielen Millionen Dreiecken sonst den Grafikspeicher. Fürs Endergebnis (wenige tausend) ohne Bedeutung.
         mesh.simplify(int(os.environ.get("AI3D_RAW_FACES", "16777216")))
@@ -65,7 +67,7 @@ def convert(pipeline, name, triangles, texture):
         )
         glb.export(str(run / "model.glb"))
         (run / "provenance.json").write_text(json.dumps({
-            "generator": lab.REPO, "model_revisions": pipeline.ocean_revisions, "resolution": "1024", "seed": 42,
+            "generator": lab.REPO, "model_revisions": pipeline.ocean_revisions, "resolution": PIPELINE, "seed": 42,
             "target_triangles": triangles, "texture_size": texture, "seconds": round(time.monotonic() - start, 1),
             "input_sha256": hashlib.sha256((run / "input.png").read_bytes()).hexdigest(),
             "image_source": "Bild-KI (ChatGPT) nach art/bildvorlagen/%s.txt" % name,

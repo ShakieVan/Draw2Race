@@ -194,6 +194,11 @@ func _init() -> void:
 	var listing := JSON.stringify([good, pre, draft])
 	check(Updater.parse(JSON.stringify(pre)).is_empty() and Updater.parse(JSON.stringify(pre), true).get("beta") == true,"Update: Vorabversion nur im Beta-Kanal")
 	check(Updater.parse(listing, true).get("version") == "0.3.1" and Updater.parse(listing, false).get("version") == "0.3.0","Update: Beta-Liste wählt höchste Version")
+	var from_beta_repo := good.duplicate(true)
+	from_beta_repo.tag_name = "v0.3.2"
+	from_beta_repo.assets[0].name = "Draw2Race-0.3.2.apk"
+	from_beta_repo.assets[0].browser_download_url = "https://github.com/ShakieVan/Draw2Race-Beta/releases/download/v0.3.2/Draw2Race-0.3.2.apk"
+	check(Updater.parse(JSON.stringify(from_beta_repo)).is_empty() and Updater.parse(JSON.stringify(from_beta_repo), true).get("beta") == true,"Update: Beta-Repo nur im Beta-Kanal")
 	# Wetter: feste Bedingungen je Herausforderung; Nässe senkt Haftung und damit das Tempo der KI.
 	var coast := Circuit.load_track("azure")
 	check(coast.conditions_for(2).weather=="rain" and coast.conditions_for(0).time=="day","Strecke liefert Bedingungen je Herausforderung")

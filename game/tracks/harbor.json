@@ -1351,11 +1351,15 @@
  "surfaces": [],
  "props": [
   {
-   "type": "ship",
+   "type": "ai",
+   "model": "hafen_frachtschiff",
    "x": -8,
    "z": -45.0,
    "rot": 0,
-   "length": 36
+   "color": "1f3550",
+   "w": 36,
+   "d": 9,
+   "y": -3.7
   },
   {
    "type": "ai",

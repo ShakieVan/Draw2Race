@@ -9,8 +9,10 @@ signal changed
 
 const REPOSITORY := "ShakieVan/Draw2Race"
 const ENDPOINT := "https://api.github.com/repos/%s/releases/latest" % REPOSITORY
-# Beta-Kanal: alle Releases einschließlich Vorabversionen (GitHub „Pre-release“); die höchste Version gewinnt.
-const ENDPOINT_ALL := "https://api.github.com/repos/%s/releases?per_page=20" % REPOSITORY
+# Beta-Kanal: Testversionen liegen in einem eigenen Repo (optisch getrennt von den regulären Releases). Im Beta-Kanal
+# werden beide Quellen abgefragt; die höchste Version gewinnt – ein neueres reguläres Release geht also nicht verloren.
+const BETA_REPOSITORY := "ShakieVan/Draw2Race-Beta"
+const ENDPOINT_BETA := "https://api.github.com/repos/%s/releases?per_page=20" % BETA_REPOSITORY
 const MAX_APK_BYTES := 512 * 1024 * 1024
 const DAY_MS := 24 * 60 * 60 * 1000
 const DIR := "user://updates"
@@ -23,6 +25,9 @@ var percent := -1
 var apk_ready := false
 var http: HTTPRequest
 var hash_thread: Thread
+var pending: Array = []    # noch abzufragende Endpunkte dieser Suche
+var best := {}             # bestes gefundenes Release dieser Suche
+var answered := false      # mindestens eine Quelle hat geantwortet
 
 static func current_version() -> String:
 	return str(ProjectSettings.get_setting("application/config/version", "0.0.0"))
@@ -60,6 +65,7 @@ static func parse(json_text: String, allow_beta := false) -> Dictionary:
 	return parse_release(json.data, allow_beta)
 
 static func parse_release(data, allow_beta := false) -> Dictionary:
+	# Reguläre Releases nur aus REPOSITORY; Vorabversionen und alles aus BETA_REPOSITORY nur mit allow_beta.
 	if not data is Dictionary or bool(data.get("draft", true)) or (bool(data.get("prerelease", true)) and not allow_beta):
 		return {}
 	var tag := str(data.get("tag_name", ""))
@@ -76,10 +82,11 @@ static func parse_release(data, allow_beta := false) -> Dictionary:
 	var url := str(asset.get("browser_download_url", ""))
 	if size <= 0 or size > MAX_APK_BYTES or not digest.begins_with("sha256:") or digest.length() != 71:
 		return {}
-	if url != "https://github.com/%s/releases/download/%s/%s" % [REPOSITORY, tag, name]:
+	var from_beta := url == "https://github.com/%s/releases/download/%s/%s" % [BETA_REPOSITORY, tag, name]
+	if url != "https://github.com/%s/releases/download/%s/%s" % [REPOSITORY, tag, name] and not (from_beta and allow_beta):
 		return {}
 	return {"version": version, "notes": str(data.get("body", "")).left(6000), "size": size,
-		"sha256": digest.substr(7).to_lower(), "url": url, "beta": bool(data.get("prerelease", false)),
+		"sha256": digest.substr(7).to_lower(), "url": url, "beta": from_beta or bool(data.get("prerelease", false)),
 		"raw": JSON.stringify(data)}
 
 func beta() -> bool:
@@ -124,31 +131,42 @@ func check(manual: bool) -> void:
 	busy = true
 	percent = -1
 	publish("Suche nach Updates …")
+	pending =[ENDPOINT_BETA, ENDPOINT] if beta() else [ENDPOINT]
+	best = {}
+	answered = false
+	request_next()
+
+func request_next() -> void:
+	# Quellen nacheinander abfragen (ein HTTPRequest), danach auswerten.
+	if pending.is_empty():
+		finish_check()
+		return
 	var headers := PackedStringArray(["User-Agent: Draw2Race/%s" % current_version(),
 		"Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"])
 	http.download_file = ""
 	http.request_completed.connect(_checked, CONNECT_ONE_SHOT)
-	if http.request(ENDPOINT_ALL if beta() else ENDPOINT, headers) != OK:
+	if http.request(str(pending.pop_front()), headers) != OK:
 		http.request_completed.disconnect(_checked)
-		busy = false
-		publish("Keine Verbindung.")
+		request_next()
 
 func _checked(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	if result == HTTPRequest.RESULT_SUCCESS and (code == 200 or code == 404):
+		answered = true
+	if result == HTTPRequest.RESULT_SUCCESS and code == 200 and body.size() <= 1024 * 1024:
+		var found := parse(body.get_string_from_utf8(), beta())
+		if not found.is_empty() and (best.is_empty() or compare_versions(found.version, best.version) > 0):
+			best = found
+	request_next()
+
+func finish_check() -> void:
 	busy = false
-	if result != HTTPRequest.RESULT_SUCCESS:
+	if not answered:
 		publish("Keine Verbindung.")
 		return
-	if code == 404:
-		release = {}
-		publish("Noch kein Release veröffentlicht.")
-		return
-	if code != 200 or body.size() > 1024 * 1024:
-		publish("Update-Prüfung fehlgeschlagen.")
-		return
-	var text := body.get_string_from_utf8()
-	var found := parse(text, beta())
+	var found := best
 	if found.is_empty():
-		publish("Das neueste Release enthält keine passende APK.")
+		release = {}
+		publish("Noch kein passendes Release veröffentlicht.")
 		return
 	store.data["update_release"] = str(found.raw)
 	store.save()

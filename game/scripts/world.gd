@@ -845,7 +845,11 @@ func generic_prop(prop: Dictionary) -> bool:
 			# Bäume als Bildkarten (billig, weiche Kronen), sonst KI-Modell.
 			if premium_rendering() and model in CARD_TREES and place_card(model, x, z, h if h > 0.0 else 5.0):
 				return true
-			if premium_rendering() and place_ai(model, x, z, rot, h, fp):
+			# "y": Fußpunkt über/unter dem Gelände (z. B. Schiffsrumpf unter der Wasserlinie).
+			if premium_rendering() and place_ai(model, x, z, rot, h, fp, false, float(prop.get("y", 0.0))):
+				return true
+			if model == "hafen_frachtschiff":
+				build_ship(x, z, rot, fp.x)   # einfache Grafik: Frachter aus Grundformen statt Klotz
 				return true
 			# Ersatz, solange das Modell fehlt (oder einfache Grafik): Klotz in Grundfarbe.
 			var size := Vector3(fp.x if fp.x > 0.0 else maxf(h * 0.5, 0.8), h if h > 0.0 else 2.0, fp.y if fp.y > 0.0 else maxf(h * 0.5, 0.8))

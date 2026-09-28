@@ -411,7 +411,10 @@ def harbor():
     props = []
     # Kaimauer (Land endet bei z = QUAY, dahinter offenes Meer), Frachter längsseits.
     QUAY = 37.5
-    props.append({"type": "ship", "x": -8, "z": QUAY + 7.5, "rot": 0, "length": 36})
+    # Frachter als KI-Modell; Kiel 1,4 m unter der Wasserlinie (Meer bei y = −2,3). Ersatz ohne Modell: Grundformen.
+    ship = ai("hafen_frachtschiff", -8, QUAY + 7.5, rot=0, w=36, d=9, color="1f3550")
+    ship["y"] = -3.7
+    props.append(ship)
     for x in range(-60, 61, 12):
         props.append(ai("hafen_poller", x, QUAY - 0.8, h=0.9, color="2b2b2b"))
     # Becken unter dem Sprung (quer zur Straße).

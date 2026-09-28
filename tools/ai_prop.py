@@ -12,6 +12,38 @@ import bpy
 from mathutils import Matrix, Vector
 
 
+def clean(obj):
+    # Netz säubern: Punkte an Texturnähten verschmelzen (glTF trennt sie; sonst zerreißt das Ausdünnen die Nähte)
+    # und winzige lose Krümel (< 0,1 % der Oberfläche) löschen, die die Bild-zu-3D-KI um feine Teile herum hinterlässt.
+    import bmesh
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+    bm.faces.ensure_lookup_table()
+    total = sum(f.calc_area() for f in bm.faces) or 1.0
+    seen, crumbs = set(), []
+    for f in bm.faces:
+        if f.index in seen:
+            continue
+        part, stack = [], [f]
+        seen.add(f.index)
+        while stack:
+            g = stack.pop()
+            part.append(g)
+            for e in g.edges:
+                for h in e.link_faces:
+                    if h.index not in seen:
+                        seen.add(h.index)
+                        stack.append(h)
+        if sum(g.calc_area() for g in part) / total < 0.001:
+            crumbs.append(part)
+    doomed = [f for part in crumbs for f in part]
+    bmesh.ops.delete(bm, geom=doomed, context="FACES")
+    bm.to_mesh(obj.data)
+    bm.free()
+    return len(crumbs)
+
+
 def main():
     a = sys.argv[sys.argv.index("--") + 1:]
     src, dst, tris, tex = a[0], a[1], int(a[2]), int(a[3])
@@ -39,6 +71,7 @@ def main():
     hi = Vector((max(v.x for v in vs), max(v.y for v in vs), max(v.z for v in vs)))
     obj.data.transform(Matrix.Translation(Vector((-(lo.x + hi.x) / 2, -(lo.y + hi.y) / 2, -lo.z))))
     obj.data.transform(Matrix.Scale(1.0 / max(hi.z - lo.z, 1e-4), 4))
+    removed = clean(obj)
     faces = len(obj.data.polygons)
     if faces > tris:
         mod = obj.modifiers.new("Duenn", "DECIMATE")
@@ -49,7 +82,7 @@ def main():
         if img.size[0] > tex:
             img.scale(tex, tex)
     ext = [(max(v.co[i] for v in obj.data.vertices) - min(v.co[i] for v in obj.data.vertices)) for i in range(3)]
-    print("AIPROP", dst.split("/")[-1], "faces", faces, "->", len(obj.data.polygons), "footprint x/y", round(ext[0], 3), round(ext[1], 3))
+    print("AIPROP", dst.split("/")[-1], "kruemel", removed, "faces", faces, "->", len(obj.data.polygons), "footprint x/y", round(ext[0], 3), round(ext[1], 3))
     bpy.ops.export_scene.gltf(filepath=dst, export_format="GLB", export_apply=True, export_yup=True,
                               export_image_format="JPEG", export_jpeg_quality=85)
 

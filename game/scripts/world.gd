@@ -223,8 +223,8 @@ func build(circuit: Circuit) -> void:
 	build_stunts()
 	build_shortcuts()
 	for prop in track.props:
-		if diorama and str(prop.get("type", "")) in DIORAMA_BAKED:
-			continue   # im Diorama enthalten
+		if diorama and (str(prop.get("type", "")) in DIORAMA_BAKED or diorama_blocks(prop)):
+			continue   # im Diorama enthalten bzw. läge auf einer Diorama-Straße
 		build_prop(prop)
 	flush_ai_props()
 	flush_cards()
@@ -966,16 +966,37 @@ func build_ship(x: float, z: float, rot: float, length: float) -> void:
 
 const DIORAMA_PATH := "res://dioramas/%s.glb"
 # Bausteine, die das Diorama selbst enthält (Laternen, Schilder usw. bleiben Laufzeit-Bauteile).
-const DIORAMA_BAKED := ["building", "street_tree", "fountain", "stand", "tower"]
+const DIORAMA_BAKED := ["building", "street_tree", "fountain"]
 # Farbtöne der Diorama-Materialien (Fototexturen angleichen).
 const DIORAMA_TINT := {"D_Asphalt": Color(0.42, 0.44, 0.46), "D_Randstein": Color(0.8, 0.8, 0.78),
 	"D_Gehweg": Color(0.78, 0.76, 0.72), "D_Pflaster": Color(0.86, 0.84, 0.8), "D_Gras": Color(0.9, 0.95, 0.85),
-	"D_Stein": Color(0.9, 0.88, 0.84), "D_Weite": Color(0.8, 0.78, 0.74)}
+	"D_Stein": Color(0.9, 0.88, 0.84), "D_Weite": Color(0.62, 0.62, 0.6), "D_Beton": Color(0.75, 0.75, 0.73),
+	"D_Asphalt_Strasse": Color(0.9, 0.9, 0.88)}
 var diorama := false
+var diorama_blocked: Array = []   # Straßenflächen des Dioramas: [ox, oz, ux, uz, vx, vz, a0, a1, b0, b1] (Begleitdatei)
+
+func diorama_blocks(prop: Dictionary) -> bool:
+	# Liegt ein Laufzeit-Bauteil (Laterne, Tafel …) auf einer Diorama-Straße? Dann entfällt es.
+	var x := float(prop.get("x", 0.0))
+	var z := float(prop.get("z", 0.0))
+	for r in diorama_blocked:
+		var rx: float = x - float(r[0])
+		var rz: float = z - float(r[1])
+		var a: float = rx * float(r[2]) + rz * float(r[3])
+		var b: float = rx * float(r[4]) + rz * float(r[5])
+		if a >= float(r[6]) and a <= float(r[7]) and b >= float(r[8]) and b <= float(r[9]):
+			return true
+	return false
 
 func build_diorama() -> void:
 	var scene: Node3D = load(DIORAMA_PATH % track.id).instantiate()
 	scene.name = "Diorama"
+	var layout_path: String = (DIORAMA_PATH % track.id).replace(".glb", "_layout.json")
+	diorama_blocked = []
+	if FileAccess.file_exists(layout_path):
+		var layout = JSON.parse_string(FileAccess.get_file_as_string(layout_path))
+		if layout is Dictionary:
+			diorama_blocked = layout.get("blocked", [])
 	add_child(scene)
 	var ao_path: String = (DIORAMA_PATH % track.id).replace(".glb", "_ao.jpg")
 	var ao: Texture2D = load(ao_path) if ResourceLoader.exists(ao_path) else null

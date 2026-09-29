@@ -2,19 +2,19 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bf7s4h5niqam"
-path="res://.godot/imported/city_Image_1_14.jpg-74361f6b524b68a0354029d020df08a1.ctex"
+uid="uid://k2vumthah6ht"
+path="res://.godot/imported/city_Image_0_19.jpg-0d6138f288308e6baca9c9d06cdc10ee.ctex"
 metadata={
 "vram_texture": false
 }
 generator_parameters={
-"md5": "61e4ccc1dc65ce10c4f839b2140caaf4"
+"md5": "33a51b27cb9fcc0fdf1cb0076c54cc30"
 }
 
 [deps]
 
-source_file="res://dioramas/city_Image_1_14.jpg"
-dest_files=["res://.godot/imported/city_Image_1_14.jpg-74361f6b524b68a0354029d020df08a1.ctex"]
+source_file="res://dioramas/city_Image_0_19.jpg"
+dest_files=["res://.godot/imported/city_Image_0_19.jpg-0d6138f288308e6baca9c9d06cdc10ee.ctex"]
 
 [params]
 

@@ -17,10 +17,9 @@ func run() -> void:
 		await process_frame
 	root.get_texture().get_image().save_png("user://dio_%s_%s_uebersicht.png" % [id, time])
 	# Geneigte Nahansicht (wie Rennkamera) auf den Startbereich.
-	app.phase = "race"
 	app.cam_pitch = app.PITCH_RACE
 	app.cam_zoom = 26.0
-	var s: Vector2 = app.track.at(0.02)
+	var s: Vector2 = app.track.at(float(OS.get_environment("AT")) if OS.get_environment("AT") != "" else 0.02)
 	app.camera_target = Vector3(s.x, 0, s.y)
 	app.paused = true
 	app.set_camera(app.camera_target)

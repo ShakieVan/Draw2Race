@@ -73,6 +73,20 @@ OBJEKTE = {
     "stadt_schild_kurve": ("Verkehrsschild Kurve", "Ein Verkehrszeichen „Kurve rechts“ (roter Rand, weißes Dreieck, schwarzer Kurvenpfeil) an einem grauen Rohrpfosten, ohne Schrift."),
     "stadt_schild_kaputt": ("Beschädigtes Verkehrsschild", "Ein beschädigtes Verkehrszeichen: runder Richtungspfeil-Schild, verbogen und schief am geknickten Pfosten, zerkratzt, mit Rost und einer Delle, ohne Schrift."),
     "stadt_baum": ("Straßenbaum", "Eine junge Platane als Straßenbaum mit gleichmäßiger, runder Krone, Baumscheibe mit gusseisernem Gitter am Fuß."),
+    # Runde 3: Bäume fürs Stadt-Diorama. Von oben (Zeichenansicht) zählt die Krone: dicht, rund, geschlossen; kein Baumrost.
+    "stadt_baum_linde": ("Stadtlinde", "Eine ausgewachsene Stadtlinde im Hochsommer: gerader, kräftiger Stamm und eine sehr dichte, rundliche, "
+                         "vollständig geschlossene Laubkrone ohne Lücken und ohne sichtbares Astgerüst, sattgrün mit helleren und dunkleren "
+                         "Blattbüscheln. Kein Baumrost, kein Gitter, kein Sockel, kein Pflaster und keine Erde am Fuß – der Stamm endet unten einfach. "
+                         "Etwa 9 m hoch, Krone etwa 7 m breit."),
+    "stadt_baum_ahorn": ("Spitzahorn", "Ein ausgewachsener Spitzahorn im Sommer: eiförmige, sehr dichte und geschlossene dunkelgrüne Krone mit "
+                         "gelappten Blättern, kurzer gerader Stamm. Keine Lücken in der Krone, kein sichtbares Astgerüst, kein Baumrost, "
+                         "kein Gitter, kein Sockel, kein Boden am Fuß. Etwa 8 m hoch, Krone etwa 6 m breit."),
+    "stadt_baum_platane": ("Platane", "Eine große Platane im Sommer: helle, fleckige Rinde am kräftigen Stamm, darüber eine breite, dichte, leicht "
+                           "unregelmäßige, geschlossene Laubkrone in mittlerem Grün. Keine Lücken, kein sichtbares Astgerüst, kein Baumrost, "
+                           "kein Gitter, kein Sockel, kein Boden am Fuß. Etwa 11 m hoch, Krone etwa 9 m breit."),
+    "stadt_baum_kastanie": ("Rosskastanie", "Eine Rosskastanie im Sommer: kuppelförmige, sehr dichte, geschlossene Krone aus großen, handförmigen "
+                            "Blättern in sattem Dunkelgrün, kräftiger dunkler Stamm. Keine Lücken, kein sichtbares Astgerüst, kein Baumrost, "
+                            "kein Gitter, kein Sockel, kein Boden am Fuß. Etwa 10 m hoch, Krone etwa 8 m breit."),
     "stadt_brunnen": ("Stadtbrunnen", "Ein runder Stadtbrunnen aus hellem Stein mit zweistufiger Schale in der Mitte, das Wasser als klare, stehende Oberfläche."),
     "stadt_bank": ("Parkbank", "Eine Parkbank mit gusseisernen Seitenteilen und Holzlatten."),
     "stadt_bushaltestelle": ("Bushaltestelle", "Ein modernes Bushaltestellen-Häuschen aus Glas und Stahl mit Sitzbank und leerer, weißer Plakatfläche an der Seite."),
@@ -201,6 +215,9 @@ Runde 2 (neue Strecken) – nur Beschreibungen, zu denen es in `bilder/` noch ke
 2. `hafen_*`, `serra_*`
 3. `jahrmarkt_*`, `steinbruch_*`
 4. `drift_*`, `kinder_*`
+
+Runde 3 (Stadt-Diorama): `stadt_baum_linde`, `stadt_baum_ahorn`, `stadt_baum_platane`, `stadt_baum_kastanie` –
+dichte, geschlossene Kronen ohne Baumrost (von oben soll man eine runde grüne Krone sehen, keinen „Reifen“).
 
 Gern mehrere Varianten eines Objekts als `name_2.png`, `name_3.png` – die beste wird ausgewählt.
 

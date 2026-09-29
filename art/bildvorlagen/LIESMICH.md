@@ -26,6 +26,9 @@ Runde 2 (neue Strecken) – nur Beschreibungen, zu denen es in `bilder/` noch ke
 3. `jahrmarkt_*`, `steinbruch_*`
 4. `drift_*`, `kinder_*`
 
+Runde 3 (Stadt-Diorama): `stadt_baum_linde`, `stadt_baum_ahorn`, `stadt_baum_platane`, `stadt_baum_kastanie` –
+dichte, geschlossene Kronen ohne Baumrost (von oben soll man eine runde grüne Krone sehen, keinen „Reifen“).
+
 Gern mehrere Varianten eines Objekts als `name_2.png`, `name_3.png` – die beste wird ausgewählt.
 
 Erzeugt mit `tools/make_image_prompts.py`.

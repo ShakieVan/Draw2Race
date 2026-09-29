@@ -10,12 +10,12 @@ func run() -> void:
 	var app: Node = load("res://main.tscn").instantiate()
 	root.add_child(app)
 	app.store = ProgressStore.new("user://shots_%s.json" % Time.get_ticks_usec())
-	app.debug_data()["override"] = {"time": time, "weather": "dry", "fog": 0}
+	app.debug_data()["override"] = {"time": time, "weather": OS.get_environment("WEATHER") if OS.get_environment("WEATHER") != "" else "dry", "fog": 0}
 	app.select_track(id)
 	app.start_drawing()
 	for k in range(40):
 		await process_frame
-	root.get_texture().get_image().save_png("user://dio_%s_%s_uebersicht.png" % [id, time])
+	root.get_texture().get_image().save_png("user://dio_%s_%s%s_uebersicht.png" % [id, time, OS.get_environment("WEATHER")])
 	# Geneigte Nahansicht (wie Rennkamera) auf den Startbereich.
 	app.cam_pitch = app.PITCH_RACE
 	app.cam_zoom = 26.0
@@ -25,5 +25,5 @@ func run() -> void:
 	app.set_camera(app.camera_target)
 	for k in range(10):
 		await process_frame
-	root.get_texture().get_image().save_png("user://dio_%s_%s_nah.png" % [id, time])
+	root.get_texture().get_image().save_png("user://dio_%s_%s%s_nah.png" % [id, time, OS.get_environment("WEATHER")])
 	quit()

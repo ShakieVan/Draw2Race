@@ -16,6 +16,13 @@ uniform float puddles = 0.0;     // 0 keine, 1 Pfützen sichtbar
 uniform float snow = 0.0;        // 0 kein Schnee, 1 Schneeschleier
 uniform float rain = 0.0;        // Regenstärke für die Wellen in der Spiegelung
 uniform float puddle_cover = 0.56; // Schwelle der Pfützen-Rauschtextur (kleiner = mehr Pfützen)
+// Diorama: Fototextur (Weltkoordinaten, Kachelgröße albedo_scale) und gebackene Umgebungsverdeckung (zweite UV-Ebene).
+uniform sampler2D albedo_tex : source_color, hint_default_white, filter_linear_mipmap, repeat_enable;
+uniform bool use_albedo = false;
+uniform vec4 albedo_tint : source_color = vec4(1.0);
+uniform float albedo_scale = 6.0;
+uniform sampler2D ao_tex : hint_default_white, filter_linear, repeat_disable;
+uniform bool use_ao = false;
 
 #include "res://assets/lamp_light.gdshaderinc"
 
@@ -28,7 +35,11 @@ void vertex() {
 void fragment() {
 	float g1 = texture(grain_tex, world_xz * 0.45).r;
 	float g2 = texture(grain_tex, world_xz * 2.1 + vec2(0.37, 0.71)).r;
-	vec3 col = base_color.rgb * (1.0 - grain_strength * 0.5 + grain_strength * (0.6 * g1 + 0.4 * g2));
+	vec3 base = base_color.rgb;
+	if (use_albedo) {
+		base = texture(albedo_tex, world_xz / albedo_scale).rgb * albedo_tint.rgb;
+	}
+	vec3 col = base * (1.0 - grain_strength * 0.5 + grain_strength * (0.6 * g1 + 0.4 * g2));
 	float puddle = smoothstep(puddle_cover, puddle_cover + 0.08, texture(puddle_tex, world_xz * 0.035).r) * puddles;
 	float wet = clamp(max(wetness * 0.65, puddle), 0.0, 1.0);
 	col *= mix(1.0, 0.5, wet);
@@ -51,6 +62,10 @@ void fragment() {
 	}
 	col = mix(col, vec3(0.86, 0.9, 0.93), snow * (0.45 + 0.25 * g2));
 	ALBEDO = col;
+	if (use_ao) {
+		AO = texture(ao_tex, UV2).r;
+		AO_LIGHT_AFFECT = 0.85;
+	}
 	ROUGHNESS = mix(0.88, 0.06, wet);
 	SPECULAR = mix(0.4, 0.6, wet);
 	if (use_reflection && wet > 0.01) {

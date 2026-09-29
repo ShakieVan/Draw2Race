@@ -39,6 +39,14 @@ var night_lights: Array[Node3D] = []
 var tinted: Dictionary = {}
 var road_material: StandardMaterial3D
 var road_shader: ShaderMaterial            # Premium-Fahrbahn (world.gd), sonst null
+var road_shaders_extra: Array = []         # weitere Fahrbahn-Shader (Diorama: Nebenstraßen mit eigener Textur)
+
+func all_road_shaders() -> Array:
+	var list: Array = []
+	if road_shader != null:
+		list.append(road_shader)
+	list.append_array(road_shaders_extra)
+	return list
 var terrain_shader: ShaderMaterial         # Premium-Gelände (world.gd), sonst null
 var premium := false                      # Premium-Grafik aktiv (setzt world.gd)
 var reflection_view: SubViewport
@@ -225,10 +233,11 @@ func apply(new_conditions: Dictionary, new_quality: int) -> void:
 	if road_shader != null:
 		# Premium-Fahrbahn: Nässe, Pfützen und echte Spiegelung (ab Qualität „Mittel“) statt Farbwechsel.
 		var wet := weather == "rain"
-		road_shader.set_shader_parameter("wetness", 1.0 if wet else 0.0)
-		road_shader.set_shader_parameter("puddles", 1.0 if wet else 0.0)
-		road_shader.set_shader_parameter("rain", 1.0 if wet else 0.0)
-		road_shader.set_shader_parameter("snow", 1.0 if weather == "snow" else 0.0)
+		for rs in all_road_shaders():
+			rs.set_shader_parameter("wetness", 1.0 if wet else 0.0)
+			rs.set_shader_parameter("puddles", 1.0 if wet else 0.0)
+			rs.set_shader_parameter("rain", 1.0 if wet else 0.0)
+			rs.set_shader_parameter("snow", 1.0 if weather == "snow" else 0.0)
 		set_reflection(wet and quality >= 1)
 	if rain_material != null:
 		var tod := str(conditions.time)
@@ -324,12 +333,13 @@ func set_reflection(on: bool) -> void:
 		reflection_cam.cull_mask = 1
 		reflection_view.add_child(reflection_cam)
 		reflection_cam.current = true
-		road_shader.set_shader_parameter("reflection_tex", reflection_view.get_texture())
+		for rs in all_road_shaders():
+			rs.set_shader_parameter("reflection_tex", reflection_view.get_texture())
 	reflecting = on
 	if reflection_view != null:
 		reflection_view.render_target_update_mode = SubViewport.UPDATE_ALWAYS if on else SubViewport.UPDATE_DISABLED
-	if road_shader != null:
-		road_shader.set_shader_parameter("use_reflection", on)
+	for rs in all_road_shaders():
+		rs.set_shader_parameter("use_reflection", on)
 
 func update_reflection() -> void:
 	var main := get_viewport().get_camera_3d()

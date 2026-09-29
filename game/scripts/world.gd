@@ -226,6 +226,8 @@ func build(circuit: Circuit) -> void:
 		if diorama and (str(prop.get("type", "")) in DIORAMA_BAKED or diorama_blocks(prop)):
 			continue   # im Diorama enthalten bzw. läge auf einer Diorama-Straße
 		build_prop(prop)
+	for lamp in diorama_lamps:
+		build_prop({"type": "lamp", "x": lamp.x, "z": lamp.z, "toward": lamp.toward})
 	flush_ai_props()
 	flush_cards()
 	atmosphere.bake_rain_lights(track.bounds.grow(Circuit.HALF_WIDTH + 12.0))
@@ -972,8 +974,10 @@ const DIORAMA_TINT := {"D_Asphalt": Color(0.42, 0.44, 0.46), "D_Randstein": Colo
 	"D_Gehweg": Color(0.78, 0.76, 0.72), "D_Pflaster": Color(0.86, 0.84, 0.8), "D_Gras": Color(0.9, 0.95, 0.85),
 	"D_Stein": Color(0.9, 0.88, 0.84), "D_Weite": Color(0.62, 0.62, 0.6), "D_Beton": Color(0.75, 0.75, 0.73),
 	"D_Asphalt_Strasse": Color(0.9, 0.9, 0.88)}
+# Der Fahrbahn-Shader nimmt diese Töne als Multiplikator der Fototextur.
 var diorama := false
 var diorama_blocked: Array = []   # Straßenflächen des Dioramas: [ox, oz, ux, uz, vx, vz, a0, a1, b0, b1] (Begleitdatei)
+var diorama_lamps: Array = []     # zusätzliche Laternen für Kreuzungen/Nebenstraßen: {x, z, toward}
 
 func diorama_blocks(prop: Dictionary) -> bool:
 	# Liegt ein Laufzeit-Bauteil (Laterne, Tafel …) auf einer Diorama-Straße? Dann entfällt es.
@@ -997,16 +1001,39 @@ func build_diorama() -> void:
 		var layout = JSON.parse_string(FileAccess.get_file_as_string(layout_path))
 		if layout is Dictionary:
 			diorama_blocked = layout.get("blocked", [])
+			diorama_lamps = layout.get("lamps", [])
 	add_child(scene)
 	var ao_path: String = (DIORAMA_PATH % track.id).replace(".glb", "_ao.jpg")
 	var ao: Texture2D = load(ao_path) if ResourceLoader.exists(ao_path) else null
+	var road_shaders := {}
 	for node in scene.find_children("*", "MeshInstance3D", true, false):
 		var mi := node as MeshInstance3D
+		var lit := true
 		for i in range(mi.mesh.get_surface_count()):
 			var mat := mi.mesh.surface_get_material(i) as StandardMaterial3D
 			if mat == null:
 				continue
 			var mname := mat.resource_name
+			if mname == "D_Asphalt" or mname == "D_Asphalt_Strasse":
+				# Fahrbahn: Nässe, Pfützen, Spiegelung und Laternenlicht kommen aus dem Fahrbahn-Shader.
+				if not road_shaders.has(mname):
+					var tint: Color = DIORAMA_TINT.get(mname, Color.WHITE)
+					var sm := premium_road(tint)
+					sm.set_shader_parameter("albedo_tex", mat.albedo_texture)
+					sm.set_shader_parameter("use_albedo", true)
+					sm.set_shader_parameter("albedo_tint", tint)
+					sm.set_shader_parameter("grain_strength", 0.12)
+					if ao != null:
+						sm.set_shader_parameter("ao_tex", ao)
+						sm.set_shader_parameter("use_ao", true)
+					road_shaders[mname] = sm
+					if mname == "D_Asphalt":
+						atmosphere.road_shader = sm
+					else:
+						atmosphere.road_shaders_extra.append(sm)
+				mi.set_surface_override_material(i, road_shaders[mname])
+				lit = false
+				continue
 			if mname == "D_Wasser":
 				mi.set_surface_override_material(i, premium_water())
 				continue
@@ -1020,7 +1047,8 @@ func build_diorama() -> void:
 					mat.ao_on_uv2 = true
 					mat.ao_light_affect = 0.85
 					mat.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
-		add_overlay(mi, lit_overlay(mi.mesh))
+		if lit:
+			add_overlay(mi, lit_overlay(mi.mesh))
 
 func premium_prop(prop: Dictionary) -> bool:
 	# true = als KI-Modell gebaut (samt Licht/Schrift), false = Klötzchen-Fassung verwenden.
@@ -1077,6 +1105,8 @@ func premium_prop(prop: Dictionary) -> bool:
 			var arm := ai_arm(model)
 			var here := Vector2(x, z)
 			var to_road := track.at(track.phase(here)) - here
+			if prop.has("toward"):
+				to_road = Vector2(float(prop.toward[0]), float(prop.toward[1])) - here   # Diorama-Straße: Blickpunkt vorgegeben
 			var yaw := float(arm[0]) - atan2(to_road.y, to_road.x) if to_road.length() > 0.1 else spin
 			if place_ai(model, x, z, yaw, 4.2):
 				var head := here + to_road.normalized() * float(arm[1]) * 4.2

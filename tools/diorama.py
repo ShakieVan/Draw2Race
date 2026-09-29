@@ -264,6 +264,7 @@ placed = []          # Flächen (Vierecke in 2D), auf denen keine Häuser/Bäume
 footprints = []      # (Frame, a0, a1, b0, b1): Gesamtfläche von Straße + Rand + Gehweg (für Boden und Häuser)
 asphalt_rects = []   # (Frame, a0, a1, b0, b1): reine Fahrbahnflächen (Begleitdatei für das Spiel)
 arm_parts = []       # Flächen aller Kreuzungen/Seitenstraßen
+lamps = []           # neue Laternen für Kreuzungen und Nebenstraßen: (Standort, Blickpunkt auf der Straße)
 arms = []            # Achsen der Zufahrten für Häuserreihen: (Ursprung, Richtung, Seitenrichtung, s_von, s_bis)
 skip_by_side = {1.0: set(), -1.0: set()}   # Segmente der Hauptbänder, die an Kreuzungen entfallen (je Seite)
 BAKED = {"lamp", "building", "street_tree", "fountain"}
@@ -363,6 +364,14 @@ def build_arm(fr, region, length, kind_key, lateral_a, lateral_b, start, axis_di
         # Gehwege beginnen bei T-Einmündungen und Süd-Zufahrten hinter dem Eckbereich der Hauptstraße bzw. Kreuzung
         parts.append(flat(fr, "gehweg", lo, hi, start + (SIDE if kind_key in ("T", "S") else 0.0), end, Y_W, 2.5))
     asphalt_rects.append((fr, -HW, HW, start, end))
+    # Laternen abwechselnd links/rechts auf dem Gehweg, alle 9 m (je Seite alle 18 m)
+    b = start + (SIDE + 3.0 if kind_key in ("T", "S") else 3.0)
+    k = 0
+    while b < end - 7.0:
+        side = 1 if k % 2 == 0 else -1
+        lamps.append((fr.pt(side * (HW + SIDE * 0.5 + 0.2), b), fr.pt(0, b)))
+        b += 9.0
+        k += 1
     parts += barrier(fr.pt(0, end - 2.2), fr.u, -fr.v, HW - 0.35)
 
 
@@ -414,6 +423,22 @@ for J in corners:
                   flat(F, "gehweg", -Rw, -H, -H - W, -H - K, Y_W, 2.5),
                   flat(F, "kerb", H, H + K, H, Rn, Y_K + 0.001, 1.0), wall(F, "kerb", H, H, H, Rn, Y_J, Y_K, (-1, 0)),
                   flat(F, "gehweg", H + K, H + W, H + W, Rn, Y_W, 2.5)]
+    # Leitwand wie bei Stadtkursen: Betonblöcke mit rot-weißer Kappe folgen dem äußeren Bogen der Rennstrecke und
+    # zeigen den Weg durch die Kreuzung; die geradeaus weiterführenden Straßen wirken dadurch gesperrt.
+    mid = center[(J["i0"] + ((J["j1"] - J["i0"]) % N) // 2) % N]
+    r_arc = (mid - P).length / (math.sqrt(2.0) - 1.0)                # Bogenradius der Mittellinie (90°-Kurve)
+    r_wall = r_arc + H + 0.4
+    n_blocks = max(8, int(0.5 * math.pi * r_wall / 1.5))
+    for kb in range(n_blocks):
+        th = -math.pi / 2 + (math.pi / 2) * (kb + 0.5) / n_blocks    # vom Bogenanfang (Richtung -b) bis zum Bogenende (+a)
+        radial = F.u * math.cos(th) + F.v * math.sin(th)
+        pos = F.pt(-r_arc, r_arc) + radial * r_wall
+        g = Frame(pos, Vector((-radial.y, radial.x)), -radial)       # b-Achse zeigt zur Fahrbahn
+        arm_parts += box(g, "beton", -0.75, 0.75, -0.22, 0.22, Y_J, Y_J + 0.72)
+        arm_parts += box(g, "rot" if kb % 2 == 0 else "weiss", -0.75, 0.75, -0.22, 0.22, Y_J + 0.72, Y_J + 0.84)
+    # Laternen in den drei äußeren Eckblöcken der Kreuzung
+    for la, lb in ((H + W * 0.5 + 0.3, H + W * 0.5 + 0.3), (H + W * 0.5 + 0.3, -H - W * 0.5 - 0.3), (-H - W * 0.5 - 0.3, -H - W * 0.5 - 0.3)):
+        lamps.append((F.pt(la, lb), F.pt(0, 0)))
     # Zebrastreifen auf der ankommenden und der abgehenden Straße der Rennstrecke
     for k in range(-3, 4):
         arm_parts.append(flat(F, "linie", -H - 4.5, -H - 1.5, k - 0.25, k + 0.25, Y_J + 0.003, 1.0))
@@ -556,6 +581,7 @@ for ax0, az0, ax1, az1 in ((x0 - far, z0 - far, x1 + far, z0), (x0 - far, z1, x1
 mesh_object("Weite", frame)
 
 # ---------------------------------------------------------------- Modelle laden
+HOUSES = ["stadt_altbau", "stadt_eckladen", "stadt_wohnblock", "stadt_buero"]
 LIB = {}
 
 
@@ -587,8 +613,14 @@ def rect_corners(cx, cz, hw_, hd, ang):
     return [(cx + ca * dx - sa * dz, cz + sa * dx + ca * dz) for dx, dz in ((-hw_, -hd), (hw_, -hd), (hw_, hd), (-hw_, hd))]
 
 
+LOD_DIST = 24.0      # Häuser weiter als so viele Meter von der Rennstrecke bekommen die einfache Fassung (_lo)
+
+
 def place(name, x, z, ang, height, clearance=FOOT + 0.2, trunk=0.0, check_center=True):
-    """trunk > 0: nur der Stamm zählt (Bäume dürfen mit der Krone über Gehweg/Straße ragen)."""
+    """trunk > 0: nur der Stamm zählt (Bäume dürfen mit der Krone über Gehweg/Straße ragen).
+    Häuser weit ab der Rennstrecke (Bildrand) nehmen die vereinfachte Fassung, sonst wird das Diorama für Handys zu schwer."""
+    if name in HOUSES and dist_to_center(np.array([(x, z)]))[0] > LOD_DIST:
+        name = name + "_lo"
     obj, ext = model(name)
     s = height / max(ext.z, 1e-4)
     hw_, hd = (trunk, trunk) if trunk > 0 else (ext.x * s / 2 + 0.2, ext.y * s / 2 + 0.2)
@@ -605,9 +637,6 @@ def place(name, x, z, ang, height, clearance=FOOT + 0.2, trunk=0.0, check_center
 
 
 # ---------------------------------------------------------------- Häuserreihen entlang aller Straßen
-HOUSES = ["stadt_altbau", "stadt_eckladen", "stadt_wohnblock", "stadt_buero"]
-
-
 def row_along(pts, tans, lefts, side, offset, heights, check_center=True):
     """Häuser dicht an dicht entlang einer Linie, Längsseite zur Straße; misslingt ein Platz, wird ein kleineres
     Haus probiert, erst dann ein Stück weitergerückt."""
@@ -804,7 +833,9 @@ blocked = []
 for fr, a0, a1, b0, b1 in asphalt_rects:
     blocked.append([round(fr.o.x, 3), round(fr.o.y, 3), round(fr.u.x, 5), round(fr.u.y, 5), round(fr.v.x, 5), round(fr.v.y, 5),
                     a0 - 0.4, a1 + 0.4, b0 - 0.4, b1 + 0.4])
-json.dump({"blocked": blocked}, open(OUT_GLB.replace(".glb", "_layout.json"), "w"))
+json.dump({"blocked": blocked,
+           "lamps": [{"x": round(a.x, 3), "z": round(a.y, 3), "toward": [round(t.x, 3), round(t.y, 3)]} for a, t in lamps]},
+          open(OUT_GLB.replace(".glb", "_layout.json"), "w"))
 print("DIORAMA Boden", sum(len(o.data.polygons) for o in objs_ground), "Flächen, Modelle", len(placed), "Zufahrten", len(arms))
 bpy.ops.export_scene.gltf(filepath=OUT_GLB, export_format="GLB", export_yup=True, export_image_format="JPEG",
                           export_jpeg_quality=88, export_apply=True)

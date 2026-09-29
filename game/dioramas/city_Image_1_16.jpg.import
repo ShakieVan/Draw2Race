@@ -8,7 +8,7 @@ metadata={
 "vram_texture": false
 }
 generator_parameters={
-"md5": "a776df8bb7ac45208f709990c2c512d8"
+"md5": "d5b2f0fc4d6d02ebdf288a82af0f24d6"
 }
 
 [deps]
@@ -18,9 +18,9 @@ dest_files=["res://.godot/imported/city_Image_1_16.jpg-c5a4ea87c44e53cbbe573c9f1
 
 [params]
 
-compress/mode=0
+compress/mode=1
 compress/high_quality=false
-compress/lossy_quality=0.7
+compress/lossy_quality=0.8
 compress/uastc_level=0
 compress/rdo_quality_loss=0.0
 compress/hdr_compression=1

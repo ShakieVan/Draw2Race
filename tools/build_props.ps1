@@ -21,6 +21,7 @@ $Budget = @{
     'steinbruch_felswand' = @(4000, 1024); 'steinbruch_kieshaufen' = @(2000, 512); 'steinbruch_foerderband' = @(4000, 512)
     'drift_parkhaus' = @(9000, 1024); 'drift_zuschauer_container' = @(6000, 1024); 'drift_betonblock' = @(800, 256); 'drift_reifenwand' = @(2000, 512)
     'drift_pylone' = @(600, 256); 'drift_zaun' = @(1500, 512); 'drift_flutlicht' = @(2500, 512)
+    'stadt_baum_linde' = @(6000, 1024); 'stadt_baum_ahorn' = @(6000, 1024); 'stadt_baum_platane' = @(6000, 1024); 'stadt_baum_kastanie' = @(6000, 1024)
     'kinder_teddy' = @(8000, 1024); 'kinder_holzeisenbahn' = @(6000, 1024); 'kinder_bausteinturm' = @(4000, 1024); 'kinder_bauklotz' = @(800, 256)
 }
 New-Item -ItemType Directory -Force -Path (Join-Path $Root 'game/assets/props') | Out-Null

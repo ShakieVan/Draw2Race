@@ -455,12 +455,12 @@ for J in corners:
     fe = Frame(F.pt(H, 0), v, u)          # b-Achse entlang u, a-Achse quer (v)
     build_arm(fe, None, e_len, "E", 0, 0, 0.0, u, 1, 0)
     footprints.append((F, H, H + e_len, -H - W, H + W))
-    placed.append(F.poly(H, H + e_len, -H - W, H + W))
+    placed.append(F.poly(H, H + e_len, -H - W + 1.5, H + W - 1.5))       # Gehwegrand bleibt für Bäume frei
     arms.append((F.pt(H, 0), u, v, W + 14, e_len - 5))
     fs = Frame(F.pt(0, -H), u, -v)
     build_arm(fs, None, s_len, "S", 0, 0, 0.0, -v, 1, 0)
     footprints.append((F, -H - W, H + W, -H - s_len, -H))
-    placed.append(F.poly(-H - W, H + W, -H - s_len, -H))
+    placed.append(F.poly(-H - W + 1.5, H + W - 1.5, -H - s_len, -H))
     arms.append((F.pt(0, -H), -v, u, W + 14, s_len - 5))
     if e_len > 9:
         for k in range(-3, 4):
@@ -497,7 +497,7 @@ for (r0, r1) in runs:
         ft = Frame(Ft.pt(0, 0), Ft.u, Ft.v)
         build_arm(ft, None, t_len, "T", 0, 0, H, Ft.v, 1, 0)
         footprints.append((Ft, -FOOT, FOOT, H, H + t_len))
-        placed.append(Ft.poly(-FOOT, FOOT, H, H + t_len))
+        placed.append(Ft.poly(-FOOT + 1.5, FOOT - 1.5, H, H + t_len))
         arms.append((Ft.pt(0, 0), Ft.v, Ft.u, H + W + 14, H + t_len - 5))
         t_count += 1
         print("DIORAMA T-Einmündung bei", (round(center[kk].x, 1), round(center[kk].y, 1)), "Länge", t_len)
@@ -710,11 +710,34 @@ infill()
 fountain = next((p for p in data["props"] if p["type"] == "fountain"), None)
 if fountain:
     fx, fz = fountain["x"], fountain["z"]
-    bpy.ops.mesh.primitive_cylinder_add(vertices=48, radius=3.4, depth=0.55, location=(fx, -fz, GROUND_Y + 0.27))
-    rim = bpy.context.active_object
-    rim.name = "Brunnen_Rand"
-    rim.data.materials.append(M["stein"])
-    bpy.ops.mesh.primitive_cylinder_add(vertices=48, radius=3.05, depth=0.05, location=(fx, -fz, GROUND_Y + 0.5))
+    def ring_object(name, r_out, r_in, y0, y1):
+        """Ring (Beckenrand): Außenwand, Oberseite, Innenwand – mit Zylinder-UV für die Steintextur."""
+        me = bpy.data.meshes.new(name)
+        bm_r = bmesh.new()
+        uv_r = bm_r.loops.layers.uv.new("UVMap")
+        n_r = 48
+        for k in range(n_r):
+            t0, t1 = 2 * math.pi * k / n_r, 2 * math.pi * (k + 1) / n_r
+            spec = ((r_out, y0, r_out, y1, 1.0), (r_out, y1, r_in, y1, 0.0), (r_in, y1, r_in, y0, -1.0))
+            for ra, ya, rb, yb, side in spec:
+                pts = [(fx + ra * math.cos(t0), -(fz + ra * math.sin(t0)), ya), (fx + ra * math.cos(t1), -(fz + ra * math.sin(t1)), ya),
+                       (fx + rb * math.cos(t1), -(fz + rb * math.sin(t1)), yb), (fx + rb * math.cos(t0), -(fz + rb * math.sin(t0)), yb)]
+                f = bm_r.faces.new([bm_r.verts.new(q) for q in pts])
+                want = Vector((0, 0, 1)) if side == 0.0 else Vector((math.cos((t0 + t1) / 2), -math.sin((t0 + t1) / 2), 0)) * side
+                bm_r.normal_update()
+                if f.normal.dot(want) < 0:
+                    f.normal_flip()
+                for loop in f.loops:
+                    v = loop.vert.co
+                    loop[uv_r].uv = (math.atan2(-(v.y + 0), v.x - fx) * r_out / 2.0, (v.z if side != 0.0 else math.hypot(v.x - fx, v.y + fz)) / 2.0)
+        bm_r.to_mesh(me)
+        bm_r.free()
+        o = bpy.data.objects.new(name, me)
+        scene.collection.objects.link(o)
+        me.materials.append(M["stein"])
+        return o
+    rim = ring_object("Brunnen_Rand", 3.4, 2.95, GROUND_Y, GROUND_Y + 0.55)
+    bpy.ops.mesh.primitive_cylinder_add(vertices=48, radius=3.0, depth=0.04, location=(fx, -fz, GROUND_Y + 0.42))
     water = bpy.context.active_object
     water.name = "Brunnen_Wasser"
     water.data.materials.append(M["wasser"])
@@ -724,7 +747,7 @@ if fountain:
     bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=1.1, depth=0.25, location=(fx, -fz, GROUND_Y + 1.55))
     bowl = bpy.context.active_object
     bowl.data.materials.append(M["stein"])
-    for o in (rim, water, col, bowl):
+    for o in (water, col, bowl):
         # Einfache Zylinderabwicklung (Winkel × Höhe) für die Steintextur.
         me = o.data
         uv = me.uv_layers[0] if me.uv_layers else me.uv_layers.new()
@@ -737,11 +760,20 @@ TREES = ["stadt_baum"]
 tree_pool = [t for t in ("stadt_baum_linde", "stadt_baum_ahorn", "stadt_baum_platane", "stadt_baum_kastanie")
              if __import__("os").path.exists(f"{PROPS}/{t}.glb")] or TREES
 # Straßenbäume auf dem Gehweg (außen), zwischen den Laternen.
-step = int(11.0 / 0.5)
+step = int(9.0 / 0.5)
 for i in range(step // 2, N, step):
     for side in (outer, inside_sign):
-        p = center[i] + left[i] * side * (FOOT - 1.1)
-        place(rng.choice(tree_pool), p.x, p.y, rng.uniform(0, 6.28), rng.uniform(6.5, 8.0), clearance=HW + KERB_W + 1.2, trunk=0.8)
+        # Straßenbäume am Außenrand des Gehwegs und klein genug, dass die Krone (Radius ≈ 0,4 × Höhe) nicht über die Fahrbahn ragt
+        p = center[i] + left[i] * side * (FOOT - 0.9)
+        place(rng.choice(tree_pool), p.x, p.y, rng.uniform(0, 6.28), rng.uniform(5.0, 5.8), clearance=HW + KERB_W + 1.2, trunk=0.5)
+# Straßenbäume an den Nebenstraßen (beide Seiten, alle 12 m, am Außenrand des Gehwegs)
+for origin, direction, normal, s0, s1 in arms:
+    b = 8.0
+    while b < s1 + 4.0:
+        for side in (1, -1):
+            p = origin + direction * b + normal * side * (FOOT - 0.9)
+            place(rng.choice(tree_pool), p.x, p.y, rng.uniform(0, 6.28), rng.uniform(5.0, 5.8), trunk=0.5, check_center=False)
+        b += 12.0
 # Parkbäume auf dem Rasen.
 gx = np.arange(x0, x1, 3.0)
 gz = np.arange(z0, z1, 3.0)

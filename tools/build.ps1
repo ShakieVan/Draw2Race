@@ -12,7 +12,7 @@ function Invoke-Godot([string[]]$Arguments) {
 Invoke-Godot -Arguments @('--headless','--path',$gamePath,'--editor','--import','--quit')
 # KI-Modelltexturen sind JPGs: verlustfrei importiert blähen sie die APK nur auf. Neue Importe auf WebP (verlustbehaftet)
 # umstellen und dann neu importieren.
-$lossless = Get-ChildItem (Join-Path $gamePath 'assets/props'), (Join-Path $gamePath 'assets/cars') -Filter '*.jpg.import' |
+$lossless = Get-ChildItem (Join-Path $gamePath 'assets/props'), (Join-Path $gamePath 'assets/cars'), (Join-Path $gamePath 'dioramas') -Filter '*.jpg.import' |
     Where-Object { (Get-Content -LiteralPath $_.FullName -Raw) -match '(?m)^compress/mode=0\r?$' }
 if ($lossless) {
     foreach ($file in $lossless) {

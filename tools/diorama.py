@@ -25,6 +25,7 @@ import numpy as np
 from mathutils import Matrix, Vector
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import kit_car
 import kit_house
 
 A = sys.argv[sys.argv.index("--") + 1:]
@@ -192,7 +193,7 @@ def kit_material(name):
 
 
 KIT_TILES = json.load(open(os.path.join(PROPS, "..", "kit", "kit.json"), encoding="utf-8"))
-for _name in list(KIT_TILES) + ["farbe", "lampe_rot", "lampe_blau"]:
+for _name in list(KIT_TILES) + ["farbe", "lampe", "lampe_rot", "lampe_blau", "ampel_rot", "ampel_gelb", "ampel_gruen"]:
     M["k:" + _name] = kit_material(_name)
 
 
@@ -213,6 +214,7 @@ for _name in ("menge", "banner", "portal", "schach"):
     M["e:" + _name] = event_material(_name)
 M["e:flagge"] = event_material("flagge", True)
 M["stahl"] = material("D_Stahl", color=(0.62, 0.64, 0.68), rough=0.4)
+M["holz"] = material("D_Holz", color=(0.34, 0.17, 0.07), rough=0.8)
 
 
 # ---------------------------------------------------------------- Netz-Helfer
@@ -561,6 +563,29 @@ def wall_quad(fr, key, a0, b0, a1, b1, y0, y1, facing):
 
 
 # Ecken (Kurven um rund 90°): Erkennung über Krümmungsabschnitte
+def on_asphalt(p):
+    """Liegt der Punkt auf einer Fahrbahn (Hauptstrecke oder Kreuzungs-/Zufahrtsfläche)?"""
+    if (dist_to_center(np.array([(p.x, p.y)])) < HW + 0.3).any():
+        return True
+    for fr_, a0_, a1_, b0_, b1_ in asphalt_rects:
+        rel = p - fr_.o
+        if a0_ - 0.3 <= rel.dot(fr_.u) <= a1_ + 0.3 and b0_ - 0.3 <= rel.dot(fr_.v) <= b1_ + 0.3:
+            return True
+    return False
+
+
+def traffic_light(pos, look, state):
+    """Ampelmast mit einem Lampenkasten (Blick look, also zur anfahrenden Straße hin); state: rot | gruen (eine Lampe leuchtet nachts)."""
+    g = Frame(pos, look, Vector((-look.y, look.x)))
+    parts = box(g, "stahl", -0.06, 0.06, -0.06, 0.06, Y_W, Y_W + 3.3)
+    parts += box(g, "dunkel", 0.06, 0.32, -0.16, 0.16, Y_W + 2.3, Y_W + 3.25)
+    for k, key in enumerate(("ampel_rot", "ampel_gelb", "ampel_gruen")):
+        y1 = Y_W + 3.2 - 0.27 * k
+        on = key == "ampel_" + state
+        parts += box(g, "k:" + key if on else "dunkel", 0.32, 0.35, -0.11, 0.11, y1 - 0.22, y1)
+    return parts
+
+
 def find_corners():
     hot = [c > 0.05 for c in curv]
     starts = [i for i in range(N) if hot[i] and not hot[i - 1]]
@@ -650,6 +675,15 @@ for J in corners:
                 continue
             g = Frame(pos, tangent, -radial)                         # b-Achse zeigt zur Fahrbahn
             arm_parts += barrier_segment(g, 0.0, seg_len, lamp=(kb % 2 == 0))
+    # Ampeln an den Kreuzungsecken (nicht auf der Fahrbahn): die beiden Achsen zeigen entgegengesetzte Zustände
+    for sa, sb in ((1, 1), (1, -1), (-1, 1), (-1, -1)):
+        tl_pos = F.pt(sa * (H + 0.65), sb * (H + 0.65))
+        if on_asphalt(tl_pos):
+            continue
+        along_u = sa * sb > 0
+        tl_look = F.u * (-sa) if along_u else F.v * (-sb)
+        arm_parts.extend(traffic_light(tl_pos, tl_look, "rot" if along_u else "gruen"))
+        placed.append(F.poly(sa * (H + 0.65) - 0.3, sa * (H + 0.65) + 0.3, sb * (H + 0.65) - 0.3, sb * (H + 0.65) + 0.3))
     # Laternen in den äußeren Eckblöcken der Kreuzung
     for la, lb in ((H + W * 0.5 + 0.3, H + W * 0.5 + 0.3), (H + W * 0.5 + 0.3, -H - W * 0.5 - 0.3), (-H - W * 0.5 - 0.3, -H - W * 0.5 - 0.3)):
         lamps.append((F.pt(la, lb), F.pt(0, 0)))
@@ -1092,6 +1126,43 @@ event_objs = mesh_objects("Ausstattung", dress_parts)
 event_decals += [o for o in event_objs if o.name.endswith("_e_menge")]
 recipe["event"] = {"portal": {"at": [round(center[PORTAL_I].x, 3), round(center[PORTAL_I].y, 3)], "dir": [round(tang[PORTAL_I].x, 4), round(tang[PORTAL_I].y, 4)]},
                    "zones": [{"side": int(sd), "s": [-26.0, 26.0]} for sd in (1.0, -1.0)]}
+
+# ---------------------------------------------------------------- Parkbänke entlang des gepflasterten Parkwegs
+bench_parts = []
+bench_count = 0
+for i in range(14, N, 34):
+    if i in skip_by_side[inside_sign] or not all(straight_i[(i + d) % N] for d in range(-12, 13)):
+        continue
+    off = inside_sign * (HW + SIDE + 1.75)                          # auf dem Parkweg, Blick zur Fahrbahn
+    g = Frame(center[i] + left[i] * off, tang[i], left[i] * -inside_sign)
+    if in_footprints(np.array([tuple(g.pt(0, 0))]), margin=2.0).any():
+        continue
+    y = GROUND_Y + 0.004
+    bench_parts += box(g, "holz", -0.85, 0.85, -0.22, 0.22, y + 0.42, y + 0.48)              # Sitzfläche
+    bench_parts += box(g, "holz", -0.85, 0.85, 0.20, 0.25, y + 0.55, y + 0.90)               # Rückenlehne (hinten = vom Weg abgewandt)
+    for a in (-0.72, 0.72):
+        bench_parts += box(g, "stahl", a - 0.03, a + 0.03, -0.2, 0.22, y, y + 0.42)           # Füße
+    placed.append(g.poly(-1.2, 1.2, -0.7, 0.7))
+    bench_count += 1
+bench_objs = mesh_objects("Bank", bench_parts)
+print("DIORAMA Parkbänke:", bench_count)
+
+# ---------------------------------------------------------------- Parkende Autos entlang der Zufahrten
+car_rng = random.Random(11)
+car_parts_all = []
+for origin, direction, normal, s0, s1 in arms:
+    for side in (1, -1):
+        s = s0 + car_rng.uniform(0.0, 4.0)
+        while s < s1 - 4.0:
+            heading = direction * (1.0 if car_rng.random() < 0.5 else -1.0)
+            pos = origin + direction * s + normal * side * (HW - 1.25)
+            parts_c, (car_len, car_wid) = kit_car.random_car(car_rng, pos.x, pos.y, heading.x, heading.y, base_y=Y_J)
+            if car_rng.random() < 0.6:
+                car_parts_all += parts_c
+                recipe.setdefault("cars", []).append({"at": [round(pos.x, 3), round(pos.y, 3)], "dir": [round(heading.x, 4), round(heading.y, 4)]})
+            s += car_len + car_rng.uniform(0.5, 4.5)
+car_objs = mesh_objects("Auto", car_parts_all)
+print("DIORAMA parkende Autos:", len(recipe.get("cars", [])))
 
 # ---------------------------------------------------------------- Park, Brunnen, Bäume
 fountain = next((p for p in data["props"] if p["type"] == "fountain"), None)

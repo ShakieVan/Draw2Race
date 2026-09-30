@@ -304,3 +304,12 @@ Nutzerwunsch: Der Motor klang dürftig und bei allen Autos gleich; er soll zum g
   - Die Werbetafel und der Turm der Stadt stehen nun bei x = −14 und x = 14 (`tools/make_tracks.py`), damit die Startlinie frei bleibt.
 - **Laternen:** Lichthöfe der Glühkörper kleiner und schwächer (1,25 m, Deckkraft 0,6).
 - **Offen:** Zuschauerzonen an weiteren Geraden und Kurvenaußenseiten, Reifenstapel, Parkende Autos, Verkehrsschilder.
+
+## Stadtleben und Bäume als MultiMesh (30.09.2026, Beta 0.2.21)
+
+- **Parkende Autos:** `tools/kit_car.py` baut einfache Stadtautos (Limousine, Fließheck, Transporter, Geländewagen; rund 100 Dreiecke, nur Vertexfarbe, Glas und Reifen dunkel). `tools/diorama.py` stellt sie entlang der Zufahrten an den Randstein (beide Seiten, zufällige Lücken, Richtung beliebig); ein Objekt `Auto_k_farbe`, die Verdeckung wirft Kontaktschatten, Laternenlicht wie bei den nahen Häusern. Stadt: 30 Autos, `recipe["cars"]` hält die Standorte.
+- **Markisen und Nasenschilder:** Läden (Erdgeschosse mit `front = laden`) bekommen eine gestreifte Markise über dem Schaufenster (sechs Farben, Creme) und ein Nasenschild, das nachts leuchtet (`tools/kit_house.py`, `add_awning`; eigener Zufallserzeuger, die übrigen Hausmerkmale bleiben unverändert).
+- **Ampeln:** An den Kreuzungsecken abseits der Fahrbahn stehen Ampelmasten (`traffic_light`, `on_asphalt`); die beiden Achsen zeigen Rot und Grün, die aktive Lampe leuchtet nachts und strahlt über der Glühschwelle auf (`kit_material`, Schlüssel `ampel_*`).
+- **Parkbänke** auf dem gepflasterten Parkweg der Innenseite (Holz, Stahlfüße), Blick zur Fahrbahn.
+- **Bäume als MultiMesh:** `World.merge_props` fasst die Straßen- und Parkbäume des Dioramas nach Netz und Spiegelebene zusammen (vier Netze, acht MultiMeshes); Zusatzlicht und Schneedecke hängen am gemeinsamen Knoten. Zeichenaufrufe: Übersicht trocken 440 → 399, Regen mit Spiegelung 773 → 694; Rennansicht 226 → 218 bzw. 375 → 350.
+- **Hilfsskript:** `tools/godot_run.ps1` startet Testskripte mit Zeitgrenze (ein Skriptfehler in einer Coroutine lässt Godot sonst offen).

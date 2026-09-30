@@ -1070,6 +1070,15 @@ func kit_material(key: String) -> StandardMaterial3D:
 		mat.emission = Color(0.15, 0.45, 1.0)
 		mat.emission_energy_multiplier = 0.0
 		window_materials.append(mat)
+	elif key.begins_with("ampel_"):
+		# Lampe einer Ampel (nur die jeweils aktive ist im Modell hell): rot, gelb oder grün, nachts leuchtend.
+		var tl := Color(1.0, 0.1, 0.06) if key == "ampel_rot" else (Color(1.0, 0.6, 0.05) if key == "ampel_gelb" else Color(0.1, 1.0, 0.3))
+		mat.albedo_color = tl * 0.6
+		mat.emission_enabled = true
+		mat.emission = tl
+		mat.emission_energy_multiplier = 0.0
+		mat.set_meta("glow", 2.6)      # über der Glühschwelle: die Signallampe strahlt nachts auf
+		window_materials.append(mat)
 	elif key == "lampe":
 		# Leuchtfläche unter dem Laternenkopf: nachts warmweiß, am Tag aus (gleiche Stärke wie das Fensterlicht).
 		mat.emission_enabled = true
@@ -1222,10 +1231,10 @@ func build_diorama() -> void:
 		var snow_layer: ShaderMaterial = null
 		if lit and not node_name.begins_with("Brunnen_Wasser"):
 			snow_layer = snow_cover_material("tree" if node_name.begins_with("Prop_") else ("light" if node_name.ends_with("_linie") else "full"))
-		if lit and node_name.begins_with("Haus_"):
-			# Laternenlicht nur auf die Häuser nahe der Strecke (der Zusatzdurchgang kostet die Dreiecke ein zweites Mal).
+		if lit and (node_name.begins_with("Haus_") or node_name.begins_with("Auto_")):
+			# Laternenlicht nur auf die Häuser nahe der Strecke und die parkenden Autos (der Zusatzdurchgang kostet die Dreiecke ein zweites Mal).
 			var glow: ShaderMaterial = null
-			if node_name.begins_with("Haus_nah"):
+			if node_name.begins_with("Haus_nah") or node_name.begins_with("Auto_"):
 				glow = lit_overlay_color(Color(0.6, 0.6, 0.6))
 				if glow != null:
 					glow.set_shader_parameter("albedo_tex", kit_albedo)
@@ -1235,6 +1244,50 @@ func build_diorama() -> void:
 			add_overlay(mi, glow, snow_layer)
 		elif lit:
 			add_overlay(mi, lit_overlay(mi.mesh), snow_layer)
+	merge_props(scene)
+
+func merge_props(scene: Node3D) -> void:
+	# Bäume derselben Sorte (gleiches Netz) und Spiegelebene werden zu einem MultiMesh: spart Zeichenaufrufe (Hauptbild und Schatten).
+	var groups := {}
+	for node in scene.find_children("Prop_*", "MeshInstance3D", true, false):
+		var mi := node as MeshInstance3D
+		if mi.mesh == null:
+			continue
+		var key := "%d_%d" % [mi.mesh.get_instance_id(), mi.layers]
+		if not groups.has(key):
+			groups[key] = []
+		groups[key].append(mi)
+	var inverse := scene.global_transform.affine_inverse()
+	var index := 0
+	for key in groups:
+		var list: Array = groups[key]
+		if list.size() < 3:
+			continue
+		var first: MeshInstance3D = list[0]
+		var multi := MultiMesh.new()
+		multi.transform_format = MultiMesh.TRANSFORM_3D
+		multi.mesh = first.mesh
+		multi.instance_count = list.size()
+		for i in range(list.size()):
+			multi.set_instance_transform(i, inverse * (list[i] as MeshInstance3D).global_transform)
+		var inst := MultiMeshInstance3D.new()
+		inst.name = "Baeume_%d" % index
+		index += 1
+		inst.multimesh = multi
+		inst.layers = first.layers
+		inst.set_meta("keep_layer", true)
+		scene.add_child(inst)
+		# Überlagerungen (Laternenlicht, Schnee) der Einzelbäume durch eine gemeinsame ersetzen.
+		var lit_mat: Material = null
+		var snow_mat: Material = null
+		for entry in overlay_nodes:
+			if entry[0] == first:
+				lit_mat = entry[1]
+				snow_mat = entry[2]
+		overlay_nodes = overlay_nodes.filter(func(e): return not list.has(e[0]))
+		add_overlay(inst, lit_mat, snow_mat)
+		for mi in list:
+			(mi as Node).queue_free()
 
 func premium_prop(prop: Dictionary) -> bool:
 	# true = als KI-Modell gebaut (samt Licht/Schrift), false = Klötzchen-Fassung verwenden.

@@ -216,6 +216,8 @@ def build_house(tiles, spec, cx, cz, ux, uz, fx, fz, base_y=0.0):
         if style == "buero":
             H.wall("k:fassade_buero", p0, p1, y0, y_top, uo, vo, tw, th, out, tint_r, 0.85, 1.0)
             continue
+        if shop and is_front:
+            add_awning(H, p0, p1, out, random.Random(spec["seed"] * 7 + 3))
         skey = "k:sockel_laden" if (shop and is_front) else "k:sockel_wohn"
         stw = H.tile(skey[2:])[0] * bay / SOCKEL_BAY        # Erdgeschosskachel an die Feldbreite des Stils anpassen
         H.wall(skey, p0, p1, y0, y_up, (uo * tw / stw) % 1.0, 0.0, stw, GF, out, tint_p if style != "backstein" else lin((0.95, 0.9, 0.85)), 0.72, 1.0)
@@ -229,6 +231,54 @@ def build_house(tiles, spec, cx, cz, ux, uz, fx, fz, base_y=0.0):
     parts = [(k, [(x, z, y + base_y) for x, z, y in pts], uvs, facing, cols) for k, pts, uvs, facing, cols in H.parts]
     foot = [P(-w / 2 - 0.15, -d / 2 - 0.15), P(w / 2 + 0.15, -d / 2 - 0.15), P(w / 2 + 0.15, d / 2 + 0.15), P(-w / 2 - 0.15, d / 2 + 0.15)]
     return parts, foot, (w, d, y_top + (5.0 if roof != "flat" else 1.0))
+
+
+AWNING_COLORS = [(0.50, 0.10, 0.07), (0.05, 0.24, 0.12), (0.04, 0.08, 0.30), (0.62, 0.40, 0.04), (0.28, 0.04, 0.08), (0.03, 0.28, 0.28)]   # linear
+AWNING_CREAM = (0.72, 0.68, 0.58)
+
+
+def add_awning(H, p0, p1, out, rng):
+    """Markise über dem Schaufenster (gestreift, schräg nach außen abfallend) und ein Nasenschild mit Leuchtschrift (nachts leuchtend)."""
+    ex, ez = unit(p1[0] - p0[0], p1[1] - p0[1])
+    length = math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+    if length < 4.0:
+        return
+    margin = 0.5
+    a0, a1 = margin, length - margin
+    proj = 1.05
+    y_hi, y_lo, y_val = 2.95, 2.45, 2.18
+    color = rng.choice(AWNING_COLORS)
+    n = max(4, int((a1 - a0) / 0.55))
+    if n % 2:
+        n += 1
+    for i in range(n):
+        ta, tb = a0 + (a1 - a0) * i / n, a0 + (a1 - a0) * (i + 1) / n
+        c = color if i % 2 == 0 else AWNING_CREAM
+        q0 = (p0[0] + ex * ta, p0[1] + ez * ta)
+        q1 = (p0[0] + ex * tb, p0[1] + ez * tb)
+        f0 = (q0[0] + out[0] * proj, q0[1] + out[1] * proj)
+        f1 = (q1[0] + out[0] * proj, q1[1] + out[1] * proj)
+        H.face("k:farbe", [(q0[0], q0[1], y_hi), (q1[0], q1[1], y_hi), (f1[0], f1[1], y_lo), (f0[0], f0[1], y_lo)],
+               [(0, 0), (1, 0), (1, 1), (0, 1)], None, [c] * 4)
+        H.face("k:farbe", [(f0[0], f0[1], y_val), (f1[0], f1[1], y_val), (f1[0], f1[1], y_lo), (f0[0], f0[1], y_lo)],
+               [(0, 0), (1, 0), (1, 1), (0, 1)], out, [scale(c, 0.85)] * 4)
+    # Nasenschild: dunkle Halterung und Leuchtkasten quer zur Fassade, an einem Ende der Fassade
+    ta = a1 - 0.6 if rng.random() < 0.5 else a0 + 0.6
+    base = (p0[0] + ex * ta, p0[1] + ez * ta)
+    key = "k:lampe_blau" if rng.random() < 0.3 else "k:lampe"
+    y0, y1 = 3.0, 3.75
+    for sa in (-1, 1):
+        pa = (base[0] + ex * 0.04 * sa, base[1] + ez * 0.04 * sa)
+        pb = (pa[0] + out[0] * 0.75, pa[1] + out[1] * 0.75)
+        H.face(key, [(pa[0], pa[1], y0), (pb[0], pb[1], y0), (pb[0], pb[1], y1), (pa[0], pa[1], y1)], [(0, 0), (1, 0), (1, 1), (0, 1)],
+               (ex * sa, ez * sa), [(1.0, 1.0, 1.0)] * 4)
+    far = (base[0] + out[0] * 0.75, base[1] + out[1] * 0.75)
+    H.face(key, [(far[0] - ex * 0.04, far[1] - ez * 0.04, y0), (far[0] + ex * 0.04, far[1] + ez * 0.04, y0),
+                 (far[0] + ex * 0.04, far[1] + ez * 0.04, y1), (far[0] - ex * 0.04, far[1] - ez * 0.04, y1)], [(0, 0), (1, 0), (1, 1), (0, 1)],
+           out, [(1.0, 1.0, 1.0)] * 4)
+    H.face("k:farbe", [(base[0] + ex * 0.04, base[1] + ez * 0.04, y1), (base[0] + out[0] * 0.75 + ex * 0.04, base[1] + out[1] * 0.75 + ez * 0.04, y1),
+                       (base[0] + out[0] * 0.75 - ex * 0.04, base[1] + out[1] * 0.75 - ez * 0.04, y1), (base[0] - ex * 0.04, base[1] - ez * 0.04, y1)],
+           [(0, 0), (1, 0), (1, 1), (0, 1)], None, [(0.05, 0.05, 0.06)] * 4)
 
 
 def add_flat(H, poly, top, rng, cornice, tint_c, floors):

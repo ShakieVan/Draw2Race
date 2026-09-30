@@ -967,6 +967,8 @@ func finish_race() -> void:
 		result_record = record
 		result_won = rank == 1
 		hud.drift_results(int(v0.drift_score), drift_target(), in_time, record)
+		if result_won:
+			world.confetti(Vector3(v0.pos.x, 0.3 + v0.z, v0.pos.y))
 		return
 	if vehicles[0].crashed:
 		# Absturz: verloren, keine Zeit für Bestenliste oder Bestzeit.
@@ -988,6 +990,8 @@ func finish_race() -> void:
 	result_record = record
 	result_won = rank==1
 	hud.results(rows,rank,record)
+	if result_won and not vehicles[0].crashed:
+		world.confetti(Vector3(vehicles[0].pos.x, 0.3 + vehicles[0].z, vehicles[0].pos.y))
 
 func pause_game() -> void:
 	if paused or phase in ["menu","result"]:

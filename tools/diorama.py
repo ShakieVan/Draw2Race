@@ -1146,8 +1146,58 @@ def crowd_zone(side, s_from, s_to):
     return count, m
 
 
+def bleachers(side, s_from, s_to):
+    """Offene Tribüne (drei Stufen, rote und blaue Blöcke, weiße Treppengeländer) mit Menge auf den Stufen; die Vorderkante liegt
+    hinter dem Parkweg der Innenseite, der Blick geht zur Fahrbahn."""
+    i = int(round((s_from + s_to) / 2 / 0.5)) % N
+    length = s_to - s_from
+    if not all(straight_i[(int(round(s_ / 0.5)) + j) % N] for s_ in (s_from, s_to) for j in (-4, 0, 4)):
+        print("DIORAMA Tribüne", s_from, s_to, "abgelehnt: keine Gerade")
+        return 0
+    b_front = HW + SIDE + 2.3
+    tier, rise, n_tiers = 1.15, 0.55, 3
+    g = Frame(center[i] + left[i] * side * b_front, tang[i], left[i] * side)
+    poly = g.poly(-length / 2 - 0.5, length / 2 + 0.5, -0.5, n_tiers * tier + 0.8)
+    corners_world = np.array([tuple(g.pt(a, b)) for a, b in ((-length / 2, 0.0), (length / 2, 0.0), (-length / 2, n_tiers * tier), (length / 2, n_tiers * tier))])
+    if in_footprints(corners_world, margin=1.0).any():
+        print("DIORAMA Tribüne", s_from, s_to, "abgelehnt: Zufahrtsfläche")
+        return 0
+    if any(overlaps(poly, q) for q in placed):
+        print("DIORAMA Tribüne", s_from, s_to, "abgelehnt: belegte Fläche")
+        return 0
+    n_sec = max(2, int(round(length / 4.5)))
+    sec = length / n_sec
+    for k in range(n_tiers):
+        top = Y_W + rise * (k + 1)
+        for j in range(n_sec):
+            key = "rot" if (j + k) % 2 == 0 else "blau"
+            a0, a1 = -length / 2 + j * sec, -length / 2 + (j + 1) * sec
+            dress_parts.extend(box(g, key, a0 + 0.02, a1 - 0.02, k * tier, (k + 1) * tier + 0.02, Y_W, top))
+        dress_parts.append(crowd_quad(g, -length / 2, length / 2, k * tier + 0.06, (k + 1) * tier - 0.04, top + 0.004, dist[i] + 2.9 * k))
+    for j in range(n_sec + 1):                                   # Treppengeländer zwischen den Blöcken
+        a = -length / 2 + j * sec
+        dress_parts.extend(box(g, "weiss", a - 0.03, a + 0.03, -0.03, n_tiers * tier, Y_W + 0.55, Y_W + 0.62))
+        dress_parts.extend(box(g, "weiss", a - 0.025, a + 0.025, -0.03, 0.03, Y_W, Y_W + 0.9))
+    placed.append(poly)
+    return 1
+
+
 straight_i = [c < 0.01 for c in curv]
 zone_counts = [crowd_zone(side, -26.0, 26.0) for side in (1.0, -1.0)]
+stands = [bleachers(inside_sign, -12.5, -2.5), bleachers(inside_sign, 2.5, 12.5)]
+print("DIORAMA Tribünen:", stands)
+# Weitere Zuschauerzonen auf langen Geraden der Strecke (nicht auf der Startgeraden): mittig in der Gerade, beidseits
+extra_zones = []
+for r0, r1 in runs:
+    if r1 >= N or r0 < 0 or (r1 - r0) * 0.5 < 22.0:
+        continue
+    s_a, s_b = r0 * 0.5 + 5.0, r1 * 0.5 - 5.0
+    if s_b - s_a > 22.0:                      # höchstens 22 m je Zone, mittig
+        mid_s = (s_a + s_b) / 2
+        s_a, s_b = mid_s - 11.0, mid_s + 11.0
+    zone_counts += [crowd_zone(sd, s_a, s_b) for sd in (1.0, -1.0)]
+    extra_zones.append((round(s_a, 1), round(s_b, 1)))
+print("DIORAMA weitere Zuschauerzonen:", extra_zones)
 print("DIORAMA Zuschauerzonen (Felder, Fahnen):", zone_counts)
 event_objs = mesh_objects("Ausstattung", dress_parts)
 event_decals += [o for o in event_objs if o.name.endswith("_e_menge")]

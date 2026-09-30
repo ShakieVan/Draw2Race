@@ -1684,6 +1684,60 @@ func premium_road(color: Color) -> ShaderMaterial:
 var spark_pool: Array[CPUParticles3D] = []
 var spark_next := 0
 
+var confetti_pool: Array[CPUParticles3D] = []
+var confetti_next := 0
+
+func confetti(at: Vector3) -> void:
+	# Konfetti zum Sieg (nur Darstellung): ein einmaliger bunter Schauer über dem Zielpunkt, zwei Emitter reihum.
+	if atmosphere != null and atmosphere.quality == 0:
+		return
+	if confetti_pool.is_empty():
+		var piece := QuadMesh.new()
+		piece.size = Vector2(0.34, 0.20)
+		piece.orientation = PlaneMesh.FACE_Y
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.vertex_color_use_as_albedo = true
+		mat.vertex_color_is_srgb = true          # die Farben der Verlaufsliste sind sRGB-Werte
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		piece.material = mat
+		var ramp := Gradient.new()
+		ramp.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CONSTANT
+		ramp.offsets = PackedFloat32Array([0.0, 0.16, 0.33, 0.5, 0.66, 0.83])
+		ramp.colors = PackedColorArray([Color("e63946"), Color("f4d35e"), Color("2a9d8f"), Color("3a86ff"), Color("f8f9fa"), Color("ff8fab")])
+		for i in range(2):
+			var p := CPUParticles3D.new()
+			p.one_shot = true
+			p.emitting = false
+			p.amount = 170
+			p.lifetime = 3.2
+			p.explosiveness = 0.9
+			p.mesh = piece
+			p.local_coords = false
+			p.direction = Vector3.UP
+			p.spread = 85.0
+			p.initial_velocity_min = 4.0
+			p.initial_velocity_max = 10.0
+			p.gravity = Vector3(0, -5.5, 0)
+			p.damping_min = 1.2
+			p.damping_max = 2.4
+			p.angle_min = 0.0
+			p.angle_max = 360.0
+			p.angular_velocity_min = -540.0
+			p.angular_velocity_max = 540.0
+			p.particle_flag_rotate_y = true
+			p.color_initial_ramp = ramp
+			p.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+			p.emission_box_extents = Vector3(2.4, 0.2, 2.4)
+			p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(p)
+			confetti_pool.append(p)
+	var emitter := confetti_pool[confetti_next]
+	confetti_next = (confetti_next + 1) % confetti_pool.size()
+	emitter.global_position = at + Vector3(0, 2.2, 0)
+	emitter.restart()
+	emitter.emitting = true
+
 func sparks(at: Vector3, side: Vector3, strength: float) -> void:
 	# Funkenregen bei Kollisionen: kleiner Vorrat an Einmal-Emittern, reihum wiederverwendet.
 	if atmosphere != null and atmosphere.quality == 0:

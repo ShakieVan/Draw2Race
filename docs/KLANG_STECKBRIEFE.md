@@ -179,7 +179,7 @@ Die Motoren der Fahrzeuge stammen nicht aus der Referenz und nicht aus einem KI-
 
 - **Lizenz:** vollständig eigenes Material, wie das Spiel unter CC BY-NC 4.0. Der Klassifikator AST (BSD-3) diente nur zur Kontrolle und steckt nicht im Spiel.
 - **Kontrolle ohne Gehör:** Spektrogramm-Bogen je Auto, Zündfrequenz gegen Sollwert, Sprung an der Schleifennaht, Probefahrt aus den Schichten und AudioSet-Bewertung. Die Belegregel (mindestens zwei übereinstimmende Verfahren) ist erfüllt für „klingt periodisch nach Zündfolge und ändert sich mit der Drehzahl“; ob es **gut** klingt, entscheidet die Hörabnahme.
-- **Stilziel:** laut und mechanisch (Rennen), je Auto unterscheidbar: Sprint hell und sportlich, Grip kleiner Dreizylinder, Dirt Hawk Boxer mit Blubbern, Thunder V8 tief mit Kompressor, Apex GT hochdrehend, Col Racer hoch und spitz, Quarry Truck nagelnder Diesel, Drift King rau mit Fehlzündungen.
+- **Stilziel:** laut und mechanisch (Rennen), je Auto unterscheidbar: Sprint hell und sportlich, Grip kleiner Dreizylinder, Dirt Hawk Boxer mit Blubbern, Thunder V8 tief mit Kompressor, Apex GT V12, Col Racer hoch und spitz, Quarry Truck nagelnder Diesel, Drift King rau mit Fehlzündungen.
 
 ## 7. Werkzeuge, Lizenzen, Rechtliches
 

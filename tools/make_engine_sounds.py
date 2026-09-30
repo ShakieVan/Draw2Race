@@ -39,8 +39,8 @@ C_SOUND = 343.0
 #  jitter       Streuung der Zündstärken je Ereignis; rms Grundlautstärke; gain_db Pegel im Spiel
 #  gears        Faktor der Schaltdrehzahlen (Übersetzung), turbo Art der Aufladung, pops Fehlzündungen im Schub
 PROFILES = {
-    "sprint": dict(cyl=4, pattern="even", idle=1000, redline=7800, pipe=[(1.4, 0.45), (0.5, 0.30)], fc=3400, fc_coast=1700,
-                   peaks=[(650, 1.6, 0.7), (1700, 1.6, 0.35)], pulse=0.16, noise=0.30, tick=0.25, knock=0.0, jitter=0.14,
+    "sprint": dict(cyl=4, pattern="even", idle=1000, redline=7200, pipe=[(1.4, 0.45), (0.5, 0.30)], fc=3400, fc_coast=1700,
+                   peaks=[(650, 1.6, 0.7), (1700, 1.6, 0.35)], pulse=0.19, noise=0.30, tick=0.25, knock=0.0, jitter=0.14,
                    rms=0.20, gain_db=0.0, gears=1.0, turbo="mid", pops=False),
     "grip": dict(cyl=3, pattern="even", idle=1050, redline=7000, pipe=[(1.1, 0.42), (0.45, 0.28)], fc=2600, fc_coast=1500,
                  peaks=[(420, 1.8, 0.9), (1400, 1.6, 0.3)], pulse=0.20, noise=0.35, tick=0.20, knock=0.0, jitter=0.16,
@@ -51,8 +51,8 @@ PROFILES = {
     "muscle": dict(cyl=8, pattern="crossplane", idle=750, redline=6200, pipe=[(1.7, 0.50), (0.6, 0.30)], fc=2100, fc_coast=1300,
                    peaks=[(110, 1.6, 1.1), (230, 2.0, 0.7), (520, 2.0, 0.4)], pulse=0.24, noise=0.28, tick=0.18, knock=0.0, jitter=0.12,
                    rms=0.23, gain_db=1.5, gears=1.12, turbo="blower", pops=True, noise_scale=2.8),
-    "gt": dict(cyl=10, pattern="even", idle=1100, redline=9200, pipe=[(1.1, 0.40), (0.4, 0.26)], fc=5000, fc_coast=2600,
-               peaks=[(2000, 1.8, 0.7), (800, 1.6, 0.5)], pulse=0.12, noise=0.26, tick=0.30, knock=0.0, jitter=0.13,
+    "gt": dict(cyl=12, pattern="even", idle=1100, redline=8600, pipe=[(1.3, 0.46), (0.5, 0.30)], fc=4200, fc_coast=2600,
+               peaks=[(2000, 1.8, 0.7), (800, 1.6, 0.5)], pulse=0.16, noise=0.26, tick=0.30, knock=0.0, jitter=0.13,
                rms=0.20, gain_db=0.0, gears=1.0, turbo="mid", pops=False),
     "roadster": dict(cyl=4, pattern="even", idle=1300, redline=8800, pipe=[(1.0, 0.46), (0.36, 0.30)], fc=4200, fc_coast=2200,
                      peaks=[(1100, 2.0, 0.8), (2400, 1.6, 0.4)], pulse=0.13, noise=0.45, tick=0.30, knock=0.0, jitter=0.15,
@@ -60,8 +60,8 @@ PROFILES = {
     "pickup": dict(cyl=6, pattern="even", idle=700, redline=4600, pipe=[(1.9, 0.52), (0.7, 0.30)], fc=1700, fc_coast=1100,
                    peaks=[(90, 1.5, 1.3), (300, 2.0, 0.6)], pulse=0.30, noise=0.50, tick=0.15, knock=0.85, jitter=0.17,
                    rms=0.24, gain_db=1.0, gears=1.25, turbo="low", pops=False, noise_scale=2.8),
-    "drift": dict(cyl=6, pattern="even", idle=950, redline=8000, pipe=[(1.3, 0.50), (0.45, 0.30)], fc=3700, fc_coast=1900,
-                  peaks=[(520, 1.8, 0.7), (1500, 1.8, 0.4)], pulse=0.15, noise=0.30, tick=0.22, knock=0.0, jitter=0.14,
+    "drift": dict(cyl=6, pattern="even", idle=950, redline=7600, pipe=[(1.3, 0.50), (0.45, 0.30)], fc=3700, fc_coast=1900,
+                  peaks=[(520, 1.8, 0.7), (1500, 1.8, 0.4)], pulse=0.20, noise=0.30, tick=0.22, knock=0.0, jitter=0.14,
                   rms=0.21, gain_db=0.5, gears=1.0, turbo="hi", pops=True, noise_scale=3.2),
 }
 

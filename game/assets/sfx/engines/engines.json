@@ -5,7 +5,7 @@
    "id": "sprint",
    "cyl": 4,
    "idle": 1000,
-   "redline": 7800,
+   "redline": 7200,
    "layers": [
     {
      "load": "sprint_load_0.wav",
@@ -15,32 +15,32 @@
     },
     {
      "load": "sprint_load_1.wav",
-     "rpm": 1498.9,
-     "frames": 33541,
+     "rpm": 1475.1,
+     "frames": 32288,
      "coast": "sprint_coast_1.wav"
     },
     {
      "load": "sprint_load_2.wav",
-     "rpm": 2246.7,
-     "frames": 32976,
+     "rpm": 2175.9,
+     "frames": 32833,
      "coast": "sprint_coast_2.wav"
     },
     {
      "load": "sprint_load_3.wav",
-     "rpm": 3367.5,
-     "frames": 26715,
+     "rpm": 3209.7,
+     "frames": 26380,
      "coast": "sprint_coast_3.wav"
     },
     {
      "load": "sprint_load_4.wav",
-     "rpm": 5047.7,
-     "frames": 26210,
+     "rpm": 4734.5,
+     "frames": 26267,
      "coast": "sprint_coast_4.wav"
     },
     {
      "load": "sprint_load_5.wav",
-     "rpm": 7566.0,
-     "frames": 26579,
+     "rpm": 6983.9,
+     "frames": 26521,
      "coast": "sprint_coast_5.wav"
     }
    ],
@@ -195,9 +195,9 @@
   },
   "gt": {
    "id": "gt",
-   "cyl": 10,
+   "cyl": 12,
    "idle": 1100,
-   "redline": 9200,
+   "redline": 8600,
    "layers": [
     {
      "load": "gt_load_0.wav",
@@ -207,32 +207,32 @@
     },
     {
      "load": "gt_load_1.wav",
-     "rpm": 1672.0,
-     "frames": 33234,
+     "rpm": 1649.6,
+     "frames": 33685,
      "coast": "gt_coast_1.wav"
     },
     {
      "load": "gt_load_2.wav",
-     "rpm": 2541.3,
-     "frames": 33318,
+     "rpm": 2473.7,
+     "frames": 33159,
      "coast": "gt_coast_2.wav"
     },
     {
      "load": "gt_load_3.wav",
-     "rpm": 3862.8,
-     "frames": 26715,
+     "rpm": 3709.5,
+     "frames": 26392,
      "coast": "gt_coast_3.wav"
     },
     {
      "load": "gt_load_4.wav",
-     "rpm": 5871.2,
-     "frames": 26590,
+     "rpm": 5562.8,
+     "frames": 26637,
      "coast": "gt_coast_4.wav"
     },
     {
      "load": "gt_load_5.wav",
-     "rpm": 8923.9,
-     "frames": 26389,
+     "rpm": 8341.9,
+     "frames": 26327,
      "coast": "gt_coast_5.wav"
     }
    ],
@@ -341,7 +341,7 @@
    "id": "drift",
    "cyl": 6,
    "idle": 950,
-   "redline": 8000,
+   "redline": 7600,
    "layers": [
     {
      "load": "drift_load_0.wav",
@@ -351,32 +351,32 @@
     },
     {
      "load": "drift_load_1.wav",
-     "rpm": 1445.9,
-     "frames": 32939,
+     "rpm": 1431.2,
+     "frames": 33279,
      "coast": "drift_coast_1.wav"
     },
     {
      "load": "drift_load_2.wav",
-     "rpm": 2200.8,
-     "frames": 33664,
+     "rpm": 2156.1,
+     "frames": 33135,
      "coast": "drift_coast_2.wav"
     },
     {
      "load": "drift_load_3.wav",
-     "rpm": 3349.8,
+     "rpm": 3248.2,
      "frames": 26067,
      "coast": "drift_coast_3.wav"
     },
     {
      "load": "drift_load_4.wav",
-     "rpm": 5098.5,
-     "frames": 26468,
+     "rpm": 4893.3,
+     "frames": 26496,
      "coast": "drift_coast_4.wav"
     },
     {
      "load": "drift_load_5.wav",
-     "rpm": 7760.1,
-     "frames": 26596,
+     "rpm": 7372.1,
+     "frames": 26560,
      "coast": "drift_coast_5.wav"
     }
    ],

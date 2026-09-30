@@ -1019,7 +1019,7 @@ const DIORAMA_PATH := "res://dioramas/%s.glb"
 const DIORAMA_BAKED := ["building", "street_tree", "fountain"]
 # Farbtöne der Diorama-Materialien (Fototexturen angleichen).
 const DIORAMA_TINT := {"D_Asphalt": Color(0.62, 0.63, 0.64), "D_Randstein": Color(0.8, 0.8, 0.78),
-	"D_Gehweg": Color(0.78, 0.76, 0.72), "D_Pflaster": Color(0.86, 0.84, 0.8), "D_Gras": Color(0.9, 0.95, 0.85),
+	"D_Gehweg": Color(0.70, 0.69, 0.65), "D_Pflaster": Color(0.86, 0.84, 0.8), "D_Gras": Color(0.9, 0.95, 0.85),
 	"D_Stein": Color(0.9, 0.88, 0.84), "D_Weite": Color(0.62, 0.62, 0.6), "D_Beton": Color(0.75, 0.75, 0.73),
 	"D_Asphalt_Strasse": Color(0.9, 0.9, 0.88)}
 # Der Fahrbahn-Shader nimmt diese Töne als Multiplikator der Fototextur.

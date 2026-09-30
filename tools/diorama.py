@@ -163,7 +163,7 @@ M = {
     "linie": material("D_Markierung", color=(0.86, 0.84, 0.78), rough=0.6),
     "kerb": material("D_Randstein", tex("Concrete034"), 0.8),
     "kerb_paint": material("D_Randstein_Farbe", stripes(), rough=0.6),
-    "gehweg": material("D_Gehweg", tex("Concrete034"), 0.85, tex("Concrete034", "NormalGL")),
+    "gehweg": material("D_Gehweg", tex("Tiles107"), 0.85, tex("Tiles107", "NormalGL")),       # Gehwegplatten (Kachel 5 m = 8 Platten)
     "pflaster": material("D_Pflaster", tex("PavingStones138"), 0.85, tex("PavingStones138", "NormalGL")),
     "gras": material("D_Gras", tex("Grass005"), 0.9, tex("Grass005", "NormalGL")),
     "wasser": material("D_Wasser", color=(0.25, 0.5, 0.5), rough=0.1),
@@ -449,7 +449,7 @@ def build_arm(fr, region, length, kind_key, lateral_a, lateral_b, start, axis_di
         parts.append(wall(fr, "kerb", a_in, start, a_in, end, Y_J, Y_K, (-s, 0)))
         lo, hi = sorted((a_k, a_w))
         # Gehwege beginnen bei T-Einmündungen und Süd-Zufahrten hinter dem Eckbereich der Hauptstraße bzw. Kreuzung
-        parts.append(flat(fr, "gehweg", lo, hi, start + (SIDE if kind_key in ("T", "S") else 0.0), end, Y_W, 2.5))
+        parts.append(flat(fr, "gehweg", lo, hi, start + (SIDE if kind_key in ("T", "S") else 0.0), end, Y_W, 5.0))
     asphalt_rects.append((fr, -HW, HW, start, end))
     # Laternen abwechselnd links/rechts auf dem Gehweg, alle 9 m (je Seite alle 18 m)
     b = start + (SIDE + 1.0 if kind_key in ("T", "S") else 3.0)
@@ -514,7 +514,7 @@ def build_garage(fr, length, start):
         parts.append(("beton", [(*fr.pt(a_in, b0), Y_J), (*fr.pt(a_in, b1), y_bot), (*fr.pt(a_in, b1), Y_K), (*fr.pt(a_in, b0), Y_K)],
                       [(0, 0), (b1 - b0, 0), (b1 - b0, Y_K - y_bot), (0, Y_K - Y_J)], (face.x, face.y)))
         lo, hi = sorted((a_k, a_w))
-        parts.append(flat(fr, "gehweg", lo, hi, start + SIDE, end, Y_W, 2.5))
+        parts.append(flat(fr, "gehweg", lo, hi, start + SIDE, end, Y_W, 5.0))
         # Seitenwand der Haube über dem Gehweg und Warnstreifen am Portal
         parts += wall_quad(fr, "beton", sgn * hood, b1, sgn * hood, end, Y_W, y_c, (sgn, 0))
         n_bands = 8
@@ -638,18 +638,18 @@ for J in corners:
         asphalt_rects.append((F, *reg))
     # Außenkanten der beiden anschließenden Straßen, gerade bis zur Kreuzung
     arm_parts += [flat(F, "kerb", -Rw, -H, -H - K, -H, Y_K + 0.001, 1.0), wall(F, "kerb", -Rw, -H, -H, -H, Y_J, Y_K, (0, 1)),
-                  flat(F, "gehweg", -Rw, -H, -H - W, -H - K, Y_W, 2.5),
+                  flat(F, "gehweg", -Rw, -H, -H - W, -H - K, Y_W, 5.0),
                   flat(F, "kerb", H, H + K, H, Rn, Y_K + 0.001, 1.0), wall(F, "kerb", H, H, H, Rn, Y_J, Y_K, (-1, 0)),
-                  flat(F, "gehweg", H + K, H + W, H + W, Rn, Y_W, 2.5)]
+                  flat(F, "gehweg", H + K, H + W, H + W, Rn, Y_W, 5.0)]
     # Fehlt eine Zufahrt, wird ihre Seite wie ein normaler Straßenrand geschlossen (Randstein und Gehweg über die Mündung)
     if not e_len:
         arm_parts += [flat(F, "kerb", H, H + K, -H, H, Y_K + 0.002, 1.0), wall(F, "kerb", H, -H, H, H, Y_J, Y_K, (-1, 0)),
-                      flat(F, "gehweg", H + K, H + W, -H - W, H + W, Y_W, 2.5)]
+                      flat(F, "gehweg", H + K, H + W, -H - W, H + W, Y_W, 5.0)]
         footprints.append((F, H, H + W, -H - W, H + W))
         placed.append(F.poly(H, H + W, -H - W, H + W))
     if not s_len:
         arm_parts += [flat(F, "kerb", -H, H + K, -H - K, -H, Y_K + 0.002, 1.0), wall(F, "kerb", -H, -H, H, -H, Y_J, Y_K, (0, 1)),
-                      flat(F, "gehweg", -H, H + K, -H - W, -H - K, Y_W, 2.5)]
+                      flat(F, "gehweg", -H, H + K, -H - W, -H - K, Y_W, 5.0)]
         footprints.append((F, -H - W, H + W, -H - W, -H))
         placed.append(F.poly(-H - W, H + W, -H - W, -H))
     # Einzelne Betonpoller (rot-weiße Kappen) entlang des äußeren Bogens der Rennstrecke zeigen den Weg durch die Kreuzung,
@@ -807,7 +807,7 @@ for s in (-1, 1):
     objs_ground += ribbon(f"Linie_{s}", lambda i: "linie", s * (HW - 0.32), s * (HW - 0.2), ROAD_Y + 0.004, ROAD_Y + 0.004, 1.0, skip)
     objs_ground += ribbon(f"Randkante_{s}", paint, s * HW, s * HW, ROAD_Y, KERB_Y, 1.0, skip)
     objs_ground += ribbon(f"Randstein_{s}", paint, s * HW, s * (HW + KERB_W), KERB_Y, KERB_Y, 1.0, skip)
-    objs_ground += ribbon(f"Gehweg_{s}", lambda i: "gehweg", s * (HW + KERB_W), s * (HW + SIDE), WALK_Y, WALK_Y, 2.5, skip)
+    objs_ground += ribbon(f"Gehweg_{s}", lambda i: "gehweg", s * (HW + KERB_W), s * (HW + SIDE), WALK_Y, WALK_Y, 5.0, skip)
 # Innen: gepflasterter Weg als Übergang zum Park (an Kreuzungen der Innenseite ebenfalls ausgespart).
 s_in = inside_sign
 objs_ground += ribbon("Parkweg", lambda i: "pflaster", s_in * (HW + SIDE), s_in * (HW + 5.8), WALK_Y + 0.002, WALK_Y + 0.002, 3.0,
@@ -831,6 +831,31 @@ MARGIN = 46.0
 x0, x1 = math.floor(xs.min() - MARGIN), math.ceil(xs.max() + MARGIN)
 z0, z1 = math.floor(zs.min() - MARGIN), math.ceil(zs.max() + MARGIN)
 cells = {"pflaster": [], "gras": []}
+# Rasen nicht gleichförmig: Mähstreifen (abwechselnd hell und dunkel) und weiche Flecken; Pflaster bekommt leichte Schwankungen.
+_noise_rng = np.random.default_rng(17)
+_noise_grid = _noise_rng.random((64, 64))
+
+
+def value_noise(x, z, scale):
+    """Weiches Wertrauschen (bilinear, kachelnd) an Weltkoordinaten; Werte 0..1."""
+    u, v = x / scale, z / scale
+    i0, j0 = int(math.floor(u)), int(math.floor(v))
+    fu, fv = u - i0, v - j0
+    fu, fv = fu * fu * (3 - 2 * fu), fv * fv * (3 - 2 * fv)
+    g = _noise_grid
+    a = g[j0 % 64, i0 % 64] * (1 - fu) + g[j0 % 64, (i0 + 1) % 64] * fu
+    b = g[(j0 + 1) % 64, i0 % 64] * (1 - fu) + g[(j0 + 1) % 64, (i0 + 1) % 64] * fu
+    return a * (1 - fv) + b * fv
+
+
+def ground_tint(key, x, z):
+    if key == "gras":
+        stripes = 0.045 if int(math.floor((x + 0.35 * z) / 2.6)) % 2 == 0 else -0.045
+        patch = (value_noise(x, z, 7.0) - 0.5) * 0.16 + (value_noise(x + 91, z + 37, 2.3) - 0.5) * 0.06
+        f = 1.0 + stripes + patch
+        return (f * 0.98, f, f * 0.95)
+    f = 1.0 + (value_noise(x, z, 5.0) - 0.5) * 0.12
+    return (f, f, f * 0.98)
 for step, want_inside in ((1.0, False), (0.5, True)):
     gx = np.arange(x0, x1, step) + step / 2
     gz = np.arange(z0, z1, step) + step / 2
@@ -845,7 +870,8 @@ for step, want_inside in ((1.0, False), (0.5, True)):
         tile = 3.0
         h = step / 2
         corners_ = [(x - h, z - h, GROUND_Y), (x + h, z - h, GROUND_Y), (x + h, z + h, GROUND_Y), (x - h, z + h, GROUND_Y)][::-1]
-        cells[key].append((key, corners_, [(cx / tile, -cz / tile) for cx, cz, _ in corners_]))
+        tint_c = ground_tint(key, x, z)
+        cells[key].append((key, corners_, [(cx / tile, -cz / tile) for cx, cz, _ in corners_], None, [tint_c] * 4))
 for key, parts in cells.items():
     objs_ground.append(mesh_object(f"Boden_{key}", parts))
 # Horizont: weiter Rahmen rund um das Stadtgebiet.

@@ -16,6 +16,7 @@ uniform float puddles = 0.0;     // 0 keine, 1 Pfützen sichtbar
 uniform float snow = 0.0;        // 0 kein Schnee, 1 Schneeschleier
 uniform float rain = 0.0;        // Regenstärke für die Wellen in der Spiegelung
 uniform float puddle_cover = 0.56; // Schwelle der Pfützen-Rauschtextur (kleiner = mehr Pfützen)
+uniform float wear = 0.0;         // Diorama: Verschleiß (Ausbesserungen, Risse, Ölflecken), 0 aus, 1 voll
 // Diorama: Fototextur (Weltkoordinaten, Kachelgröße albedo_scale) und gebackene Umgebungsverdeckung (zweite UV-Ebene).
 uniform sampler2D albedo_tex : source_color, hint_default_white, filter_linear_mipmap, repeat_enable;
 uniform bool use_albedo = false;
@@ -40,6 +41,18 @@ void fragment() {
 		base = texture(albedo_tex, world_xz / albedo_scale).rgb * albedo_tint.rgb;
 	}
 	vec3 col = base * (1.0 - grain_strength * 0.5 + grain_strength * (0.6 * g1 + 0.4 * g2));
+	if (wear > 0.001) {
+		// Abgenutzter Asphalt: Ausbesserungsflecken mit scharfer Kante, feine Risse entlang von Höhenlinien der Rauschtextur,
+		// vereinzelt dunkle Ölflecken. Alles in Weltkoordinaten, ohne zusätzliche Geometrie.
+		float wa = texture(puddle_tex, world_xz * 0.085).r;
+		float wb = texture(puddle_tex, world_xz * 0.27 + vec2(0.7, 0.2)).r;
+		float wc = texture(puddle_tex, world_xz * 0.6 + vec2(0.13, 0.55)).r;
+		float patch = smoothstep(0.60, 0.605, wa) * (0.55 + 0.45 * wb);
+		float crack = (1.0 - smoothstep(0.0, 0.010, abs(wb - 0.5))) * smoothstep(0.30, 0.55, wa);
+		float oil = smoothstep(0.66, 0.74, wc) * smoothstep(0.45, 0.6, wa);
+		col *= 1.0 - wear * (0.15 * patch + 0.30 * crack + 0.17 * oil);
+		col *= 1.0 + wear * 0.07 * (wb - 0.5);
+	}
 	// Pfützen: mittelgroße, unregelmäßige Lachen (zwei Rauschlagen) statt weiträumiger Flecken.
 	float pn = texture(puddle_tex, world_xz * 0.05).r * 0.66 + texture(puddle_tex, world_xz * 0.14 + vec2(0.31, 0.17)).r * 0.34;
 	float puddle = smoothstep(puddle_cover, puddle_cover + 0.05, pn) * puddles;

@@ -1004,6 +1004,8 @@ func diorama_blocks(prop: Dictionary) -> bool:
 
 var kit_materials := {}        # Oberflächen der Bausatz-Häuser (Schlüssel wie in tools/kit_house.py)
 var window_materials: Array = []   # davon: mit leuchtenden Fenstern (Stärke nach Tageszeit)
+var blink_materials: Array = []    # rote Warnleuchten der Absperrschranken (blinken bei Dunkelheit)
+var blink_level := 0.0
 
 func kit_material(key: String) -> StandardMaterial3D:
 	# Bausatz-Oberfläche aus den prozeduralen Texturen (Albedo, Normalkarte, Fensterlicht); Vertexfarbe = Putzton und Verschattung.
@@ -1015,7 +1017,14 @@ func kit_material(key: String) -> StandardMaterial3D:
 	mat.roughness = 0.85
 	mat.metallic_specular = 0.3
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-	if key == "lampe":
+	if key == "lampe_rot":
+		# Rote Warnleuchte der Absperrschranken: blinkt bei Dämmerung und Nacht (_process).
+		mat.albedo_color = Color(0.85, 0.05, 0.03)
+		mat.emission_enabled = true
+		mat.emission = Color(1.0, 0.1, 0.04)
+		mat.emission_energy_multiplier = 0.0
+		blink_materials.append(mat)
+	elif key == "lampe":
 		# Leuchtfläche unter dem Laternenkopf: nachts warmweiß, am Tag aus (gleiche Stärke wie das Fensterlicht).
 		mat.emission_enabled = true
 		mat.emission = Color(1.0, 0.86, 0.62)
@@ -1040,6 +1049,10 @@ func set_windows(level: float) -> void:
 	# Fensterlicht der Bausatz-Häuser: 0 am Tag, in der Dämmerung schwach, nachts voll.
 	for mat in window_materials:
 		mat.emission_energy_multiplier = level * 0.9   # unter der Glühschwelle (1,15), sonst verschmieren die Fenster zu weißen Wänden
+	blink_level = level
+	if level <= 0.0:
+		for mat in blink_materials:
+			mat.emission_energy_multiplier = 0.0
 
 func build_diorama() -> void:
 	var scene: Node3D = load(DIORAMA_PATH % track.id).instantiate()
@@ -1083,6 +1096,7 @@ func build_diorama() -> void:
 					sm.set_shader_parameter("use_albedo", true)
 					sm.set_shader_parameter("albedo_tint", tint)
 					sm.set_shader_parameter("grain_strength", 0.12)
+					sm.set_shader_parameter("wear", 1.0)
 					if ao != null:
 						sm.set_shader_parameter("ao_tex", ao)
 						sm.set_shader_parameter("use_ao", true)
@@ -1456,6 +1470,11 @@ func route_mesh(route: Array[Dictionary], from: int, to: int, subdued: bool, mat
 	return st.commit()
 
 func _process(_dt: float) -> void:
+	# Warnleuchten der Absperrschranken blinken (nur Darstellung), etwa einmal pro Sekunde.
+	if blink_level > 0.0 and not blink_materials.is_empty():
+		var on := fmod(Time.get_ticks_msec() * 0.001, 1.1) < 0.45
+		for mat in blink_materials:
+			mat.emission_energy_multiplier = blink_level * (1.0 if on else 0.06)
 	# Schimmern des offenen Linienteils (nur Darstellung).
 	if open_material != null and open_mesh.mesh != null:
 		var pulse := 0.5 + 0.5*sin(Time.get_ticks_msec()*0.008)

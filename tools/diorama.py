@@ -169,9 +169,10 @@ M = {
     "stein": material("D_Stein", tex("Concrete034"), 0.7),
     "weite": material("D_Weite", tex("Concrete034"), 0.9),
     "beton": material("D_Beton", tex("Concrete034"), 0.8),
-    "rot": material("D_Rot", color=(0.72, 0.09, 0.07), rough=0.55),
+    "rot": material("D_Rot", color=(0.82, 0.08, 0.05), rough=0.55),
     "weiss": material("D_Weiss", color=(0.9, 0.9, 0.87), rough=0.55),
     "orange": material("D_Orange", color=(0.95, 0.42, 0.05), rough=0.5),
+    "gummi": material("D_Gummi", color=(0.035, 0.035, 0.04), rough=0.95),
 }
 
 
@@ -188,7 +189,7 @@ def kit_material(name):
 
 
 KIT_TILES = json.load(open(os.path.join(PROPS, "..", "kit", "kit.json"), encoding="utf-8"))
-for _name in list(KIT_TILES) + ["farbe"]:
+for _name in list(KIT_TILES) + ["farbe", "lampe_rot"]:
     M["k:" + _name] = kit_material(_name)
 
 
@@ -351,22 +352,59 @@ def best_length(fr, region, lmax, keep, lmin=10.0):
     return 0.0, why
 
 
+def post(pos, radius, y0, y1, key_body, key_cap, cap_h=0.2, sides=8):
+    """Achteckiger Pfosten mit Kappe (hier: Warnleuchte auf der Absperrschranke)."""
+    ring = [(pos.x + radius * math.cos(2 * math.pi * k / sides), pos.y + radius * math.sin(2 * math.pi * k / sides)) for k in range(sides)]
+    parts = []
+    for key, ya, yb in ((key_body, y0, y1 - cap_h), (key_cap, y1 - cap_h, y1)):
+        for k in range(sides):
+            p0, p1 = ring[k], ring[(k + 1) % sides]
+            mid = ((p0[0] + p1[0]) / 2 - pos.x, (p0[1] + p1[1]) / 2 - pos.y)
+            parts.append((key, [(p0[0], p0[1], ya), (p1[0], p1[1], ya), (p1[0], p1[1], yb), (p0[0], p0[1], yb)],
+                          [(0, 0), (1, 0), (1, 1), (0, 1)], mid))
+    parts.append((key_cap, [(x, z, y1) for x, z in ring],
+                  [(0.5 + 0.5 * math.cos(2 * math.pi * k / sides), 0.5 + 0.5 * math.sin(2 * math.pi * k / sides)) for k in range(sides)]))
+    return parts
+
+
+def barrier_segment(g, a_c, length, lamp=False):
+    """Absperrschranke wie auf Baustellen: zwei rot-weiß gefelderte Bretter, senkrechte Latten darunter, Pfosten, Gummifüße quer
+    zur Reihe und auf Wunsch eine rote Warnleuchte. g: Bezugssystem (a längs der Reihe, b zur Straße), a_c: Mitte im System."""
+    parts = []
+    a0, a1 = a_c - length / 2, a_c + length / 2
+    for a in (a0 + 0.2, a1 - 0.2):                                      # Gummifüße
+        parts += box(g, "gummi", a - 0.07, a + 0.07, -0.34, 0.34, Y_J, Y_J + 0.09)
+    for a in (a0 + 0.05, a1 - 0.05):                                    # Pfosten
+        parts += box(g, "weiss", a - 0.035, a + 0.035, -0.035, 0.035, Y_J + 0.09, Y_J + 1.02)
+    i0, i1 = a0 + 0.09, a1 - 0.09
+    n = 7
+    w = (i1 - i0) / n
+    for (y0, y1), phase in (((0.76, 1.02), 0), ((0.48, 0.70), 1)):      # Bretter mit roten Feldern
+        parts += box(g, "weiss", i0, i1, -0.02, 0.02, Y_J + y0, Y_J + y1)
+        for i in range(n):
+            if (i + phase) % 2 == 0:
+                parts += box(g, "rot", i0 + i * w + 0.012, i0 + (i + 1) * w - 0.012, -0.024, 0.024, Y_J + y0 + 0.025, Y_J + y1 - 0.025)
+    ns = 7
+    ws = (i1 - i0) / (2 * ns - 1)
+    for i in range(ns):                                                 # senkrechte Latten
+        parts += box(g, "weiss", i0 + 2 * i * ws, i0 + (2 * i + 1) * ws, -0.015, 0.015, Y_J + 0.14, Y_J + 0.46)
+    if lamp:
+        parts += post(g.pt(a0 + 0.05, 0.0), 0.09, Y_J + 1.02, Y_J + 1.18, "k:lampe_rot", "k:lampe_rot", cap_h=0.05)
+    return parts
+
+
 def barrier(pos, lateral, normal, half):
-    """Absperrung quer über die Straße: gestreifte Balken auf Pfosten, Betonblöcke dahinter, Leitkegel davor.
+    """Absperrung quer über die Straße am Ende einer Zufahrt: eine Reihe Absperrschranken mit Warnleuchten, Leitkegel davor.
     normal zeigt zur Straße hin."""
     g = Frame(pos, lateral, normal)
+    width = 2 * half
+    n = max(2, math.ceil(width / 2.3))
+    seg = (width - (n - 1) * 0.3) / n
     parts = []
-    for s in (-1, 1):
-        parts += box(g, "weiss", s * (half - 0.15) - 0.06, s * (half - 0.15) + 0.06, -0.06, 0.06, Y_J, Y_J + 1.35)
-    n = max(2, int(2 * half / 0.6))
-    for z0, z1, flip in ((0.85, 1.15, 0), (0.45, 0.75, 1)):
-        for i in range(n):
-            a0 = -half + i * (2 * half / n)
-            parts += box(g, "rot" if (i + flip) % 2 == 0 else "weiss", a0, a0 + 2 * half / n, -0.05, 0.05, Y_J + z0, Y_J + z1)
-    for a in (-half * 0.62, 0.0, half * 0.62):
-        parts += box(g, "beton", a - 0.95, a + 0.95, -0.85, -0.3, Y_J, Y_J + 0.6)
-    for a in (-half * 0.85, -half * 0.42, half * 0.42, half * 0.85):
-        parts += cone(g, "orange", a, 0.9, 0.2, 0.6, Y_J)
+    for i in range(n):
+        parts += barrier_segment(g, -half + seg / 2 + i * (seg + 0.3), seg, lamp=True)
+    for a in (-half * 0.75, -half * 0.25, half * 0.25, half * 0.75):
+        parts += cone(g, "orange", a, 1.0, 0.2, 0.6, Y_J)
     return parts
 
 
@@ -430,21 +468,6 @@ corners = find_corners()
 print("DIORAMA Ecken:", len(corners), [(round(c["P"].x, 1), round(c["P"].y, 1), int(c["sigma"])) for c in corners])
 K, W, H = KERB_W, SIDE, HW
 
-def post(pos, radius, y0, y1, key_body, key_cap, cap_h=0.2, sides=8):
-    """Betonpoller: achteckiger Körper mit farbiger Kappe."""
-    ring = [(pos.x + radius * math.cos(2 * math.pi * k / sides), pos.y + radius * math.sin(2 * math.pi * k / sides)) for k in range(sides)]
-    parts = []
-    for key, ya, yb in ((key_body, y0, y1 - cap_h), (key_cap, y1 - cap_h, y1)):
-        for k in range(sides):
-            p0, p1 = ring[k], ring[(k + 1) % sides]
-            mid = ((p0[0] + p1[0]) / 2 - pos.x, (p0[1] + p1[1]) / 2 - pos.y)
-            parts.append((key, [(p0[0], p0[1], ya), (p1[0], p1[1], ya), (p1[0], p1[1], yb), (p0[0], p0[1], yb)],
-                          [(0, 0), (1, 0), (1, 1), (0, 1)], mid))
-    parts.append((key_cap, [(x, z, y1) for x, z in ring],
-                  [(0.5 + 0.5 * math.cos(2 * math.pi * k / sides), 0.5 + 0.5 * math.sin(2 * math.pi * k / sides)) for k in range(sides)]))
-    return parts
-
-
 for J in corners:
     P, u, v = J["P"], J["u"], J["v"]
     F = Frame(P, u, v)
@@ -488,15 +511,23 @@ for J in corners:
         mid = center[(J["i0"] + ((J["j1"] - J["i0"]) % N) // 2) % N]
         r_arc = (mid - P).length / (math.sqrt(2.0) - 1.0)            # Bogenradius der Mittellinie (90°-Kurve)
         r_wall = r_arc + H + 0.45
-        n_posts = max(8, int(0.5 * math.pi * r_wall / 1.8))
-        for kb in range(n_posts):
-            th = -math.pi / 2 + (math.pi / 2) * (kb + 0.5) / n_posts # vom Bogenanfang (Richtung -b) bis zum Bogenende (+a)
-            pos = F.pt(-r_arc, r_arc) + (F.u * math.cos(th) + F.v * math.sin(th)) * r_wall
-            la, lb = (pos - P).dot(F.u), (pos - P).dot(F.v)
+        seg_len, gap = 2.0, 0.4
+        n_seg = max(3, int(0.5 * math.pi * r_wall / (seg_len + gap)))
+        centre = F.pt(-r_arc, r_arc)
+
+        def on_road(q):
+            la_, lb_ = (q - P).dot(F.u), (q - P).dot(F.v)
             # nur auf der Fahrbahn (nicht auf Randstein/Gehweg): Kreuzband der beiden Straßen
-            if not ((abs(lb) < H - 0.3 and la < H - 0.3) or (abs(la) < H - 0.3 and lb > -H + 0.3)):
+            return (abs(lb_) < H - 0.25 and la_ < H - 0.25) or (abs(la_) < H - 0.25 and lb_ > -H + 0.25)
+        for kb in range(n_seg):
+            th = -math.pi / 2 + (math.pi / 2) * (kb + 0.5) / n_seg   # vom Bogenanfang (Richtung -b) bis zum Bogenende (+a)
+            radial = F.u * math.cos(th) + F.v * math.sin(th)
+            pos = centre + radial * r_wall
+            tangent = Vector((-radial.y, radial.x))
+            if not all(on_road(pos + tangent * d) for d in (-seg_len / 2, 0.0, seg_len / 2)):
                 continue
-            arm_parts += post(pos, 0.25, Y_J, Y_J + 1.0, "beton", "rot" if kb % 2 == 0 else "weiss", cap_h=0.22)
+            g = Frame(pos, tangent, -radial)                         # b-Achse zeigt zur Fahrbahn
+            arm_parts += barrier_segment(g, 0.0, seg_len, lamp=(kb % 2 == 0))
     # Laternen in den äußeren Eckblöcken der Kreuzung
     for la, lb in ((H + W * 0.5 + 0.3, H + W * 0.5 + 0.3), (H + W * 0.5 + 0.3, -H - W * 0.5 - 0.3), (-H - W * 0.5 - 0.3, -H - W * 0.5 - 0.3)):
         lamps.append((F.pt(la, lb), F.pt(0, 0)))
@@ -887,7 +918,7 @@ ao = bpy.data.images.new("Diorama_AO", SIZE, SIZE, alpha=False)
 # Sie würden den Asphalt darunter dunkel färben und mit ihm um dieselben Bildpunkte streiten. Markierungen bekommen
 # die Licht-UV nur zum Auslesen im Spiel und sind beim Backen unsichtbar; Absperrungen bleiben als Hindernis sichtbar.
 decal_objs = [o for o in objs_ground if o.name.endswith("_linie")]
-solid_objs = [o for o in objs_ground if o.name.endswith(("_rot", "_weiss", "_beton", "_orange"))]
+solid_objs = [o for o in objs_ground if o.name.endswith(("_rot", "_weiss", "_beton", "_orange", "_gummi"))]
 bake_objs = [o for o in objs_ground if o not in decal_objs and o not in solid_objs] +             [o for o in scene.objects if o.name.startswith("Brunnen_Rand")]
 EDGE_OUT, EDGE_IN = FOOT, HW + 5.8      # Außenkanten der glatten Bänder
 for o in bake_objs + decal_objs:

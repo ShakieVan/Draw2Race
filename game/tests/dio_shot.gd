@@ -10,7 +10,7 @@ func run() -> void:
 	var app: Node = load("res://main.tscn").instantiate()
 	root.add_child(app)
 	app.store = ProgressStore.new("user://shots_%s.json" % Time.get_ticks_usec())
-	app.debug_data()["override"] = {"time": time, "weather": OS.get_environment("WEATHER") if OS.get_environment("WEATHER") != "" else "dry", "fog": 0}
+	app.debug_data()["override"] = {"time": time, "weather": OS.get_environment("WEATHER") if OS.get_environment("WEATHER") != "" else "dry", "fog": int(OS.get_environment("FOG"))}
 	app.select_track(id)
 	app.start_drawing()
 	for k in range(40):
@@ -25,15 +25,17 @@ func run() -> void:
 		app.world.set_windows(0.0)
 	for k in range(4):
 		await process_frame
-	root.get_texture().get_image().save_png("user://dio_%s_%s%s_uebersicht.png" % [id, time, OS.get_environment("WEATHER")])
+	root.get_texture().get_image().save_png("user://dio_%s_%s%s%s_uebersicht.png" % [id, time, OS.get_environment("WEATHER"), ("_nebel" + OS.get_environment("FOG")) if OS.get_environment("FOG") != "" else ""])
 	# Geneigte Nahansicht (wie Rennkamera) auf den Startbereich.
 	app.cam_pitch = app.PITCH_RACE
 	app.cam_zoom = 26.0
 	var s: Vector2 = app.track.at(float(OS.get_environment("AT")) if OS.get_environment("AT") != "" else 0.02)
 	app.camera_target = Vector3(s.x, 0, s.y)
+	if OS.get_environment("CX") != "":
+		app.camera_target = Vector3(float(OS.get_environment("CX")), 0, float(OS.get_environment("CZ")))
 	app.paused = true
 	app.set_camera(app.camera_target)
 	for k in range(10):
 		await process_frame
-	root.get_texture().get_image().save_png("user://dio_%s_%s%s_nah.png" % [id, time, OS.get_environment("WEATHER")])
+	root.get_texture().get_image().save_png("user://dio_%s_%s%s%s_nah.png" % [id, time, OS.get_environment("WEATHER"), ("_nebel" + OS.get_environment("FOG")) if OS.get_environment("FOG") != "" else ""])
 	quit()

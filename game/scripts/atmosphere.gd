@@ -31,6 +31,8 @@ var quality := 2
 var base_sky := Color("327d88")
 var rain := CPUParticles3D.new()
 var rain_material: ShaderMaterial
+var snow_material: ShaderMaterial
+var fog_texture: Texture2D
 var lamps: Array = []          # [Position, Reichweite, Farbe] aller Straßenlichter (für die Regen-Lichtkarte)
 var snow := CPUParticles3D.new()
 var fog_banks: Array[MeshInstance3D] = []
@@ -110,7 +112,10 @@ func setup(owner_world: Node3D, sky: Color, bounds: Rect2) -> void:
 	flake.height = 0.16
 	flake.radial_segments = 6
 	flake.rings = 3
-	flake.material = unshaded(Color(1, 1, 1, 0.9))
+	# Flocken haben keine Eigenfarbe: Sie sind so hell wie das Licht an ihrer Stelle (snow.gdshader).
+	snow_material = ShaderMaterial.new()
+	snow_material.shader = preload("res://assets/snow.gdshader")
+	flake.material = snow_material
 	snow.mesh = flake
 	snow.direction = Vector3(0.2, -1, 0.1)
 	snow.spread = 25.0
@@ -127,7 +132,7 @@ func setup(owner_world: Node3D, sky: Color, bounds: Rect2) -> void:
 		quad.size = Vector2(rng.randf_range(14, 24), rng.randf_range(7, 12))
 		quad.orientation = PlaneMesh.FACE_Y
 		bank.mesh = quad
-		bank.material_override = soft_material(Color(0.9, 0.93, 0.95, 0.5))
+		bank.material_override = fog_material()
 		bank.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		bank.position = Vector3(c.x + rng.randf_range(-half.x, half.x), rng.randf_range(0.8, 2.4), c.y + rng.randf_range(-half.y, half.y))
 		bank.set_meta("drift", Vector2(rng.randf_range(0.3, 0.9), rng.randf_range(-0.2, 0.2)))
@@ -135,6 +140,23 @@ func setup(owner_world: Node3D, sky: Color, bounds: Rect2) -> void:
 		bank.visible = false
 		add_child(bank)
 		fog_banks.append(bank)
+
+func fog_material() -> ShaderMaterial:
+	# Nebelbank ohne Eigenleuchten (fog_bank.gdshader): Farbe x Umgebungs-/Sonnenlicht + Laternenlicht.
+	if fog_texture == null:
+		fog_texture = soft_texture()
+	var m := ShaderMaterial.new()
+	m.shader = preload("res://assets/fog_bank.gdshader")
+	m.set_shader_parameter("soft_tex", fog_texture)
+	return m
+
+func light_rel(t: Dictionary, sun_energy: float) -> Color:
+	# Streulicht aus Umgebung und Sonne/Mond relativ zu einem trockenen Tag: 1 am Tag, nachts klein. Nebel und Schnee haben
+	# kein Eigenlicht; sie sind nur so hell wie dieses Licht (die Laternen kommen im Shader aus der Lichtkarte dazu).
+	var d: Dictionary = TIMES.day
+	var day := Color(d.ambient) * float(d.ambient_energy) * 1.6 + Color(d.sun) * float(d.sun_energy) * 0.55
+	var now := Color(t.ambient) * float(t.ambient_energy) * 1.6 + Color(t.sun) * sun_energy * 0.55
+	return Color(clampf(now.r / day.r, 0.03, 1.0), clampf(now.g / day.g, 0.03, 1.0), clampf(now.b / day.b, 0.03, 1.0))
 
 func unshaded(color: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -215,12 +237,22 @@ func apply(new_conditions: Dictionary, new_quality: int) -> void:
 	var banks: int = [0, 7, 14][quality] if fog >= 1 else 0
 	if fog >= 1 and quality == 0:
 		banks = 3
+	var lit := light_rel(t, sun_energy)
+	var lit_v := Vector3(lit.r, lit.g, lit.b)
+	# Nebel streut alle Wellenlängen: das warme Abendlicht färbt ihn nur zu 60 %.
+	var luma := lit.r * 0.3 + lit.g * 0.59 + lit.b * 0.11
+	var fog_lit := Color(lerpf(luma, lit.r, 0.6), lerpf(luma, lit.g, 0.6), lerpf(luma, lit.b, 0.6))
+	var fog_lit_v := Vector3(fog_lit.r, fog_lit.g, fog_lit.b)
 	for i in range(fog_banks.size()):
 		fog_banks[i].visible = i < banks
-		var m: StandardMaterial3D = fog_banks[i].material_override
-		m.albedo_color = (Color(0.9, 0.93, 0.95) if not is_dark() else Color(0.55, 0.6, 0.7)) * Color(1, 1, 1, 0.55 if fog == 1 else 0.75)
+		var m := fog_banks[i].material_override as ShaderMaterial
+		m.set_shader_parameter("fog_color", Color(0.9, 0.93, 0.95, (0.55 if fog == 1 else 0.75) * (0.85 if is_dark() else 1.0)))
+		m.set_shader_parameter("ambient_light", fog_lit_v)
+	snow_material.set_shader_parameter("day_light", lit_v)
+	snow_material.set_shader_parameter("cars_lit", 1.0 if is_dark() else 0.0)
 	env.fog_enabled = fog >= 1
-	env.fog_light_color = sky.lerp(Color.WHITE, 0.4)
+	# Der Tiefennebel hat kein Eigenlicht: nachts dunkel, tagsüber wie bisher.
+	env.fog_light_color = sky.lerp(Color.WHITE, 0.4) * fog_lit
 	env.fog_density = 0.004 if fog == 1 else 0.012
 	# Oberflächen: nass glänzend und dunkler, Schnee hellt Boden und Fahrbahn auf.
 	if road_material != null:
@@ -315,7 +347,7 @@ func bake_rain_lights(area: Rect2) -> void:
 
 func update_rain_cars(cars: Array) -> void:
 	# cars: [Vector3 Position, Fahrtrichtung] je Auto; höchstens 8.
-	if rain_material == null or not rain.emitting:
+	if rain_material == null or not (rain.emitting or snow.emitting):
 		return
 	var data := PackedVector4Array()
 	for c in cars.slice(0, 8):
@@ -323,8 +355,9 @@ func update_rain_cars(cars: Array) -> void:
 		data.append(Vector4(p.x, p.y, p.z, float(c[1])))
 	while data.size() < 8:
 		data.append(Vector4.ZERO)
-	rain_material.set_shader_parameter("car_pos", data)
-	rain_material.set_shader_parameter("car_count", mini(cars.size(), 8))
+	for m in [rain_material, snow_material]:
+		m.set_shader_parameter("car_pos", data)
+		m.set_shader_parameter("car_count", mini(cars.size(), 8))
 
 func fit_shadow(distance: float) -> void:
 	# Die schräge Draufsicht hat nur einen schmalen Tiefenbereich: eine einzige orthogonale Schattenkarte, deren Reichweite

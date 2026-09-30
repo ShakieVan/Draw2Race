@@ -8,12 +8,8 @@ const CROSSFADE := 2.5
 # Absenkung je Spielphase in dB (Zeichnen: konzentrieren; Rennen: volle Energie).
 const PHASE_DUCK := {"menu": 0.0, "draw": -15.0, "countdown": -5.0, "race": -5.0, "result": 0.0}
 const MUSIC_BASE_DB := -7.0
-# Simulierte Getriebestufen (Spielgeschwindigkeit, m/s); nur für die Tonhöhe des Motors.
-const GEARS := [0.0, 4.5, 8.0, 11.5, 15.0, 19.0, 26.0]
 
-var engine_load := AudioStreamPlayer.new()
-var engine_coast := AudioStreamPlayer.new()
-var turbo_whine := AudioStreamPlayer.new()
+var engines := EngineAudio.new()
 var squeal := AudioStreamPlayer.new()
 var gravel := AudioStreamPlayer.new()
 var chime := AudioStreamPlayer.new()
@@ -47,24 +43,22 @@ func _ready() -> void:
 			AudioServer.add_bus()
 			AudioServer.set_bus_name(AudioServer.bus_count-1, bus)
 			AudioServer.set_bus_send(AudioServer.bus_count-1, "Master")
-	for player in [engine_load,engine_coast,turbo_whine,squeal,gravel,chime,horn,music_a,music_b]:
+	for player in [squeal,gravel,chime,horn,music_a,music_b]:
 		add_child(player)
 		player.bus = "Music" if player in [music_a,music_b] else "SFX"
+	add_child(engines)
 	active = music_a
 	fading = music_b
 	headless = DisplayServer.get_name()=="headless"
 	if headless:
 		return
 	rng.randomize()
-	engine_load.stream = engine_loop(true)
-	engine_coast.stream = engine_loop(false)
-	turbo_whine.stream = tone_loop(1.0,2)
 	squeal.stream = tone_loop(1.0,0)
 	gravel.stream = tone_loop(1.0,1)
 	chime.stream = click_sound()
 	horn_red = horn_sound(0.42,440.0)
 	horn_green = horn_sound(1.1,880.0)
-	for player in [engine_load,engine_coast,turbo_whine,squeal,gravel]:
+	for player in [squeal,gravel]:
 		player.volume_db = -80
 		player.play()
 	load_manifest()
@@ -81,36 +75,6 @@ func wav(bytes: PackedByteArray, loop: bool, count: int) -> AudioStreamWAV:
 		# WAV-Loop-Endpunkte sind Sample-Indizes, nicht die Sample-Anzahl.
 		w.loop_end = count - 1
 	return w
-
-func engine_loop(under_load: bool) -> AudioStreamWAV:
-	# Grundton 80 Hz (ganzzahlig -> nahtloser 1-s-Loop; 40 Hz gaben Handylautsprecher kaum wieder). Zündimpulse mit leichtem Jitter,
-	# unter Last mehr Obertöne und Rauheit, im Schiebebetrieb weicher mit vereinzeltem Blubbern.
-	var count := RATE
-	var bytes := PackedByteArray()
-	bytes.resize(count*2)
-	var r := RandomNumberGenerator.new()
-	r.seed = 7 if under_load else 8
-	var jitter := PackedFloat32Array()
-	for i in range(81):
-		jitter.append(r.randf_range(0.75,1.25))
-	var low := 0.0
-	for i in range(count):
-		var t := float(i)/RATE
-		var cycle := t*80.0
-		var k := int(cycle)%80
-		var ph := fmod(cycle,1.0)
-		var pulse := exp(-ph*(9.0 if under_load else 14.0))*jitter[k]
-		var value := 0.0
-		var harmonics := 12 if under_load else 7
-		for h in range(1,harmonics+1):
-			value += sin(TAU*80.0*h*t + h*0.7)/pow(h,0.6 if under_load else 1.0)
-		value = value*0.12*(0.55+pulse*0.9)
-		low = lerpf(low,r.randf_range(-1.0,1.0),0.08)
-		value += low*(0.10 if under_load else 0.05)*pulse
-		if not under_load and k%13==0 and ph<0.15:
-			value += r.randf_range(-0.35,0.35)
-		bytes.encode_s16(i*2,int(clampf(value,-1,1)*30000))
-	return wav(bytes,true,count)
 
 func tone_loop(duration: float, kind: int) -> AudioStreamWAV:
 	var count := int(duration*RATE)
@@ -137,8 +101,6 @@ func tone_loop(duration: float, kind: int) -> AudioStreamWAV:
 					band2 = r.randf_range(0.4,0.9)*(1.0 if r.randf()<0.5 else -1.0)
 				value += band2
 				band2 *= 0.93
-			2: # Turbo: helles Pfeifen mit Luftrauschen
-				value = sin(TAU*2400.0*t)*0.35 + sin(TAU*4800.0*t)*0.08 + r.randf_range(-1.0,1.0)*0.06
 		bytes.encode_s16(i*2,int(clampf(value,-1,1)*26000))
 	return wav(bytes,true,count)
 
@@ -191,32 +153,17 @@ func click() -> void:
 	if enabled and chime.stream!=null:
 		chime.play()
 
-func engine_pitch(speed: float) -> float:
-	for g in range(1,GEARS.size()):
-		if speed < GEARS[g] or g==GEARS.size()-1:
-			var frac := clampf((speed-GEARS[g-1])/(GEARS[g]-GEARS[g-1]),0.0,1.0)
-			return (0.62 if g==1 else 0.95) + frac*(1.35 if g==1 else 1.05)
-	return 2.0
-
 func tick(vehicle: RaceVehicle, racing: bool, paused: bool, sfx: bool, music_on: bool, track: Circuit = null, dt := 0.016) -> void:
-	for player in [engine_load,engine_coast,turbo_whine,squeal,gravel]:
+	for player in [squeal,gravel]:
 		player.stream_paused = paused
 	update_music(paused,music_on,dt)
 	if headless:
 		return
 	if not racing or vehicle == null or not sfx:
-		for player in [engine_load,engine_coast,turbo_whine,squeal,gravel]:
+		for player in [squeal,gravel]:
 			player.volume_db = -80
 		return
 	var speed := vehicle.velocity.length()
-	var pitch := engine_pitch(speed)
-	var throttle := clampf(vehicle.throttle,0.0,1.0)
-	engine_load.pitch_scale = pitch
-	engine_coast.pitch_scale = pitch
-	engine_load.volume_db = linear_to_db(0.10+throttle*0.45) + 2.0
-	engine_coast.volume_db = linear_to_db(0.08+(1.0-throttle)*0.25) + 1.0
-	turbo_whine.pitch_scale = 0.8+speed*0.02
-	turbo_whine.volume_db = -16.0 if vehicle.boosting else -80.0
 	var skid := clampf((vehicle.slip-0.10)*2.2,0.0,1.0)*clampf(speed/6.0,0.0,1.0)
 	skid = maxf(skid,clampf(vehicle.braking/12.0,0.0,1.0)*clampf(speed/8.0,0.0,1.0)*0.6)
 	var kind := "asphalt"
@@ -228,6 +175,21 @@ func tick(vehicle: RaceVehicle, racing: bool, paused: bool, sfx: bool, music_on:
 	squeal.volume_db = linear_to_db(maxf(0.0001,skid*0.5)) - 6.0 if not loose else -80.0
 	gravel.pitch_scale = 0.7 if kind=="mud" else (1.25 if kind=="gravel" else 1.0)
 	gravel.volume_db = linear_to_db(maxf(0.0001,(rolling*0.35+skid*0.45))) - 4.0 if loose else -80.0
+
+# ---------- Motoren ----------
+
+func prepare_engines(ids: Array) -> void:
+	engines.setup(ids)
+
+func clear_engines() -> void:
+	engines.clear()
+
+func preview_engine(id: String) -> void:
+	if enabled:
+		engines.preview(id)
+
+func tick_engines(dt: float, vehicles: Array, camera: Camera3D, phase: String, countdown: float, paused: bool, sfx: bool) -> void:
+	engines.update(dt,vehicles,camera,phase,countdown,paused,sfx)
 
 # ---------- Musik ----------
 
@@ -331,6 +293,6 @@ func update_music(paused: bool, music_on: bool, dt: float) -> void:
 			start_track(next_playlist_track())
 
 func _exit_tree() -> void:
-	for player in [engine_load,engine_coast,turbo_whine,squeal,gravel,chime,horn,music_a,music_b]:
+	for player in [squeal,gravel,chime,horn,music_a,music_b]:
 		player.stop()
 		player.stream = null

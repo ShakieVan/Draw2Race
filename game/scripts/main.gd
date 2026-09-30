@@ -159,6 +159,7 @@ func select_car(index: int) -> void:
 	car_choice = posmod(index, RaceVehicle.CARS.size())
 	store.data["car"] = car_choice
 	store.save()
+	sound.preview_engine(str(RaceVehicle.CARS[car_choice].id))
 
 func track_unlocked(index: int) -> bool:
 	if index <= 0 or debug_flag("unlock"):
@@ -196,7 +197,21 @@ func set_camera(target: Vector3) -> void:
 	# Bildschirm oben = Welt −z (auch senkrecht von oben eindeutig).
 	camera.look_at(target,Vector3(0,0,-1))
 
+func rival_lineup(player_car: int) -> Array:
+	# Gegner fahren (physikalisch das Grundmodell, aber) mit Karosserie, Farbe und Motorklang anderer Autos; je Strecke eine feste
+	# Auswahl, das eigene Auto kommt nie doppelt vor.
+	var others: Array = []
+	for i in range(RaceVehicle.CARS.size()):
+		if i != player_car:
+			others.append(i)
+	var offset := posmod(hash(track_id),others.size())
+	var picked: Array = []
+	for i in range(others.size()):
+		picked.append(others[(offset + i) % others.size()])
+	return picked
+
 func clear_cars() -> void:
+	sound.clear_engines()
 	for model in models:
 		model.queue_free()
 	models.clear()
@@ -301,9 +316,10 @@ func begin_race() -> void:
 		car_choice = 0
 	var spec: Dictionary = RaceVehicle.CARS[car_choice]
 	# Gegner in anderen Farben als das eigene Auto; sie fahren das Grundmodell.
-	var rival_colors: Array = ["5ac4d1","e8c866","a593cf","f16c4c","7fb77e"].filter(func(c): return c != spec.color)
+	var rival_cars := rival_lineup(car_choice)
 	# Drift-Modus: allein gegen Punkteziel und Zeitlimit, keine Rivalen.
 	var field := 1 if track.mode == "drift" else stage+2
+	var engine_ids: Array = [str(spec.id)]
 	for i in range(field):
 		var plan: Array[Dictionary] = recorder.route if i==0 else track.ai_route(RIVAL_SKILL[stage][i-1],RIVAL_LANES[i-1])
 		var vehicle := RaceVehicle.new(track,plan,-float(i)*0.012,0 if i==0 else (1.2 if i%2 else -1.2),car_choice if i==0 else 0)
@@ -311,7 +327,10 @@ func begin_race() -> void:
 		if i == 0:
 			models.append(world.car_model(Color(spec.color),true,str(spec.style)))
 		else:
-			models.append(world.car_model(Color(rival_colors[i-1]),false,"coupe"))
+			var rival: Dictionary = RaceVehicle.CARS[rival_cars[i-1]]
+			models.append(world.car_model(Color(rival.color),false,str(rival.style)))
+			engine_ids.append(str(rival.id))
+	sound.prepare_engines(engine_ids)
 	snapshot_vehicles()
 	update_models()
 	place_models()
@@ -696,6 +715,7 @@ func _process(dt: float) -> void:
 	if sound.context!=phase:
 		sound.set_context(phase,result_won)
 	sound.tick(vehicles[0] if not vehicles.is_empty() else null,phase=="race",paused,bool(store.data.sound),bool(store.data.music),track,dt)
+	sound.tick_engines(dt,vehicles,camera,phase,countdown,paused,bool(store.data.sound))
 	capture_frames += 1
 	if "--capture" in OS.get_cmdline_user_args() and capture_frames==90:
 		get_viewport().get_texture().get_image().save_png("user://preview.png")

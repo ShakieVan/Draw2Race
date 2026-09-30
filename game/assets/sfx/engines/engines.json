@@ -1,0 +1,398 @@
+{
+ "rate": 22050,
+ "cars": {
+  "sprint": {
+   "id": "sprint",
+   "cyl": 4,
+   "idle": 1000,
+   "redline": 7800,
+   "layers": [
+    {
+     "load": "sprint_load_0.wav",
+     "rpm": 1000.0,
+     "frames": 47628,
+     "coast": "sprint_coast_0.wav"
+    },
+    {
+     "load": "sprint_load_1.wav",
+     "rpm": 1498.9,
+     "frames": 33541,
+     "coast": "sprint_coast_1.wav"
+    },
+    {
+     "load": "sprint_load_2.wav",
+     "rpm": 2246.7,
+     "frames": 32976,
+     "coast": "sprint_coast_2.wav"
+    },
+    {
+     "load": "sprint_load_3.wav",
+     "rpm": 3367.5,
+     "frames": 26715,
+     "coast": "sprint_coast_3.wav"
+    },
+    {
+     "load": "sprint_load_4.wav",
+     "rpm": 5047.7,
+     "frames": 26210,
+     "coast": "sprint_coast_4.wav"
+    },
+    {
+     "load": "sprint_load_5.wav",
+     "rpm": 7566.0,
+     "frames": 26579,
+     "coast": "sprint_coast_5.wav"
+    }
+   ],
+   "gain_db": 0.0,
+   "gears": 1.0,
+   "turbo": "mid",
+   "pops": false
+  },
+  "grip": {
+   "id": "grip",
+   "cyl": 3,
+   "idle": 1050,
+   "redline": 7000,
+   "layers": [
+    {
+     "load": "grip_load_0.wav",
+     "rpm": 1050.0,
+     "frames": 47880,
+     "coast": "grip_coast_0.wav"
+    },
+    {
+     "load": "grip_load_1.wav",
+     "rpm": 1525.2,
+     "frames": 32962,
+     "coast": "grip_coast_1.wav"
+    },
+    {
+     "load": "grip_load_2.wav",
+     "rpm": 2215.4,
+     "frames": 33442,
+     "coast": "grip_coast_2.wav"
+    },
+    {
+     "load": "grip_load_3.wav",
+     "rpm": 3218.1,
+     "frames": 26311,
+     "coast": "grip_coast_3.wav"
+    },
+    {
+     "load": "grip_load_4.wav",
+     "rpm": 4674.6,
+     "frames": 26604,
+     "coast": "grip_coast_4.wav"
+    },
+    {
+     "load": "grip_load_5.wav",
+     "rpm": 6790.0,
+     "frames": 26499,
+     "coast": "grip_coast_5.wav"
+    }
+   ],
+   "gain_db": -1.5,
+   "gears": 0.92,
+   "turbo": "mid_soft",
+   "pops": false
+  },
+  "rally": {
+   "id": "rally",
+   "cyl": 4,
+   "idle": 1000,
+   "redline": 7200,
+   "layers": [
+    {
+     "load": "rally_load_0.wav",
+     "rpm": 1000.0,
+     "frames": 47628,
+     "coast": "rally_coast_0.wav"
+    },
+    {
+     "load": "rally_load_1.wav",
+     "rpm": 1475.1,
+     "frames": 32288,
+     "coast": "rally_coast_1.wav"
+    },
+    {
+     "load": "rally_load_2.wav",
+     "rpm": 2175.9,
+     "frames": 32833,
+     "coast": "rally_coast_2.wav"
+    },
+    {
+     "load": "rally_load_3.wav",
+     "rpm": 3209.7,
+     "frames": 26380,
+     "coast": "rally_coast_3.wav"
+    },
+    {
+     "load": "rally_load_4.wav",
+     "rpm": 4734.5,
+     "frames": 26267,
+     "coast": "rally_coast_4.wav"
+    },
+    {
+     "load": "rally_load_5.wav",
+     "rpm": 6983.9,
+     "frames": 26521,
+     "coast": "rally_coast_5.wav"
+    }
+   ],
+   "gain_db": 0.5,
+   "gears": 1.05,
+   "turbo": "hi",
+   "pops": true
+  },
+  "muscle": {
+   "id": "muscle",
+   "cyl": 8,
+   "idle": 750,
+   "redline": 6200,
+   "layers": [
+    {
+     "load": "muscle_load_0.wav",
+     "rpm": 750.0,
+     "frames": 49392,
+     "coast": "muscle_coast_0.wav"
+    },
+    {
+     "load": "muscle_load_1.wav",
+     "rpm": 1137.3,
+     "frames": 32571,
+     "coast": "muscle_coast_1.wav"
+    },
+    {
+     "load": "muscle_load_2.wav",
+     "rpm": 1724.6,
+     "frames": 33753,
+     "coast": "muscle_coast_2.wav"
+    },
+    {
+     "load": "muscle_load_3.wav",
+     "rpm": 2615.3,
+     "frames": 26305,
+     "coast": "muscle_coast_3.wav"
+    },
+    {
+     "load": "muscle_load_4.wav",
+     "rpm": 3966.0,
+     "frames": 26687,
+     "coast": "muscle_coast_4.wav"
+    },
+    {
+     "load": "muscle_load_5.wav",
+     "rpm": 6014.1,
+     "frames": 26398,
+     "coast": "muscle_coast_5.wav"
+    }
+   ],
+   "gain_db": 1.5,
+   "gears": 1.12,
+   "turbo": "blower",
+   "pops": true
+  },
+  "gt": {
+   "id": "gt",
+   "cyl": 10,
+   "idle": 1100,
+   "redline": 9200,
+   "layers": [
+    {
+     "load": "gt_load_0.wav",
+     "rpm": 1100.0,
+     "frames": 48109,
+     "coast": "gt_coast_0.wav"
+    },
+    {
+     "load": "gt_load_1.wav",
+     "rpm": 1672.0,
+     "frames": 33234,
+     "coast": "gt_coast_1.wav"
+    },
+    {
+     "load": "gt_load_2.wav",
+     "rpm": 2541.3,
+     "frames": 33318,
+     "coast": "gt_coast_2.wav"
+    },
+    {
+     "load": "gt_load_3.wav",
+     "rpm": 3862.8,
+     "frames": 26715,
+     "coast": "gt_coast_3.wav"
+    },
+    {
+     "load": "gt_load_4.wav",
+     "rpm": 5871.2,
+     "frames": 26590,
+     "coast": "gt_coast_4.wav"
+    },
+    {
+     "load": "gt_load_5.wav",
+     "rpm": 8923.9,
+     "frames": 26389,
+     "coast": "gt_coast_5.wav"
+    }
+   ],
+   "gain_db": 0.0,
+   "gears": 1.0,
+   "turbo": "mid",
+   "pops": false
+  },
+  "roadster": {
+   "id": "roadster",
+   "cyl": 4,
+   "idle": 1300,
+   "redline": 8800,
+   "layers": [
+    {
+     "load": "roadster_load_0.wav",
+     "rpm": 1300.0,
+     "frames": 48849,
+     "coast": "roadster_coast_0.wav"
+    },
+    {
+     "load": "roadster_load_1.wav",
+     "rpm": 1894.1,
+     "frames": 33527,
+     "coast": "roadster_coast_1.wav"
+    },
+    {
+     "load": "roadster_load_2.wav",
+     "rpm": 2759.7,
+     "frames": 32599,
+     "coast": "roadster_coast_2.wav"
+    },
+    {
+     "load": "roadster_load_3.wav",
+     "rpm": 4021.0,
+     "frames": 26322,
+     "coast": "roadster_coast_3.wav"
+    },
+    {
+     "load": "roadster_load_4.wav",
+     "rpm": 5858.6,
+     "frames": 26647,
+     "coast": "roadster_coast_4.wav"
+    },
+    {
+     "load": "roadster_load_5.wav",
+     "rpm": 8536.1,
+     "frames": 26348,
+     "coast": "roadster_coast_5.wav"
+    }
+   ],
+   "gain_db": -0.5,
+   "gears": 0.96,
+   "turbo": "hi_soft",
+   "pops": false
+  },
+  "pickup": {
+   "id": "pickup",
+   "cyl": 6,
+   "idle": 700,
+   "redline": 4600,
+   "layers": [
+    {
+     "load": "pickup_load_0.wav",
+     "rpm": 700.0,
+     "frames": 49140,
+     "coast": "pickup_coast_0.wav"
+    },
+    {
+     "load": "pickup_load_1.wav",
+     "rpm": 1013.9,
+     "frames": 33927,
+     "coast": "pickup_coast_1.wav"
+    },
+    {
+     "load": "pickup_load_2.wav",
+     "rpm": 1468.5,
+     "frames": 32433,
+     "coast": "pickup_coast_2.wav"
+    },
+    {
+     "load": "pickup_load_3.wav",
+     "rpm": 2126.9,
+     "frames": 26125,
+     "coast": "pickup_coast_3.wav"
+    },
+    {
+     "load": "pickup_load_4.wav",
+     "rpm": 3080.7,
+     "frames": 26626,
+     "coast": "pickup_coast_4.wav"
+    },
+    {
+     "load": "pickup_load_5.wav",
+     "rpm": 4462.1,
+     "frames": 26685,
+     "coast": "pickup_coast_5.wav"
+    }
+   ],
+   "gain_db": 1.0,
+   "gears": 1.25,
+   "turbo": "low",
+   "pops": false
+  },
+  "drift": {
+   "id": "drift",
+   "cyl": 6,
+   "idle": 950,
+   "redline": 8000,
+   "layers": [
+    {
+     "load": "drift_load_0.wav",
+     "rpm": 950.0,
+     "frames": 47349,
+     "coast": "drift_coast_0.wav"
+    },
+    {
+     "load": "drift_load_1.wav",
+     "rpm": 1445.9,
+     "frames": 32939,
+     "coast": "drift_coast_1.wav"
+    },
+    {
+     "load": "drift_load_2.wav",
+     "rpm": 2200.8,
+     "frames": 33664,
+     "coast": "drift_coast_2.wav"
+    },
+    {
+     "load": "drift_load_3.wav",
+     "rpm": 3349.8,
+     "frames": 26067,
+     "coast": "drift_coast_3.wav"
+    },
+    {
+     "load": "drift_load_4.wav",
+     "rpm": 5098.5,
+     "frames": 26468,
+     "coast": "drift_coast_4.wav"
+    },
+    {
+     "load": "drift_load_5.wav",
+     "rpm": 7760.1,
+     "frames": 26596,
+     "coast": "drift_coast_5.wav"
+    }
+   ],
+   "gain_db": 0.5,
+   "gears": 1.0,
+   "turbo": "hi",
+   "pops": true
+  }
+ },
+ "turbo_kinds": [
+  "blower",
+  "hi",
+  "hi_soft",
+  "low",
+  "mid",
+  "mid_soft"
+ ],
+ "pops": 4
+}

@@ -32,6 +32,16 @@ if ($kit) {
     }
     Invoke-Godot -Arguments @('--headless','--path',$gamePath,'--editor','--import','--quit')
 }
+# Motorschichten (tools/make_engine_sounds.py): Godot importiert WAV standardmäßig als QOA (verlustbehaftet); Motoren bleiben verlustfrei.
+$engines = Get-ChildItem (Join-Path $gamePath 'assets/sfx') -Recurse -Filter '*.wav.import' -ErrorAction SilentlyContinue |
+    Where-Object { (Get-Content -LiteralPath $_.FullName -Raw) -match '(?m)^compress/mode=2\r?$' }
+if ($engines) {
+    foreach ($file in $engines) {
+        $text = (Get-Content -LiteralPath $file.FullName -Raw) -replace '(?m)^compress/mode=2(\r?)$', 'compress/mode=0$1'
+        [IO.File]::WriteAllText($file.FullName, $text)
+    }
+    Invoke-Godot -Arguments @('--headless','--path',$gamePath,'--editor','--import','--quit')
+}
 foreach ($test in @('test_core','test_flow','test_tracks','test_air')) {
     Invoke-Godot -Arguments @('--headless','--path',$gamePath,'--quit-after','180','--script',"res://tests/$test.gd")
 }

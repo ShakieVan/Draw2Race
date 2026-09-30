@@ -173,6 +173,14 @@ Für Rap-Songs ohne notierte Gesangstöne richtet sich die Wiederholung nach den
 - „You're the King“: 3:11 (s11) und 3:18 (s22)
 - übrige kurze Songs in Arbeit
 
+## 6d. Motorklänge im Spiel (30.09.2026)
+
+Die Motoren der Fahrzeuge stammen nicht aus der Referenz und nicht aus einem KI-Modell, sondern aus einer eigenen Synthese (`tools/make_engine_sounds.py`, nur numpy): Zündfolge, Druckimpuls, Abgasanlage und Ansaugrauschen je Auto, sechs Drehzahlschichten für Gas und Schub, dazu Turbo-/Kompressorpfeifen, Schubumluftventil und Fehlzündungen. Das Spiel überblendet zwei benachbarte Schichten und führt die Tonhöhe der gewünschten Drehzahl nach (`game/scripts/engine_audio.gd`); Einzelheiten und Messwerte stehen in `docs/IMPLEMENTIERUNG.md` (Abschnitt „Motorklang je Auto“).
+
+- **Lizenz:** vollständig eigenes Material, wie das Spiel unter CC BY-NC 4.0. Der Klassifikator AST (BSD-3) diente nur zur Kontrolle und steckt nicht im Spiel.
+- **Kontrolle ohne Gehör:** Spektrogramm-Bogen je Auto, Zündfrequenz gegen Sollwert, Sprung an der Schleifennaht, Probefahrt aus den Schichten und AudioSet-Bewertung. Die Belegregel (mindestens zwei übereinstimmende Verfahren) ist erfüllt für „klingt periodisch nach Zündfolge und ändert sich mit der Drehzahl“; ob es **gut** klingt, entscheidet die Hörabnahme.
+- **Stilziel:** laut und mechanisch (Rennen), je Auto unterscheidbar: Sprint hell und sportlich, Grip kleiner Dreizylinder, Dirt Hawk Boxer mit Blubbern, Thunder V8 tief mit Kompressor, Apex GT hochdrehend, Col Racer hoch und spitz, Quarry Truck nagelnder Diesel, Drift King rau mit Fehlzündungen.
+
 ## 7. Werkzeuge, Lizenzen, Rechtliches
 
 - **AudioLab:** Alles liegt in `E:\Draw2Race-AudioLab` (Python, Modelle, Caches). Es gibt keine Systeminstallation, zum Entfernen genügt es, den Ordner zu löschen. Die Bedienung beschreibt `LIESMICH.md` dort.

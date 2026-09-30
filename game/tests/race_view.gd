@@ -11,10 +11,15 @@ func run() -> void:
 	app.store = ProgressStore.new("user://shots_%s.json" % Time.get_ticks_usec())
 	app.debug_data()["override"] = {"time": time, "weather": OS.get_environment("WEATHER") if OS.get_environment("WEATHER") != "" else "dry", "fog": 0}
 	app.select_track(id)
+	if OS.get_environment("STAGE") != "":
+		app.stage = int(OS.get_environment("STAGE"))
+	app.store.data["debug"]["unlock"] = true
+	if OS.get_environment("CAR") != "":
+		app.car_choice = int(OS.get_environment("CAR"))
 	app.start_drawing()
 	app.recorder.route = app.track.ai_route(1.0)
 	app.begin_race()
-	for stage in [[600, "start"], [900, "kurve"]]:
+	for stage in [[100, "gitter"], [500, "start"], [300, "kurve"]]:
 		for i in range(stage[0]):
 			await physics_frame
 		for k in range(4):

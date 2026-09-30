@@ -25,6 +25,10 @@ var models: Array[Node3D] = []
 var phase := "menu"
 var stage := 0
 var car_choice := 0
+var was_airborne: Array = []     # je Fahrzeug: Zustand im letzten Schritt (nur für Stoßgeräusche, Darstellung)
+var was_crashed: Array = []
+var last_vz: Array = []
+var was_boosting := false
 var race_time := 0.0
 var countdown := 3.0
 var paused := false
@@ -330,6 +334,14 @@ func begin_race() -> void:
 			var rival: Dictionary = RaceVehicle.CARS[rival_cars[i-1]]
 			models.append(world.car_model(Color(rival.color),false,str(rival.style)))
 			engine_ids.append(str(rival.id))
+	was_airborne.clear()
+	was_crashed.clear()
+	last_vz.clear()
+	for _v in vehicles:
+		was_airborne.append(false)
+		was_crashed.append(false)
+		last_vz.append(0.0)
+	was_boosting = false
 	sound.prepare_engines(engine_ids)
 	snapshot_vehicles()
 	update_models()
@@ -489,6 +501,7 @@ func _physics_process(dt: float) -> void:
 					contact_sparks(a,b,RaceVehicle.resolve_contact(vehicles[a],vehicles[b]))
 		update_tyre_tracks()
 		update_models()
+		race_sounds()
 		# Nach einem Absturz noch kurz zusehen lassen (Fall, Zurückrollen), dann das Ergebnis.
 		if vehicles[0].crashed:
 			crash_wait += dt
@@ -540,11 +553,48 @@ func update_models() -> void:
 			var paint: StandardMaterial3D = models[0].get_meta("paint")
 			paint.emission_energy_multiplier = 0.18 + 0.22*pulse
 
+func screen_pan(pos: Vector2) -> float:
+	# Lage eines Punktes im Bild als Stereowert (-1 links, 1 rechts).
+	var size := get_viewport().get_visible_rect().size
+	var p := camera.unproject_position(Vector3(pos.x, 0.4, pos.y))
+	return clampf((p.x / maxf(1.0, size.x) - 0.5) * 1.7, -0.85, 0.85)
+
+func sound_distance_db(pos: Vector2) -> float:
+	# Leiser mit dem Abstand zum eigenen Auto.
+	if vehicles.is_empty():
+		return 0.0
+	return -clampf((pos.distance_to(vehicles[0].pos) - 6.0) * 0.5, 0.0, 26.0)
+
+func race_sounds() -> void:
+	# Stoßgeräusche aus Zustandswechseln der Fahrzeuge (nur lesen; die Simulation bleibt unberührt): Landung, Absturz, Leitplanke, Turbo.
+	for i in range(mini(vehicles.size(), was_airborne.size())):
+		var v := vehicles[i]
+		var pan := 0.0 if i == 0 else screen_pan(v.pos)
+		var far := 0.0 if i == 0 else sound_distance_db(v.pos)
+		if v.airborne:
+			last_vz[i] = v.vz
+		elif was_airborne[i] and not v.crashed:
+			sound.impact("land", clampf(-float(last_vz[i]) / 7.0, 0.25, 1.0), pan, far)
+		was_airborne[i] = v.airborne
+		if v.crashed and not was_crashed[i]:
+			sound.impact("crash", 1.0, pan, far)
+		was_crashed[i] = v.crashed
+		if v.guard_hit > 0.4:
+			sound.impact("rail", clampf(v.guard_hit / 9.0, 0.25, 1.0), pan, far)
+			world.sparks(Vector3(v.pos.x, 0.45, v.pos.y), Vector3(-v.velocity.y, 0, v.velocity.x).normalized(), clampf(v.guard_hit / 8.0, 0.2, 1.0))
+		v.guard_hit = 0.0
+	if not vehicles.is_empty():
+		if vehicles[0].boosting and not was_boosting:
+			sound.impact("kick", 0.9)
+		was_boosting = vehicles[0].boosting
+
 func contact_sparks(a: int, b: int, impact: float) -> void:
-	# Funken am Berührpunkt ab spürbarem Stoß (nur Darstellung).
+	# Funken am Berührpunkt ab spürbarem Stoß (nur Darstellung), dazu der Stoß als Geräusch.
 	if impact < 0.8:
 		return
 	var p := (vehicles[a].pos+vehicles[b].pos)*0.5
+	var own := a == 0 or b == 0
+	sound.impact("car", clampf(impact/6.0,0.25,1.0), 0.0 if own else screen_pan(p), 0.0 if own else sound_distance_db(p))
 	var away := (vehicles[b].pos-vehicles[a].pos).normalized().orthogonal()
 	world.sparks(Vector3(p.x,0.45,p.y),Vector3(away.x,0,away.y),clampf(impact/5.0,0.2,1.0))
 

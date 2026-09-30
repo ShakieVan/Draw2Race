@@ -15,7 +15,7 @@ uniform float wetness = 0.0;     // 0 trocken, 1 nasser Film
 uniform float puddles = 0.0;     // 0 keine, 1 Pfützen sichtbar
 uniform float snow = 0.0;        // 0 kein Schnee, 1 Schneeschleier
 uniform float rain = 0.0;        // Regenstärke für die Wellen in der Spiegelung
-uniform float puddle_cover = 0.56; // Schwelle der Pfützen-Rauschtextur (kleiner = mehr Pfützen)
+uniform float puddle_cover = 0.62; // Schwelle der Pfützen-Rauschtextur (kleiner = mehr Pfützen)
 uniform float wear = 0.0;         // Diorama: Verschleiß (Ausbesserungen, Risse, Ölflecken), 0 aus, 1 voll
 // Diorama: Fototextur (Weltkoordinaten, Kachelgröße albedo_scale) und gebackene Umgebungsverdeckung (zweite UV-Ebene).
 uniform sampler2D albedo_tex : source_color, hint_default_white, filter_linear_mipmap, repeat_enable;
@@ -53,10 +53,19 @@ void fragment() {
 		col *= 1.0 - wear * (0.15 * patch + 0.30 * crack + 0.17 * oil);
 		col *= 1.0 + wear * 0.07 * (wb - 0.5);
 	}
-	// Pfützen: mittelgroße, unregelmäßige Lachen (zwei Rauschlagen) statt weiträumiger Flecken.
-	float pn = texture(puddle_tex, world_xz * 0.05).r * 0.66 + texture(puddle_tex, world_xz * 0.14 + vec2(0.31, 0.17)).r * 0.34;
-	float puddle = smoothstep(puddle_cover, puddle_cover + 0.05, pn) * puddles;
-	float wet = clamp(max(wetness * 0.65, puddle), 0.0, 1.0);
+	// Pfützen: viele kleine, unregelmäßige Lachen (Rauschlagen 9 m, 3 m und 1 m), in den Fahrspuren länglich; um jede Lache bleibt
+	// der Asphalt feucht und dunkel.
+	float rut = 0.0;
+	if (COLOR.r < 0.5) {
+		float lat = UV.x * 6.0;     // Hauptband: Querabstand zur Mittellinie (m)
+		rut = exp(-pow((abs(lat) - 1.05) / 0.4, 2.0)) + exp(-pow((abs(lat) - 2.55) / 0.4, 2.0));
+	}
+	vec2 pc = world_xz;
+	float pn = texture(puddle_tex, pc * 0.09).r * 0.5 + texture(puddle_tex, pc * 0.29 + vec2(0.31, 0.17)).r * 0.32 + texture(puddle_tex, pc * 0.83 + vec2(0.6, 0.4)).r * 0.18;
+	pn += rut * 0.07;
+	float puddle = smoothstep(puddle_cover, puddle_cover + 0.028, pn) * puddles;
+	float damp = smoothstep(puddle_cover - 0.07, puddle_cover, pn) * puddles;
+	float wet = clamp(max(max(wetness * 0.65, puddle), damp * 0.8), 0.0, 1.0);
 	col *= mix(1.0, 0.5, wet);
 	// Aufschlagringe der Regentropfen: je 0,45-m-Zelle ein Tropfen mit eigener Phase und Lage, zwei Lagen.
 	float rings = 0.0;

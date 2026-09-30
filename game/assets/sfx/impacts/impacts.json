@@ -1,0 +1,65 @@
+{
+ "rate": 22050,
+ "files": {
+  "hit_car_0.wav": {
+   "kind": "car",
+   "frames": 7938,
+   "loop": false
+  },
+  "hit_rail_0.wav": {
+   "kind": "rail",
+   "frames": 16537,
+   "loop": false
+  },
+  "hit_car_1.wav": {
+   "kind": "car",
+   "frames": 7938,
+   "loop": false
+  },
+  "hit_rail_1.wav": {
+   "kind": "rail",
+   "frames": 16537,
+   "loop": false
+  },
+  "hit_car_2.wav": {
+   "kind": "car",
+   "frames": 7938,
+   "loop": false
+  },
+  "hit_rail_2.wav": {
+   "kind": "rail",
+   "frames": 16537,
+   "loop": false
+  },
+  "land_0.wav": {
+   "kind": "land",
+   "frames": 11025,
+   "loop": false
+  },
+  "crash_0.wav": {
+   "kind": "crash",
+   "frames": 33075,
+   "loop": false
+  },
+  "land_1.wav": {
+   "kind": "land",
+   "frames": 11025,
+   "loop": false
+  },
+  "crash_1.wav": {
+   "kind": "crash",
+   "frames": 33075,
+   "loop": false
+  },
+  "kick.wav": {
+   "kind": "kick",
+   "frames": 12127,
+   "loop": false
+  },
+  "rumble_loop.wav": {
+   "kind": "rumble",
+   "frames": 22050,
+   "loop": true
+  }
+ }
+}

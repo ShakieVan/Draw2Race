@@ -63,27 +63,27 @@ func load_manifest() -> void:
 	if parsed is Dictionary and parsed.get("cars") is Dictionary:
 		manifest = parsed
 
+static func make_loop(src: AudioStreamWAV, frames := 0) -> AudioStreamWAV:
+	# Kopie mit Randproben hinter dem Loop-Ende, damit die Interpolation an der Naht nicht gegen Stille läuft.
+	var s := AudioStreamWAV.new()
+	s.format = src.format
+	s.mix_rate = src.mix_rate
+	s.stereo = src.stereo
+	var bytes_per_frame := 2 if src.format == AudioStreamWAV.FORMAT_16_BITS else 1
+	if src.stereo:
+		bytes_per_frame *= 2
+	var count := frames if frames > 0 else src.data.size() / bytes_per_frame
+	s.data = src.data.slice(0, count * bytes_per_frame) + src.data.slice(0, PAD_FRAMES * bytes_per_frame)
+	s.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	s.loop_begin = 0
+	s.loop_end = count
+	return s
+
 func stream(file: String, frames := 0, loop := true) -> AudioStreamWAV:
 	var key := file + ("#loop" if loop else "")
 	if not streams.has(key):
 		var src := load(DIR + file) as AudioStreamWAV
-		if src == null or not loop:
-			streams[key] = src
-		else:
-			# Kopie mit Randproben hinter dem Loop-Ende, damit die Interpolation an der Naht nicht gegen Stille läuft.
-			var s := AudioStreamWAV.new()
-			s.format = src.format
-			s.mix_rate = src.mix_rate
-			s.stereo = src.stereo
-			var bytes_per_frame := 2 if src.format == AudioStreamWAV.FORMAT_16_BITS else 1
-			if src.stereo:
-				bytes_per_frame *= 2
-			var count := frames if frames > 0 else src.data.size() / bytes_per_frame
-			s.data = src.data.slice(0, count * bytes_per_frame) + src.data.slice(0, PAD_FRAMES * bytes_per_frame)
-			s.loop_mode = AudioStreamWAV.LOOP_FORWARD
-			s.loop_begin = 0
-			s.loop_end = count
-			streams[key] = s
+		streams[key] = src if (src == null or not loop) else make_loop(src, frames)
 	return streams[key]
 
 func ensure_bus(index: int) -> String:

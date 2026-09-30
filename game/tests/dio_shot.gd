@@ -60,6 +60,9 @@ func run() -> void:
 			var c = sm.get_shader_parameter("albedo_tint")
 			if c is Color:
 				sm.set_shader_parameter("albedo_tint", Color(c.r, c.g, c.b) * float(OS.get_environment("ROAD")))
+	if OS.get_environment("PUDDLE") != "":
+		for sm in app.world.atmosphere.all_road_shaders():
+			sm.set_shader_parameter("puddle_cover", float(OS.get_environment("PUDDLE")))
 	if OS.get_environment("AOAFFECT") != "":
 		for mi in app.world.find_children("*", "MeshInstance3D", true, false):
 			if (mi as MeshInstance3D).mesh == null:

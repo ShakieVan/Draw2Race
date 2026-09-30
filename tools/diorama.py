@@ -779,8 +779,9 @@ for (r0, r1) in runs:
         print("DIORAMA T-Einmündung bei", (round(center[kk].x, 1), round(center[kk].y, 1)), "Länge", t_len)
 
 # ---------------------------------------------------------------- Hauptbänder (Fahrbahn, Randsteine, Gehwege)
-def ribbon(name, key_of, off_a, off_b, y_a, y_b, tile, skip=None):
-    """Band parallel zur Mittellinie zwischen den seitlichen Abständen off_a..off_b (links positiv)."""
+def ribbon(name, key_of, off_a, off_b, y_a, y_b, tile, skip=None, ruts=False):
+    """Band parallel zur Mittellinie zwischen den seitlichen Abständen off_a..off_b (links positiv). ruts: schwarze Vertexfarbe
+    (der Fahrbahn-Shader legt dort Pfützen länglich in die Fahrspuren; Flächen ohne Farbe sind weiß)."""
     parts = []
     for i in range(N):
         j = (i + 1) % N
@@ -794,12 +795,12 @@ def ribbon(name, key_of, off_a, off_b, y_a, y_b, tile, skip=None):
         uvs = [(ua, v0), (ub, v0), (ub, v1), (ua, v1)]
         if off_b < off_a:
             quad, uvs = quad[::-1], uvs[::-1]
-        parts.append((key_of(i), quad, uvs))
+        parts.append((key_of(i), quad, uvs, None, [(0.0, 0.0, 0.0)] * 4) if ruts else (key_of(i), quad, uvs))
     return mesh_objects(name, parts)
 
 
 objs_ground = []
-objs_ground += ribbon("Fahrbahn", lambda i: "asphalt", -HW, HW, ROAD_Y, ROAD_Y, 6.0)
+objs_ground += ribbon("Fahrbahn", lambda i: "asphalt", -HW, HW, ROAD_Y, ROAD_Y, 6.0, ruts=True)
 for s in (-1, 1):
     skip = skip_by_side[float(s)]
     paint = lambda i: "kerb_paint" if curv[i] > 0.02 else "kerb"

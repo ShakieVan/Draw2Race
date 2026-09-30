@@ -10,6 +10,15 @@ const PHASE_DUCK := {"menu": 0.0, "draw": -15.0, "countdown": -5.0, "race": -5.0
 const MUSIC_BASE_DB := -7.0
 
 var engines := EngineAudio.new()
+const IMPACT_DIR := "res://assets/sfx/impacts/"
+const IMPACT_KINDS := {"car": ["hit_car_0", "hit_car_1", "hit_car_2"], "rail": ["hit_rail_0", "hit_rail_1", "hit_rail_2"],
+	"land": ["land_0", "land_1"], "crash": ["crash_0", "crash_1"], "kick": ["kick"]}
+var impact_players: Array[AudioStreamPlayer] = []
+var impact_streams := {}
+var impact_next := 0
+var impact_log := {}
+var impact_pan: AudioEffectPanner
+var rumble := AudioStreamPlayer.new()
 var squeal := AudioStreamPlayer.new()
 var gravel := AudioStreamPlayer.new()
 var chime := AudioStreamPlayer.new()
@@ -43,7 +52,7 @@ func _ready() -> void:
 			AudioServer.add_bus()
 			AudioServer.set_bus_name(AudioServer.bus_count-1, bus)
 			AudioServer.set_bus_send(AudioServer.bus_count-1, "Master")
-	for player in [squeal,gravel,chime,horn,music_a,music_b]:
+	for player in [squeal,gravel,rumble,chime,horn,music_a,music_b]:
 		add_child(player)
 		player.bus = "Music" if player in [music_a,music_b] else "SFX"
 	add_child(engines)
@@ -61,6 +70,7 @@ func _ready() -> void:
 	for player in [squeal,gravel]:
 		player.volume_db = -80
 		player.play()
+	setup_impacts()
 	load_manifest()
 
 # ---------- Synthese ----------
@@ -130,6 +140,50 @@ func click_sound() -> AudioStreamWAV:
 		bytes.encode_s16(i*2,int(clampf(value,-1,1)*30000))
 	return wav(bytes,false,count)
 
+# ---------- Stoß- und Fahrgeräusche ----------
+
+func setup_impacts() -> void:
+	# Eigener Kanal mit Stereoregler für Stöße (Lage im Bild); die Ausgabe läuft über die Geräuschlautstärke.
+	if AudioServer.get_bus_index("Impact") == -1:
+		AudioServer.add_bus()
+		var idx := AudioServer.bus_count - 1
+		AudioServer.set_bus_name(idx, "Impact")
+		AudioServer.set_bus_send(idx, "SFX")
+		AudioServer.add_bus_effect(idx, AudioEffectPanner.new())
+	impact_pan = AudioServer.get_bus_effect(AudioServer.get_bus_index("Impact"), 0) as AudioEffectPanner
+	for kind in IMPACT_KINDS:
+		var list: Array = []
+		for file in IMPACT_KINDS[kind]:
+			var stream := load(IMPACT_DIR + file + ".wav") as AudioStreamWAV
+			if stream != null:
+				list.append(stream)
+		impact_streams[kind] = list
+	for i in range(6):
+		var player := AudioStreamPlayer.new()
+		player.bus = "Impact"
+		add_child(player)
+		impact_players.append(player)
+	var loop := load(IMPACT_DIR + "rumble_loop.wav") as AudioStreamWAV
+	if loop != null:
+		rumble.stream = EngineAudio.make_loop(loop)
+		rumble.volume_db = -80
+		rumble.play()
+
+func impact(kind: String, strength: float, pan := 0.0, extra_db := 0.0) -> void:
+	# Einzelner Stoß (car, rail, land, crash, kick): Stärke 0..1, Lage im Bild -1..1, Zuschlag in dB (z. B. für Abstand).
+	impact_log[kind] = int(impact_log.get(kind, 0)) + 1      # Zähler für Tests (auch ohne Audiogerät)
+	if headless or not enabled or impact_players.is_empty() or not impact_streams.has(kind) or impact_streams[kind].is_empty():
+		return
+	var list: Array = impact_streams[kind]
+	var player := impact_players[impact_next]
+	impact_next = (impact_next + 1) % impact_players.size()
+	player.stream = list[rng.randi_range(0, list.size() - 1)]
+	player.pitch_scale = rng.randf_range(0.94, 1.06)
+	player.volume_db = -2.0 + linear_to_db(clampf(strength, 0.08, 1.0)) + extra_db
+	if impact_pan != null:
+		impact_pan.pan = clampf(pan, -0.9, 0.9)
+	player.play()
+
 # ---------- Effekte ----------
 
 func start_signal(green: bool) -> void:
@@ -154,13 +208,13 @@ func click() -> void:
 		chime.play()
 
 func tick(vehicle: RaceVehicle, racing: bool, paused: bool, sfx: bool, music_on: bool, track: Circuit = null, dt := 0.016) -> void:
-	for player in [squeal,gravel]:
+	for player in [squeal,gravel,rumble]:
 		player.stream_paused = paused
 	update_music(paused,music_on,dt)
 	if headless:
 		return
 	if not racing or vehicle == null or not sfx:
-		for player in [squeal,gravel]:
+		for player in [squeal,gravel,rumble]:
 			player.volume_db = -80
 		return
 	var speed := vehicle.velocity.length()
@@ -170,6 +224,9 @@ func tick(vehicle: RaceVehicle, racing: bool, paused: bool, sfx: bool, music_on:
 	if track != null:
 		kind = str(track.surface_at(vehicle.pos).kind)
 	var loose := kind in ["dirt","mud","gravel"]
+	# Rumpeln auf dem Randstein: Tonhöhe und Stärke folgen dem Tempo.
+	rumble.pitch_scale = 0.55 + speed * 0.03
+	rumble.volume_db = -7.0 if (kind == "curb" and speed > 3.0 and not vehicle.airborne) else -80.0
 	var rolling := clampf(speed/10.0,0.0,1.0)
 	squeal.pitch_scale = 0.9+speed*0.01
 	squeal.volume_db = linear_to_db(maxf(0.0001,skid*0.5)) - 6.0 if not loose else -80.0
@@ -293,6 +350,6 @@ func update_music(paused: bool, music_on: bool, dt: float) -> void:
 			start_track(next_playlist_track())
 
 func _exit_tree() -> void:
-	for player in [squeal,gravel,chime,horn,music_a,music_b]:
+	for player in [squeal,gravel,rumble,chime,horn,music_a,music_b]:
 		player.stop()
 		player.stream = null

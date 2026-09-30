@@ -1,0 +1,146 @@
+{
+ "fassade_altbau": {
+  "tile_m": [
+   12.8,
+   6.4
+  ],
+  "size": [
+   1024,
+   512
+  ],
+  "role": "fassade",
+  "emission": true
+ },
+ "fassade_backstein": {
+  "tile_m": [
+   12.0,
+   6.0
+  ],
+  "size": [
+   1024,
+   512
+  ],
+  "role": "fassade",
+  "emission": true
+ },
+ "fassade_riegel": {
+  "tile_m": [
+   14.4,
+   8.4
+  ],
+  "size": [
+   1024,
+   512
+  ],
+  "role": "fassade",
+  "emission": true
+ },
+ "fassade_buero": {
+  "tile_m": [
+   12.8,
+   7.2
+  ],
+  "size": [
+   1024,
+   512
+  ],
+  "role": "fassade",
+  "emission": true
+ },
+ "fassade_putz": {
+  "tile_m": [
+   13.6,
+   6.0
+  ],
+  "size": [
+   1024,
+   512
+  ],
+  "role": "fassade",
+  "emission": true
+ },
+ "sockel_laden": {
+  "tile_m": [
+   12.8,
+   3.6
+  ],
+  "size": [
+   1024,
+   256
+  ],
+  "role": "sockel",
+  "emission": true
+ },
+ "sockel_wohn": {
+  "tile_m": [
+   12.8,
+   3.6
+  ],
+  "size": [
+   1024,
+   256
+  ],
+  "role": "sockel",
+  "emission": true
+ },
+ "dach_kies": {
+  "tile_m": [
+   4.0,
+   4.0
+  ],
+  "size": [
+   512,
+   512
+  ],
+  "role": "dach",
+  "emission": false
+ },
+ "dach_bahn": {
+  "tile_m": [
+   4.0,
+   4.0
+  ],
+  "size": [
+   512,
+   512
+  ],
+  "role": "dach",
+  "emission": false
+ },
+ "dach_ziegel": {
+  "tile_m": [
+   4.0,
+   4.0
+  ],
+  "size": [
+   512,
+   512
+  ],
+  "role": "dach",
+  "emission": false
+ },
+ "dach_schiefer": {
+  "tile_m": [
+   4.0,
+   4.0
+  ],
+  "size": [
+   512,
+   512
+  ],
+  "role": "dach",
+  "emission": false
+ },
+ "dach_blech": {
+  "tile_m": [
+   4.0,
+   4.0
+  ],
+  "size": [
+   512,
+   512
+  ],
+  "role": "dach",
+  "emission": false
+ }
+}

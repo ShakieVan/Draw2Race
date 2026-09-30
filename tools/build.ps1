@@ -21,6 +21,17 @@ if ($lossless) {
     }
     Invoke-Godot -Arguments @('--headless','--path',$gamePath,'--editor','--import','--quit')
 }
+# Bausatz-Texturen der Diorama-Häuser (tools/make_kit_textures.py): in 3D brauchen sie Mipmaps; Grafikkartenkompression spart Speicher.
+$kit = Get-ChildItem (Join-Path $gamePath 'assets/kit') -Filter '*.png.import' -ErrorAction SilentlyContinue |
+    Where-Object { (Get-Content -LiteralPath $_.FullName -Raw) -match '(?m)^mipmaps/generate=false\r?$' }
+if ($kit) {
+    foreach ($file in $kit) {
+        $text = (Get-Content -LiteralPath $file.FullName -Raw) -replace '(?m)^mipmaps/generate=false(\r?)$', 'mipmaps/generate=true$1' -replace '(?m)^compress/mode=0(\r?)$', 'compress/mode=2$1' -replace '(?m)^compress/high_quality=false(\r?)$', 'compress/high_quality=true$1'
+        if ($file.Name -like '*_n.png.import') { $text = $text -replace '(?m)^compress/normal_map=0(\r?)$', 'compress/normal_map=1$1' }
+        [IO.File]::WriteAllText($file.FullName, $text)
+    }
+    Invoke-Godot -Arguments @('--headless','--path',$gamePath,'--editor','--import','--quit')
+}
 foreach ($test in @('test_core','test_flow','test_tracks','test_air')) {
     Invoke-Godot -Arguments @('--headless','--path',$gamePath,'--quit-after','180','--script',"res://tests/$test.gd")
 }

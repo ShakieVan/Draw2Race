@@ -189,6 +189,8 @@ func set_camera(target: Vector3) -> void:
 	# Abstand so, dass im Blickzentrum cam_zoom Meter (senkrecht zur Blickrichtung) sichtbar sind.
 	var distance := cam_zoom*0.5/tan(deg_to_rad(CAM_FOV)*0.5)
 	camera.position = target + Vector3(0,sin(cam_pitch),cos(cam_pitch))*distance
+	if world != null and world.atmosphere != null:
+		world.atmosphere.fit_shadow(distance)
 	# Bildschirm oben = Welt −z (auch senkrecht von oben eindeutig).
 	camera.look_at(target,Vector3(0,0,-1))
 
@@ -619,6 +621,7 @@ func _process(dt: float) -> void:
 		place_models()
 	# Detailstufe nach Zoom: nah volle KI-Modelle, in der Übersicht die vereinfachten.
 	world.set_detail(cam_zoom < 26.0)
+	world.atmosphere.limit_reflection(cam_zoom / maxf(1.0, overview_size()), cam_pitch)
 	var target := track_center()
 	var zoom := overview_size()
 	if phase == "draw" and recorder != null:

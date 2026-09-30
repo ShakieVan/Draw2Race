@@ -1,6 +1,6 @@
 extends SceneTree
 # Kontrollbilder einer Strecke mit Diorama: Zeichen-Übersicht (senkrecht) und geneigte Nahansicht wie im Rennen.
-# TRACK (Standard city), TIME (day|dusk|night, Standard day).
+# TRACK (Standard city), TIME (day|dusk|night, Standard day), WEATHER, AT (Streckenanteil der Nahansicht), NOOVERLAY=1 (Laternen-Zusatzlicht aus), NOWINDOWS=1 (Fensterlicht aus).
 func _initialize() -> void:
 	call_deferred("run")
 
@@ -14,6 +14,16 @@ func run() -> void:
 	app.select_track(id)
 	app.start_drawing()
 	for k in range(40):
+		await process_frame
+	if OS.get_environment("NOOVERLAY") == "1":
+		app.world.set_overlays(false)
+	if OS.get_environment("NOGLOW") == "1":
+		app.world.atmosphere.env.glow_enabled = false
+	if OS.get_environment("WINLEVEL") != "":
+		app.world.set_windows(float(OS.get_environment("WINLEVEL")))
+	if OS.get_environment("NOWINDOWS") == "1":
+		app.world.set_windows(0.0)
+	for k in range(4):
 		await process_frame
 	root.get_texture().get_image().save_png("user://dio_%s_%s%s_uebersicht.png" % [id, time, OS.get_environment("WEATHER")])
 	# Geneigte Nahansicht (wie Rennkamera) auf den Startbereich.

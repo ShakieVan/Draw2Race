@@ -52,6 +52,8 @@ var premium := false                      # Premium-Grafik aktiv (setzt world.gd
 var reflection_view: SubViewport
 var reflection_cam: Camera3D
 var reflecting := false
+var reflect_wanted := false   # Wetter und Qualität verlangen Spiegelung
+var reflect_far := false      # Kamera zu weit weg oder zu steil: Spiegelung ausgesetzt
 const REFLECT_PLANE := 0.19                 # Höhe der Fahrbahnebene (Spiegelachse)
 var road_color := Color("394950")
 var clock := 0.0
@@ -253,6 +255,8 @@ func apply(new_conditions: Dictionary, new_quality: int) -> void:
 		node.visible = is_dark()
 	if world != null and world.has_method("set_overlays"):
 		world.set_overlays(is_dark())
+	if world != null and world.has_method("set_windows"):
+		world.set_windows(1.0 if conditions.time == "night" else (0.55 if conditions.time == "dusk" else 0.0))
 
 var occluders: Array = []      # [Mitte Vector2, halbe Größe Vector2, Drehung] von Gebäuden (werfen Laternenschatten)
 
@@ -322,7 +326,30 @@ func update_rain_cars(cars: Array) -> void:
 	rain_material.set_shader_parameter("car_pos", data)
 	rain_material.set_shader_parameter("car_count", mini(cars.size(), 8))
 
+func fit_shadow(distance: float) -> void:
+	# Die schräge Draufsicht hat nur einen schmalen Tiefenbereich: eine einzige orthogonale Schattenkarte, deren Reichweite
+	# der Kamera folgt, spart die vier Teilbereiche (jeder zeichnet alle Schattenwerfer neu) und gewinnt Auflösung.
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+	sun.directional_shadow_max_distance = clampf(distance * 1.3 + 22.0, 40.0, 150.0)
+
 func set_reflection(on: bool) -> void:
+	reflect_wanted = on
+	apply_reflection()
+
+func limit_reflection(zoom_ratio: float, pitch: float) -> void:
+	# Die Spiegelbilder sieht man nur bei nahem, geneigtem Blick; in der senkrechten Übersicht kostet der Zusatzdurchgang
+	# (ganze Stadt ein zweites Mal) viel und bringt nichts. Mit Hysterese, damit es nicht flackert.
+	var far := reflect_far
+	if zoom_ratio > 0.66 or pitch > deg_to_rad(82.0):
+		far = true
+	elif zoom_ratio < 0.56 and pitch < deg_to_rad(78.0):
+		far = false
+	if far != reflect_far:
+		reflect_far = far
+		apply_reflection()
+
+func apply_reflection() -> void:
+	var on := reflect_wanted and not reflect_far
 	# Spiegelkamera: rendert nur Aufragendes (Ebene 1) von unterhalb der Fahrbahnebene, halbe Auflösung.
 	if on and reflection_view == null:
 		reflection_view = SubViewport.new()

@@ -992,6 +992,39 @@ func diorama_blocks(prop: Dictionary) -> bool:
 			return true
 	return false
 
+var kit_materials := {}        # Oberflächen der Bausatz-Häuser (Schlüssel wie in tools/kit_house.py)
+var window_materials: Array = []   # davon: mit leuchtenden Fenstern (Stärke nach Tageszeit)
+
+func kit_material(key: String) -> StandardMaterial3D:
+	# Bausatz-Oberfläche aus den prozeduralen Texturen (Albedo, Normalkarte, Fensterlicht); Vertexfarbe = Putzton und Verschattung.
+	if kit_materials.has(key):
+		return kit_materials[key]
+	var mat := StandardMaterial3D.new()
+	mat.resource_name = "K_" + key
+	mat.vertex_color_use_as_albedo = true
+	mat.roughness = 0.85
+	mat.metallic_specular = 0.3
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	if key != "farbe":
+		mat.albedo_texture = load(KIT_PATH % key)
+		if ResourceLoader.exists(KIT_PATH % (key + "_n")):
+			mat.normal_enabled = true
+			mat.normal_texture = load(KIT_PATH % (key + "_n"))
+		if ResourceLoader.exists(KIT_PATH % (key + "_e")):
+			mat.emission_enabled = true
+			mat.emission = Color.WHITE
+			mat.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY   # Standard "Addieren" würde die ganze Fläche leuchten lassen
+			mat.emission_texture = load(KIT_PATH % (key + "_e"))
+			mat.emission_energy_multiplier = 0.0
+			window_materials.append(mat)
+	kit_materials[key] = mat
+	return mat
+
+func set_windows(level: float) -> void:
+	# Fensterlicht der Bausatz-Häuser: 0 am Tag, in der Dämmerung schwach, nachts voll.
+	for mat in window_materials:
+		mat.emission_energy_multiplier = level * 0.9   # unter der Glühschwelle (1,15), sonst verschmieren die Fenster zu weißen Wänden
+
 func build_diorama() -> void:
 	var scene: Node3D = load(DIORAMA_PATH % track.id).instantiate()
 	scene.name = "Diorama"
@@ -1009,6 +1042,17 @@ func build_diorama() -> void:
 	for node in scene.find_children("*", "MeshInstance3D", true, false):
 		var mi := node as MeshInstance3D
 		var lit := true
+		var node_name := String(mi.name)
+		var kit_albedo: Texture2D = null
+		# Regen-Spiegelung: nur Aufragendes nahe der Strecke gelangt in die Spiegelkamera (Ebene 1); alles
+		# Weitere erscheint nur im Hauptbild und spart im Zusatzdurchgang den Großteil der Dreiecke.
+		if node_name.begins_with("Prop_"):
+			var at := mi.global_position
+			mi.set_meta("keep_layer", true)
+			mi.layers = LAYER_TALL if track.center_distance(Vector2(at.x, at.z)) < REFLECT_NEAR else LAYER_FLAT
+		elif node_name.begins_with("Haus_"):
+			mi.set_meta("keep_layer", true)
+			mi.layers = LAYER_TALL if node_name.begins_with("Haus_nah") else LAYER_FLAT
 		for i in range(mi.mesh.get_surface_count()):
 			var mat := mi.mesh.surface_get_material(i) as StandardMaterial3D
 			if mat == null:
@@ -1037,6 +1081,11 @@ func build_diorama() -> void:
 			if mname == "D_Wasser":
 				mi.set_surface_override_material(i, premium_water())
 				continue
+			if mname.begins_with("K_"):
+				var kit := kit_material(mname.substr(2))
+				mi.set_surface_override_material(i, kit)
+				kit_albedo = kit.albedo_texture
+				continue
 			if mname.begins_with("D_"):
 				if DIORAMA_TINT.has(mname):
 					mat.albedo_color = DIORAMA_TINT[mname]
@@ -1047,7 +1096,17 @@ func build_diorama() -> void:
 					mat.ao_on_uv2 = true
 					mat.ao_light_affect = 0.85
 					mat.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
-		if lit:
+		if lit and node_name.begins_with("Haus_"):
+			# Laternenlicht nur auf die Häuser nahe der Strecke (der Zusatzdurchgang kostet die Dreiecke ein zweites Mal).
+			if node_name.begins_with("Haus_nah"):
+				var glow := lit_overlay_color(Color(0.6, 0.6, 0.6))
+				if glow != null:
+					glow.set_shader_parameter("albedo_tex", kit_albedo)
+					glow.set_shader_parameter("use_vertex_color", true)
+					glow.set_shader_parameter("soft_clip", true)
+					glow.set_shader_parameter("light_gain", 0.7)
+					add_overlay(mi, glow)
+		elif lit:
 			add_overlay(mi, lit_overlay(mi.mesh))
 
 func premium_prop(prop: Dictionary) -> bool:
@@ -1401,6 +1460,8 @@ const ROAD_SHADER := preload("res://assets/road.gdshader")
 # Sichtbarkeitsebenen: 1 = aufragend (wird gespiegelt), 2 = flach am Boden (Spiegelkamera lässt es aus).
 const LAYER_TALL := 1
 const LAYER_FLAT := 2
+const KIT_PATH := "res://assets/kit/%s.png"       # Bausatz-Texturen der Diorama-Häuser (tools/make_kit_textures.py)
+const REFLECT_NEAR := 24.0   # Diorama: nur Bauten bis zu diesem Abstand zur Strecke spiegeln sich in der nassen Fahrbahn
 
 func premium_rendering() -> bool:
 	return premium and RenderingServer.get_current_rendering_method() != "gl_compatibility"

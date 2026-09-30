@@ -15,6 +15,7 @@ Aufruf: tools/blender.ps1 tools/diorama.py <strecke.json> <aus.glb> <aus_ao.jpg>
 """
 import json
 import math
+import os
 import random
 import sys
 
@@ -22,6 +23,9 @@ import bmesh
 import bpy
 import numpy as np
 from mathutils import Matrix, Vector
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import kit_house
 
 A = sys.argv[sys.argv.index("--") + 1:]
 TRACK, OUT_GLB, OUT_AO, TEX, PROPS = A[:5]
@@ -171,6 +175,23 @@ M = {
 }
 
 
+def kit_material(name):
+    """Platzhalter für Bausatz-Oberflächen: nur der Name (die Textur setzt das Spiel) und die Vertexfarbe (Putzton, Verschattung)."""
+    mat = bpy.data.materials.new("K_" + name)
+    mat.use_nodes = True
+    nt = mat.node_tree
+    nt.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.85
+    vc = nt.nodes.new("ShaderNodeVertexColor")
+    vc.layer_name = "Color"
+    nt.links.new(vc.outputs["Color"], nt.nodes["Principled BSDF"].inputs["Base Color"])
+    return mat
+
+
+KIT_TILES = json.load(open(os.path.join(PROPS, "..", "kit", "kit.json"), encoding="utf-8"))
+for _name in list(KIT_TILES) + ["farbe"]:
+    M["k:" + _name] = kit_material(_name)
+
+
 # ---------------------------------------------------------------- Netz-Helfer
 class Frame:
     """Ausgerichtetes 2D-Bezugssystem (Ursprung, Achse u = a, Achse v = b) für achsenparallele Rechtecke."""
@@ -225,14 +246,18 @@ def mesh_object(name, parts):
     me = bpy.data.meshes.new(name)
     bm = bmesh.new()
     uv0 = bm.loops.layers.uv.new("UVMap")
+    col = bm.loops.layers.float_color.new("Color") if any(len(p) > 4 for p in parts) else None
     keys, faces = [], []
     for key, corners, uvs, *rest in parts:
         if key not in keys:
             keys.append(key)
         f = bm.faces.new([bm.verts.new((x, -z, y)) for x, z, y in corners])
         f.material_index = keys.index(key)
-        for loop, uv in zip(f.loops, uvs):
+        for k, (loop, uv) in enumerate(zip(f.loops, uvs)):
             loop[uv0].uv = uv
+            if col is not None:
+                c = rest[1][k] if len(rest) > 1 and rest[1] is not None else (1.0, 1.0, 1.0)
+                loop[col] = (c[0], c[1], c[2], 1.0)
         faces.append((f, rest[0] if rest else None))
     bm.normal_update()
     for f, facing in faces:
@@ -256,7 +281,7 @@ def mesh_objects(name, parts):
     groups = {}
     for p in parts:
         groups.setdefault(p[0], []).append(p)
-    return [mesh_object(f"{name}_{k}", ps) for k, ps in groups.items()]
+    return [mesh_object(f"{name}_{k.replace(chr(58), chr(95))}", ps) for k, ps in groups.items()]
 
 
 # ---------------------------------------------------------------- Kreuzungen und Seitenstraßen planen
@@ -405,14 +430,37 @@ corners = find_corners()
 print("DIORAMA Ecken:", len(corners), [(round(c["P"].x, 1), round(c["P"].y, 1), int(c["sigma"])) for c in corners])
 K, W, H = KERB_W, SIDE, HW
 
+def post(pos, radius, y0, y1, key_body, key_cap, cap_h=0.2, sides=8):
+    """Betonpoller: achteckiger Körper mit farbiger Kappe."""
+    ring = [(pos.x + radius * math.cos(2 * math.pi * k / sides), pos.y + radius * math.sin(2 * math.pi * k / sides)) for k in range(sides)]
+    parts = []
+    for key, ya, yb in ((key_body, y0, y1 - cap_h), (key_cap, y1 - cap_h, y1)):
+        for k in range(sides):
+            p0, p1 = ring[k], ring[(k + 1) % sides]
+            mid = ((p0[0] + p1[0]) / 2 - pos.x, (p0[1] + p1[1]) / 2 - pos.y)
+            parts.append((key, [(p0[0], p0[1], ya), (p1[0], p1[1], ya), (p1[0], p1[1], yb), (p0[0], p0[1], yb)],
+                          [(0, 0), (1, 0), (1, 1), (0, 1)], mid))
+    parts.append((key_cap, [(x, z, y1) for x, z in ring],
+                  [(0.5 + 0.5 * math.cos(2 * math.pi * k / sides), 0.5 + 0.5 * math.sin(2 * math.pi * k / sides)) for k in range(sides)]))
+    return parts
+
+
 for J in corners:
     P, u, v = J["P"], J["u"], J["v"]
     F = Frame(P, u, v)
     Rw, Rn = J["r_in"], J["r_out"]
-    outer_lat = -J["sigma"]                 # seitlicher Vorzeichen der Außenseite dieser Kurve
+    keep = keep_except(J["i0"] - 60, J["j1"] + 60)
+    # Zufahrten beginnen hinter dem Kreuzungsbereich (dort schließt er ohnehin an); Mindestlänge 10 m
+    e_len, e_why = best_length(F, lambda L: (H + W, H + W + L, -H - W, H + W), 42.0, keep)
+    s_len, s_why = best_length(F, lambda L: (-H - W, H + W, -H - W - L, -H - W), 42.0, keep)
+    if not e_len and not s_len:
+        print("DIORAMA Ecke", (round(P.x, 1), round(P.y, 1)), "ohne Kreuzung (kein Platz):", e_why, "|", s_why)
+        continue
+    e_len = e_len + W if e_len else 0.0     # Länge ab Kreuzungsrand
+    s_len = s_len + W if s_len else 0.0
+    outer_lat = -J["sigma"]                 # seitliches Vorzeichen der Außenseite dieser Kurve
     win = [(J["i0"] + 1 + k) % N for k in range(max(0, (J["j1"] - J["i0"]) % N - 1))]
     skip_by_side[outer_lat].update(win)
-    keep = keep_except(J["i0"] - 60, J["j1"] + 60)
     foot_j = [(-Rw, H + W, -H - W, H + W), (-H - W, H + W, H + W, Rn)]   # Kreuzungsbereich samt Randbereichen
     # Mittelfläche und die geraden Reststücke bis zu den Bogenenden (Straße läuft geradeaus durch)
     for reg in ((-H, H, -H, H), (-Rw, -H, -H, H), (-H, H, H, Rn)):
@@ -423,52 +471,56 @@ for J in corners:
                   flat(F, "gehweg", -Rw, -H, -H - W, -H - K, Y_W, 2.5),
                   flat(F, "kerb", H, H + K, H, Rn, Y_K + 0.001, 1.0), wall(F, "kerb", H, H, H, Rn, Y_J, Y_K, (-1, 0)),
                   flat(F, "gehweg", H + K, H + W, H + W, Rn, Y_W, 2.5)]
-    # Leitwand wie bei Stadtkursen: Betonblöcke mit rot-weißer Kappe folgen dem äußeren Bogen der Rennstrecke und
-    # zeigen den Weg durch die Kreuzung; die geradeaus weiterführenden Straßen wirken dadurch gesperrt.
-    mid = center[(J["i0"] + ((J["j1"] - J["i0"]) % N) // 2) % N]
-    r_arc = (mid - P).length / (math.sqrt(2.0) - 1.0)                # Bogenradius der Mittellinie (90°-Kurve)
-    r_wall = r_arc + H + 0.4
-    n_blocks = max(8, int(0.5 * math.pi * r_wall / 1.5))
-    for kb in range(n_blocks):
-        th = -math.pi / 2 + (math.pi / 2) * (kb + 0.5) / n_blocks    # vom Bogenanfang (Richtung -b) bis zum Bogenende (+a)
-        radial = F.u * math.cos(th) + F.v * math.sin(th)
-        pos = F.pt(-r_arc, r_arc) + radial * r_wall
-        g = Frame(pos, Vector((-radial.y, radial.x)), -radial)       # b-Achse zeigt zur Fahrbahn
-        arm_parts += box(g, "beton", -0.75, 0.75, -0.22, 0.22, Y_J, Y_J + 0.72)
-        arm_parts += box(g, "rot" if kb % 2 == 0 else "weiss", -0.75, 0.75, -0.22, 0.22, Y_J + 0.72, Y_J + 0.84)
-    # Laternen in den drei äußeren Eckblöcken der Kreuzung
+    # Fehlt eine Zufahrt, wird ihre Seite wie ein normaler Straßenrand geschlossen (Randstein und Gehweg über die Mündung)
+    if not e_len:
+        arm_parts += [flat(F, "kerb", H, H + K, -H, H, Y_K + 0.002, 1.0), wall(F, "kerb", H, -H, H, H, Y_J, Y_K, (-1, 0)),
+                      flat(F, "gehweg", H + K, H + W, -H - W, H + W, Y_W, 2.5)]
+        footprints.append((F, H, H + W, -H - W, H + W))
+        placed.append(F.poly(H, H + W, -H - W, H + W))
+    if not s_len:
+        arm_parts += [flat(F, "kerb", -H, H + K, -H - K, -H, Y_K + 0.002, 1.0), wall(F, "kerb", -H, -H, H, -H, Y_J, Y_K, (0, 1)),
+                      flat(F, "gehweg", -H, H + K, -H - W, -H - K, Y_W, 2.5)]
+        footprints.append((F, -H - W, H + W, -H - W, -H))
+        placed.append(F.poly(-H - W, H + W, -H - W, -H))
+    # Einzelne Betonpoller (rot-weiße Kappen) entlang des äußeren Bogens der Rennstrecke zeigen den Weg durch die Kreuzung,
+    # wie bei Umleitungen und Stadtkursen; die geradeaus weiterführenden Straßen bleiben trotzdem als Straßen erkennbar.
+    if e_len or s_len:
+        mid = center[(J["i0"] + ((J["j1"] - J["i0"]) % N) // 2) % N]
+        r_arc = (mid - P).length / (math.sqrt(2.0) - 1.0)            # Bogenradius der Mittellinie (90°-Kurve)
+        r_wall = r_arc + H + 0.45
+        n_posts = max(8, int(0.5 * math.pi * r_wall / 1.8))
+        for kb in range(n_posts):
+            th = -math.pi / 2 + (math.pi / 2) * (kb + 0.5) / n_posts # vom Bogenanfang (Richtung -b) bis zum Bogenende (+a)
+            pos = F.pt(-r_arc, r_arc) + (F.u * math.cos(th) + F.v * math.sin(th)) * r_wall
+            la, lb = (pos - P).dot(F.u), (pos - P).dot(F.v)
+            # nur auf der Fahrbahn (nicht auf Randstein/Gehweg): Kreuzband der beiden Straßen
+            if not ((abs(lb) < H - 0.3 and la < H - 0.3) or (abs(la) < H - 0.3 and lb > -H + 0.3)):
+                continue
+            arm_parts += post(pos, 0.25, Y_J, Y_J + 1.0, "beton", "rot" if kb % 2 == 0 else "weiss", cap_h=0.22)
+    # Laternen in den äußeren Eckblöcken der Kreuzung
     for la, lb in ((H + W * 0.5 + 0.3, H + W * 0.5 + 0.3), (H + W * 0.5 + 0.3, -H - W * 0.5 - 0.3), (-H - W * 0.5 - 0.3, -H - W * 0.5 - 0.3)):
         lamps.append((F.pt(la, lb), F.pt(0, 0)))
     # Zebrastreifen auf der ankommenden und der abgehenden Straße der Rennstrecke
-    for k in range(-3, 4):
-        arm_parts.append(flat(F, "linie", -H - 4.5, -H - 1.5, k - 0.25, k + 0.25, Y_J + 0.003, 1.0))
-        arm_parts.append(flat(F, "linie", k - 0.25, k + 0.25, H + 1.5, min(H + 4.5, Rn - 0.5), Y_J + 0.003, 1.0))
-    # Ost-Zufahrt (Verlängerung der ankommenden Straße) und Süd-Zufahrt (rückwärtige Verlängerung der abgehenden)
-    # Zufahrten beginnen hinter dem Kreuzungsbereich (dort schließt er ohnehin an)
-    e_len, e_why = best_length(F, lambda L: (H + W, H + W + L, -H - W, H + W), 42.0, keep, lmin=1.0)
-    s_len, s_why = best_length(F, lambda L: (-H - W, H + W, -H - W - L, -H - W), 42.0, keep, lmin=1.0)
-    e_len = e_len + W if e_len else W       # Länge ab Kreuzungsrand; passt nichts: kurze Sackgasse mit Absperrung
-    s_len = s_len + W if s_len else W
+    if e_len or s_len:
+        for k in range(-3, 4):
+            arm_parts.append(flat(F, "linie", -H - 4.5, -H - 1.5, k - 0.25, k + 0.25, Y_J + 0.003, 1.0))
+            arm_parts.append(flat(F, "linie", k - 0.25, k + 0.25, H + 1.5, min(H + 4.5, Rn - 0.5), Y_J + 0.003, 1.0))
     for reg in foot_j:
         footprints.append((F, *reg))
         placed.append(F.poly(*reg))
-    fe = Frame(F.pt(H, 0), v, u)          # b-Achse entlang u, a-Achse quer (v)
-    build_arm(fe, None, e_len, "E", 0, 0, 0.0, u, 1, 0)
-    footprints.append((F, H, H + e_len, -H - W, H + W))
-    placed.append(F.poly(H, H + e_len, -H - W + 1.5, H + W - 1.5))       # Gehwegrand bleibt für Bäume frei
-    arms.append((F.pt(H, 0), u, v, W + 14, e_len - 5))
-    fs = Frame(F.pt(0, -H), u, -v)
-    build_arm(fs, None, s_len, "S", 0, 0, 0.0, -v, 1, 0)
-    footprints.append((F, -H - W, H + W, -H - s_len, -H))
-    placed.append(F.poly(-H - W + 1.5, H + W - 1.5, -H - s_len, -H))
-    arms.append((F.pt(0, -H), -v, u, W + 14, s_len - 5))
-    if e_len > 9:
-        for k in range(-3, 4):
-            arm_parts.append(flat(F, "linie", H + 1.5, H + 4.5, k - 0.25, k + 0.25, Y_J + 0.003, 1.0))
-    if s_len > 9:
-        for k in range(-3, 4):
-            arm_parts.append(flat(F, "linie", k - 0.25, k + 0.25, -H - 4.5, -H - 1.5, Y_J + 0.003, 1.0))
-    print("DIORAMA Ecke", (round(P.x, 1), round(P.y, 1)), "Ost-Arm", e_len, e_why, "| Süd-Arm", s_len, s_why)
+    if e_len:
+        fe = Frame(F.pt(H, 0), v, u)          # b-Achse entlang u, a-Achse quer (v)
+        build_arm(fe, None, e_len, "E", 0, 0, 0.0, u, 1, 0)
+        footprints.append((F, H, H + e_len, -H - W, H + W))
+        placed.append(F.poly(H, H + e_len, -H - W + 1.5, H + W - 1.5))       # Gehwegrand bleibt für Bäume frei
+        arms.append((F.pt(H, 0), u, v, W + 14, e_len - 5))
+    if s_len:
+        fs = Frame(F.pt(0, -H), u, -v)
+        build_arm(fs, None, s_len, "S", 0, 0, 0.0, -v, 1, 0)
+        footprints.append((F, -H - W, H + W, -H - s_len, -H))
+        placed.append(F.poly(-H - W + 1.5, H + W - 1.5, -H - s_len, -H))
+        arms.append((F.pt(0, -H), -v, u, W + 14, s_len - 5))
+    print("DIORAMA Ecke", (round(P.x, 1), round(P.y, 1)), "Ost-Arm", e_len, "| Süd-Arm", s_len)
 
 # T-Einmündungen an langen Geraden (Außenseite der Gesamtform)
 t_count = 0
@@ -580,8 +632,7 @@ for ax0, az0, ax1, az1 in ((x0 - far, z0 - far, x1 + far, z0), (x0 - far, z1, x1
     frame.append(("weite", quad, [(x / 3.0, -z / 3.0) for x, z, _ in quad]))
 mesh_object("Weite", frame)
 
-# ---------------------------------------------------------------- Modelle laden
-HOUSES = ["stadt_altbau", "stadt_eckladen", "stadt_wohnblock", "stadt_buero"]
+# ---------------------------------------------------------------- Modelle laden (Bäume, Brunnen) und Häuser (Bausatz)
 LIB = {}
 
 
@@ -613,14 +664,11 @@ def rect_corners(cx, cz, hw_, hd, ang):
     return [(cx + ca * dx - sa * dz, cz + sa * dx + ca * dz) for dx, dz in ((-hw_, -hd), (hw_, -hd), (hw_, hd), (-hw_, hd))]
 
 
-LOD_DIST = 24.0      # Häuser weiter als so viele Meter von der Rennstrecke bekommen die einfache Fassung (_lo)
+LOD_DIST = 24.0      # Bauten näher als so viele Meter an der Rennstrecke spiegeln sich in der nassen Fahrbahn (eigene Objekte)
 
 
 def place(name, x, z, ang, height, clearance=FOOT + 0.2, trunk=0.0, check_center=True):
-    """trunk > 0: nur der Stamm zählt (Bäume dürfen mit der Krone über Gehweg/Straße ragen).
-    Häuser weit ab der Rennstrecke (Bildrand) nehmen die vereinfachte Fassung, sonst wird das Diorama für Handys zu schwer."""
-    if name in HOUSES and dist_to_center(np.array([(x, z)]))[0] > LOD_DIST:
-        name = name + "_lo"
+    """Modell (Baum) platzieren. trunk > 0: nur der Stamm zählt (Bäume dürfen mit der Krone über Gehweg/Straße ragen)."""
     obj, ext = model(name)
     s = height / max(ext.z, 1e-4)
     hw_, hd = (trunk, trunk) if trunk > 0 else (ext.x * s / 2 + 0.2, ext.y * s / 2 + 0.2)
@@ -636,75 +684,97 @@ def place(name, x, z, ang, height, clearance=FOOT + 0.2, trunk=0.0, check_center
     return True
 
 
+kit_near, kit_far = [], []      # Flächen aller Häuser, getrennt nach Nähe zur Strecke
+house_kinds = {}
+
+
+def kit_dims(spec):
+    st = kit_house.STYLES[spec["style"]]
+    return max(2, round(spec["w"] / st["bay"])) * st["bay"], max(2, round(spec["d"] / st["bay"])) * st["bay"]
+
+
+def place_house(spec, cx, cz, ux, uz, fx, fz, check_center=True, clearance=FOOT + 0.2):
+    """Haus aus dem Bausatz setzen (u längs der Fassade, f zur Straße); False, wenn es nicht passt."""
+    parts, foot, dims = kit_house.build_house(KIT_TILES, spec, cx, cz, ux, uz, fx, fz, base_y=GROUND_Y - 0.03)
+    if check_center and (dist_to_center(np.array(foot + [(cx, cz)])) < clearance).any():
+        return False
+    if any(overlaps(foot, q) for q in placed):
+        return False
+    placed.append(foot)
+    house_kinds[spec["kind"]] = house_kinds.get(spec["kind"], 0) + 1
+    (kit_near if dist_to_center(np.array([(cx, cz)]))[0] < LOD_DIST else kit_far).extend(parts)
+    return True
+
+
 # ---------------------------------------------------------------- Häuserreihen entlang aller Straßen
-def row_along(pts, tans, lefts, side, offset, heights, check_center=True):
-    """Häuser dicht an dicht entlang einer Linie, Längsseite zur Straße; misslingt ein Platz, wird ein kleineres
-    Haus probiert, erst dann ein Stück weitergerückt."""
+def row_along(pts, tans, lefts, side, offset, max_h, check_center=True):
+    """Häuser dicht an dicht entlang einer Linie, Fassade zur Straße; misslingt ein Platz, wird ein kleineres Haus
+    probiert, erst dann ein Stück weitergerückt."""
     n = len(pts)
     i = 0
     while i < n:
         done = False
-        for attempt in range(4):
-            name = rng.choice(HOUSES)
-            obj, ext = model(name)
-            h = rng.uniform(*heights) * (1.0 - 0.18 * attempt)
-            s = h / ext.z
-            turn = ext.y > ext.x                      # Längsseite entlang der Straße
-            width, depth = (ext.y * s, ext.x * s) if turn else (ext.x * s, ext.y * s)
-            k = min(n - 1, i + int(width / 2 / 0.5))
-            p = pts[k] + lefts[k] * side * (offset + depth / 2)
-            ang = math.atan2(tans[k].y, tans[k].x) + (math.pi / 2 if turn else 0.0)
-            if place(name, p.x, p.y, ang, h, check_center=check_center):
-                i += int((width + 0.3) / 0.5)
+        for attempt in range(5):
+            spec = kit_house.choose(rng, max_h)
+            spec["w"] *= 1.0 - 0.17 * attempt
+            spec["floors"] = max(2, spec["floors"] - attempt // 2)
+            w, d = kit_dims(spec)
+            k = min(n - 1, i + int(w / 2 / 0.5))
+            p = pts[k] + lefts[k] * side * (offset + d / 2)
+            f = -lefts[k] * side
+            if place_house(spec, p.x, p.y, tans[k].x, tans[k].y, f.x, f.y, check_center=check_center):
+                i += int((w + 0.3) / 0.5)
                 done = True
                 break
         if not done:
             i += 3
 
 
-row_along(center, tang, left, outer, FOOT + 0.6, (9, 14))
-row_along(center, tang, left, outer, FOOT + 14, (11, 17))
-row_along(center, tang, left, outer, FOOT + 27, (12, 19))
+row_along(center, tang, left, outer, FOOT + 0.6, 14.0)
+row_along(center, tang, left, outer, FOOT + 14, 18.0)
+row_along(center, tang, left, outer, FOOT + 27, 21.0)
 for origin, direction, normal, s0, s1 in arms:
     if s1 - s0 < 6:
         continue
     n_pts = int((s1 - s0) / 0.5)
     pts = [origin + direction * (s0 + 0.5 * k) for k in range(n_pts)]
     for side in (1, -1):
-        row_along(pts, [direction] * n_pts, [normal] * n_pts, side, FOOT + 0.6, (9, 14), check_center=False)
+        row_along(pts, [direction] * n_pts, [normal] * n_pts, side, FOOT + 0.6, 14.0, check_center=False)
 
 
-
-def nearest_street_dir(p):
-    """Richtung der nächsten Straße (Rennstrecke oder Zufahrt) zum Punkt p."""
+def nearest_street(p):
+    """Richtung (Einheitsvektor) und Blickrichtung zur nächsten Straße (Rennstrecke oder Zufahrt) vom Punkt p aus."""
     d2 = ((C - np.array([p.x, p.y])) ** 2).sum(1)
     i = int(d2.argmin())
-    best = (math.sqrt(float(d2[i])), tang[i])
+    best = (math.sqrt(float(d2[i])), tang[i], (Vector(C[i]) - p).normalized() if d2[i] > 1e-6 else left[i])
     for origin, direction, normal, s0, s1 in arms:
         rel = p - origin
+        side = 1.0 if rel.dot(normal) >= 0 else -1.0
         if -1.0 <= rel.dot(direction) <= s1 + 8.0 and abs(rel.dot(normal)) < best[0]:
-            best = (abs(rel.dot(normal)), direction)
-    return best[1]
+            best = (abs(rel.dot(normal)), direction, -normal * side)
+    return best[1], best[2]
 
 
 def infill():
-    """Übrige Blockflächen mit Häusern füllen, Längsseite zur nächsten Straße; Plätze am Raster, leicht versetzt."""
+    """Übrige Blockflächen mit Häusern füllen, Fassade zur nächsten Straße; Plätze am Raster, leicht versetzt."""
     for zz in np.arange(z0 + 4, z1 - 2, 11.0):
         for xx in np.arange(x0 + 4, x1 - 2, 11.0):
             if rng.random() > 0.92:
                 continue
             p = Vector((xx + rng.uniform(-2, 2), zz + rng.uniform(-2, 2)))
-            dirv = nearest_street_dir(p)
+            dirv, to_street = nearest_street(p)
+            f = to_street - dirv * to_street.dot(dirv)
+            f = f.normalized() if f.length > 1e-4 else Vector((-dirv.y, dirv.x))
             for attempt in range(3):
-                name = rng.choice(HOUSES)
-                obj, ext = model(name)
-                h = rng.uniform(9, 16) * (1.0 - 0.18 * attempt)
-                ang = math.atan2(dirv.y, dirv.x) + (math.pi / 2 if ext.y > ext.x else 0.0)
-                if place(name, p.x, p.y, ang, h):
+                spec = kit_house.choose(rng, 16.0)
+                spec["w"] *= 1.0 - 0.2 * attempt
+                spec["floors"] = max(2, spec["floors"] - attempt)
+                if place_house(spec, p.x, p.y, dirv.x, dirv.y, f.x, f.y):
                     break
 
 
 infill()
+print("DIORAMA Häuser", sum(house_kinds.values()), house_kinds, len(kit_near), "+", len(kit_far), "Flächen (nah + fern)")
 
 # ---------------------------------------------------------------- Park, Brunnen, Bäume
 fountain = next((p for p in data["props"] if p["type"] == "fountain"), None)
@@ -783,6 +853,9 @@ ins = inside(P)
 for (x, z), dd, ii in zip(P, d, ins):
     if ii and dd > HW + 7.5 and rng.random() < 0.45:
         place(rng.choice(tree_pool), x, z, rng.uniform(0, 6.28), rng.uniform(6, 9), clearance=HW + 7.0, trunk=1.2)
+
+# ---------------------------------------------------------------- Haus-Objekte (ein Objekt je Oberfläche und Nähe-Gruppe)
+house_objs = mesh_objects("Haus_nah", kit_near) + mesh_objects("Haus_fern", kit_far)
 
 # ---------------------------------------------------------------- Lichttextur (Umgebungsverdeckung) backen
 SIZE = 4096

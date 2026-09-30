@@ -1,17 +1,40 @@
 {
 "houses": [
 {
-"kind": "stadthaus",
-"style": "backstein",
-"w": 10.85,
-"d": 13.624,
-"floors": 3,
-"roof": "flat",
+"kind": "reihenhaus",
+"style": "altbau",
+"w": 6.514,
+"d": 12.167,
+"floors": 2,
+"roof": "gable",
 "front": "wohn",
-"seed": 1007668780,
+"seed": 859589521,
 "max_h": 14.0,
 "at": [
-6.0,
+12.0,
+32.5
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "backstein",
+"w": 3.769,
+"d": 14.296,
+"floors": 4,
+"roof": "flat",
+"front": "laden",
+"seed": 383446402,
+"max_h": 14.0,
+"at": [
+18.5,
 33.6
 ],
 "u": [
@@ -25,63 +48,40 @@
 },
 {
 "kind": "reihenhaus",
-"style": "putz",
-"w": 5.651,
-"d": 12.959,
+"style": "backstein",
+"w": 2.308,
+"d": 9.673,
 "floors": 2,
 "roof": "gable",
 "front": "wohn",
-"seed": 881460063,
+"seed": 361277445,
 "max_h": 14.0,
 "at": [
-16.5,
-32.9
+42.6,
+7.63
 ],
 "u": [
-1.0,
-0.0
-],
-"f": [
 0.0,
 -1.0
+],
+"f": [
+-1.0,
+-0.0
 ]
 },
 {
 "kind": "stadthaus",
 "style": "putz",
-"w": 11.161,
-"d": 11.843,
-"floors": 5,
-"roof": "hip",
-"front": "laden",
-"seed": 430837206,
-"max_h": 14.0,
-"at": [
-43.163,
-5.982
-],
-"u": [
--0.04915,
--0.99879
-],
-"f": [
--0.99879,
-0.04915
-]
-},
-{
-"kind": "stadthaus",
-"style": "altbau",
-"w": 3.013,
-"d": 14.917,
-"floors": 2,
+"w": 10.865,
+"d": 11.997,
+"floors": 3,
 "roof": "flat",
 "front": "laden",
-"seed": 1047557729,
+"seed": 181792606,
 "max_h": 14.0,
 "at": [
--16.627,
--42.1
+-18.127,
+-40.9
 ],
 "u": [
 -1.0,
@@ -95,39 +95,39 @@
 {
 "kind": "stadthaus",
 "style": "altbau",
-"w": 7.389,
-"d": 15.152,
+"w": 7.117,
+"d": 15.549,
 "floors": 4,
 "roof": "flat",
 "front": "laden",
-"seed": 857568547,
+"seed": 549564053,
 "max_h": 14.0,
 "at": [
 -46.1,
--15.503
+-16.505
 ],
 "u": [
-0.0,
+-0.00015,
 1.0
 ],
 "f": [
 1.0,
--0.0
+0.00015
 ]
 },
 {
-"kind": "reihenhaus",
+"kind": "stadthaus",
 "style": "putz",
-"w": 6.399,
-"d": 9.388,
-"floors": 3,
-"roof": "gable",
+"w": 8.391,
+"d": 11.75,
+"floors": 4,
+"roof": "hip",
 "front": "wohn",
-"seed": 578187816,
+"seed": 608267748,
 "max_h": 14.0,
 "at": [
 -43.2,
-5.997
+6.497
 ],
 "u": [
 0.0,
@@ -136,75 +136,6 @@
 "f": [
 1.0,
 -0.0
-]
-},
-{
-"kind": "stadthaus",
-"style": "backstein",
-"w": 11.792,
-"d": 10.066,
-"floors": 5,
-"roof": "flat",
-"front": "wohn",
-"seed": 687308817,
-"max_h": 14.0,
-"at": [
--17.632,
-30.6
-],
-"u": [
-1.0,
-0.0
-],
-"f": [
-0.0,
--1.0
-]
-},
-{
-"kind": "stadthaus",
-"style": "altbau",
-"w": 5.15,
-"d": 14.053,
-"floors": 4,
-"roof": "flat",
-"front": "wohn",
-"seed": 884804677,
-"max_h": 14.0,
-"at": [
--7.132,
-32.5
-],
-"u": [
-1.0,
-0.0
-],
-"f": [
-0.0,
--1.0
-]
-},
-{
-"kind": "riegel",
-"style": "riegel",
-"w": 28.931,
-"d": 11.099,
-"floors": 8,
-"roof": "flat",
-"front": "wohn",
-"seed": 474416431,
-"max_h": 14.0,
-"at": [
-65.5,
-4.5
-],
-"u": [
-1.0,
-0.0
-],
-"f": [
--0.0,
-1.0
 ]
 },
 {
@@ -218,7 +149,7 @@
 "seed": 793833801,
 "max_h": 14.0,
 "at": [
-58.0,
+-16.632,
 32.9
 ],
 "u": [
@@ -231,17 +162,63 @@
 ]
 },
 {
-"kind": "reihenhaus",
-"style": "backstein",
-"w": 7.67,
-"d": 10.839,
-"floors": 3,
-"roof": "gable",
+"kind": "riegel",
+"style": "riegel",
+"w": 28.513,
+"d": 12.684,
+"floors": 5,
+"roof": "flat",
 "front": "wohn",
-"seed": 583209485,
+"seed": 415270689,
 "max_h": 14.0,
 "at": [
-71.0,
+65.5,
+2.7
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+-0.0,
+1.0
+]
+},
+{
+"kind": "buero",
+"style": "buero",
+"w": 17.064,
+"d": 20.351,
+"floors": 5,
+"roof": "flat",
+"front": "wohn",
+"seed": 712427875,
+"max_h": 14.0,
+"at": [
+59.5,
+35.7
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "backstein",
+"w": 10.143,
+"d": 12.254,
+"floors": 3,
+"roof": "hip",
+"front": "wohn",
+"seed": 1000832991,
+"max_h": 14.0,
+"at": [
+73.5,
 32.1
 ],
 "u": [
@@ -254,41 +231,18 @@
 ]
 },
 {
-"kind": "stadthaus",
-"style": "altbau",
-"w": 8.475,
-"d": 10.207,
-"floors": 3,
-"roof": "hip",
-"front": "laden",
-"seed": 765032974,
-"max_h": 14.0,
-"at": [
-42.9,
-44.0
-],
-"u": [
--0.0,
-1.0
-],
-"f": [
--1.0,
--0.0
-]
-},
-{
-"kind": "stadthaus",
-"style": "altbau",
-"w": 9.037,
-"d": 10.11,
-"floors": 6,
+"kind": "riegel",
+"style": "riegel",
+"w": 27.31,
+"d": 12.484,
+"floors": 8,
 "roof": "flat",
 "front": "wohn",
-"seed": 87712067,
+"seed": 725861913,
 "max_h": 14.0,
 "at": [
-42.9,
-55.0
+43.5,
+53.5
 ],
 "u": [
 -0.0,
@@ -300,18 +254,41 @@
 ]
 },
 {
-"kind": "stadthaus",
-"style": "backstein",
-"w": 9.123,
-"d": 10.226,
-"floors": 5,
-"roof": "hip",
+"kind": "buero",
+"style": "buero",
+"w": 17.032,
+"d": 19.645,
+"floors": 4,
+"roof": "flat",
 "front": "wohn",
-"seed": 387550393,
+"seed": 22473344,
 "max_h": 14.0,
 "at": [
-17.4,
-45.5
+12.3,
+50.5
+],
+"u": [
+-0.0,
+1.0
+],
+"f": [
+1.0,
+0.0
+]
+},
+{
+"kind": "eckhaus",
+"style": "backstein",
+"w": 5.647,
+"d": 17.136,
+"floors": 3,
+"roof": "flat",
+"front": "laden",
+"seed": 495011961,
+"max_h": 14.0,
+"at": [
+12.9,
+62.0
 ],
 "u": [
 -0.0,
@@ -325,62 +302,16 @@
 {
 "kind": "buero",
 "style": "buero",
-"w": 14.163,
-"d": 20.351,
+"w": 15.523,
+"d": 20.265,
 "floors": 5,
 "roof": "flat",
 "front": "wohn",
-"seed": 712427875,
+"seed": 835479122,
 "max_h": 14.0,
 "at": [
 12.3,
-57.5
-],
-"u": [
--0.0,
-1.0
-],
-"f": [
-1.0,
-0.0
-]
-},
-{
-"kind": "stadthaus",
-"style": "backstein",
-"w": 9.492,
-"d": 13.729,
-"floors": 3,
-"roof": "flat",
-"front": "laden",
-"seed": 97877123,
-"max_h": 14.0,
-"at": [
-14.4,
--37.0
-],
-"u": [
-0.0,
--1.0
-],
-"f": [
-1.0,
-0.0
-]
-},
-{
-"kind": "stadthaus",
-"style": "putz",
-"w": 8.241,
-"d": 13.954,
-"floors": 5,
-"roof": "flat",
-"front": "laden",
-"seed": 811508101,
-"max_h": 14.0,
-"at": [
-15.1,
--46.0
+-40.5
 ],
 "u": [
 0.0,
@@ -393,17 +324,17 @@
 },
 {
 "kind": "reihenhaus",
-"style": "putz",
-"w": 8.437,
-"d": 12.518,
+"style": "altbau",
+"w": 8.184,
+"d": 12.434,
 "floors": 3,
 "roof": "gable",
 "front": "wohn",
-"seed": 315575066,
+"seed": 630623870,
 "max_h": 14.0,
 "at": [
-44.9,
--26.5
+44.5,
+-28.0
 ],
 "u": [
 0.0,
@@ -416,63 +347,40 @@
 },
 {
 "kind": "stadthaus",
-"style": "altbau",
-"w": 4.385,
-"d": 15.473,
-"floors": 2,
-"roof": "flat",
-"front": "laden",
-"seed": 980003460,
-"max_h": 14.0,
-"at": [
-46.1,
--33.5
-],
-"u": [
-0.0,
--1.0
-],
-"f": [
--1.0,
--0.0
-]
-},
-{
-"kind": "eckhaus",
 "style": "backstein",
-"w": 18.023,
-"d": 19.209,
-"floors": 4,
-"roof": "flat",
-"front": "laden",
-"seed": 386225215,
-"max_h": 14.0,
-"at": [
-47.1,
--46.0
-],
-"u": [
-0.0,
--1.0
-],
-"f": [
--1.0,
--0.0
-]
-},
-{
-"kind": "stadthaus",
-"style": "altbau",
-"w": 4.027,
-"d": 10.6,
-"floors": 3,
+"w": 10.422,
+"d": 13.817,
+"floors": 6,
 "roof": "hip",
 "front": "laden",
-"seed": 241035454,
+"seed": 12801930,
 "max_h": 14.0,
 "at": [
--18.9,
--55.0
+45.6,
+-39.0
+],
+"u": [
+0.0,
+-1.0
+],
+"f": [
+-1.0,
+-0.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "backstein",
+"w": 4.532,
+"d": 9.905,
+"floors": 2,
+"roof": "gable",
+"front": "wohn",
+"seed": 558297298,
+"max_h": 14.0,
+"at": [
+-18.6,
+-52.0
 ],
 "u": [
 0.0,
@@ -486,16 +394,16 @@
 {
 "kind": "stadthaus",
 "style": "altbau",
-"w": 11.521,
-"d": 10.611,
-"floors": 5,
-"roof": "flat",
-"front": "laden",
-"seed": 871702662,
+"w": 6.536,
+"d": 10.559,
+"floors": 2,
+"roof": "hip",
+"front": "wohn",
+"seed": 320725140,
 "max_h": 14.0,
 "at": [
 -18.9,
--66.0
+-62.5
 ],
 "u": [
 0.0,
@@ -507,201 +415,247 @@
 ]
 },
 {
-"kind": "stadthaus",
-"style": "putz",
-"w": 10.654,
-"d": 14.854,
-"floors": 3,
-"roof": "flat",
-"front": "laden",
-"seed": 589597469,
+"kind": "reihenhaus",
+"style": "backstein",
+"w": 2.424,
+"d": 10.074,
+"floors": 2,
+"roof": "gable",
+"front": "wohn",
+"seed": 55808084,
 "max_h": 14.0,
 "at": [
-8.9,
--55.5
+-18.6,
+-70.0
 ],
 "u": [
 0.0,
 -1.0
 ],
 "f": [
--1.0,
--0.0
-]
-},
-{
-"kind": "eckhaus",
-"style": "altbau",
-"w": 16.218,
-"d": 16.718,
-"floors": 5,
-"roof": "flat",
-"front": "laden",
-"seed": 236957840,
-"max_h": 14.0,
-"at": [
-10.1,
--69.0
-],
-"u": [
-0.0,
--1.0
-],
-"f": [
--1.0,
--0.0
+1.0,
+0.0
 ]
 },
 {
 "kind": "buero",
 "style": "buero",
-"w": 21.513,
-"d": 23.39,
-"floors": 5,
+"w": 23.061,
+"d": 18.872,
+"floors": 6,
 "roof": "flat",
 "front": "wohn",
-"seed": 592801309,
+"seed": 786600842,
 "max_h": 14.0,
 "at": [
--62.5,
--45.3
+11.7,
+-60.0
 ],
 "u": [
--1.0,
-0.0
+0.0,
+-1.0
 ],
 "f": [
-0.0,
-1.0
+-1.0,
+-0.0
 ]
 },
 {
 "kind": "stadthaus",
-"style": "backstein",
-"w": 12.63,
-"d": 11.272,
+"style": "altbau",
+"w": 9.314,
+"d": 11.143,
 "floors": 4,
 "roof": "flat",
 "front": "laden",
-"seed": 115504983,
-"max_h": 14.0,
-"at": [
--44.1,
--53.5
-],
-"u": [
--0.0,
--1.0
-],
-"f": [
-1.0,
--0.0
-]
-},
-{
-"kind": "buero",
-"style": "buero",
-"w": 16.195,
-"d": 16.491,
-"floors": 5,
-"roof": "flat",
-"front": "wohn",
-"seed": 27916173,
-"max_h": 14.0,
-"at": [
--46.1,
--69.0
-],
-"u": [
--0.0,
--1.0
-],
-"f": [
-1.0,
--0.0
-]
-},
-{
-"kind": "riegel",
-"style": "riegel",
-"w": 23.229,
-"d": 12.72,
-"floors": 6,
-"roof": "flat",
-"front": "wohn",
-"seed": 757086979,
-"max_h": 14.0,
-"at": [
--14.7,
-50.0
-],
-"u": [
-0.0,
-1.0
-],
-"f": [
--1.0,
-0.0
-]
-},
-{
-"kind": "riegel",
-"style": "riegel",
-"w": 34.83,
-"d": 11.986,
-"floors": 7,
-"roof": "flat",
-"front": "wohn",
-"seed": 357955255,
-"max_h": 14.0,
-"at": [
--43.5,
-57.5
-],
-"u": [
-0.0,
-1.0
-],
-"f": [
-1.0,
--0.0
-]
-},
-{
-"kind": "stadthaus",
-"style": "altbau",
-"w": 10.475,
-"d": 15.022,
-"floors": 6,
-"roof": "flat",
-"front": "laden",
-"seed": 834452125,
+"seed": 592581304,
 "max_h": 14.0,
 "at": [
 -56.0,
-34.1
+-38.9
 ],
 "u": [
 -1.0,
 0.0
 ],
 "f": [
+0.0,
+1.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "altbau",
+"w": 8.143,
+"d": 12.63,
+"floors": 3,
+"roof": "gable",
+"front": "wohn",
+"seed": 29321471,
+"max_h": 14.0,
+"at": [
+-67.0,
+-40.5
+],
+"u": [
+-1.0,
+0.0
+],
+"f": [
+0.0,
+1.0
+]
+},
+{
+"kind": "riegel",
+"style": "riegel",
+"w": 24.189,
+"d": 14.059,
+"floors": 7,
+"roof": "flat",
+"front": "wohn",
+"seed": 702934606,
+"max_h": 14.0,
+"at": [
+-45.3,
+-60.0
+],
+"u": [
 -0.0,
 -1.0
+],
+"f": [
+1.0,
+-0.0
 ]
 },
 {
 "kind": "stadthaus",
 "style": "altbau",
-"w": 9.705,
-"d": 11.207,
-"floors": 4,
-"roof": "hip",
-"front": "wohn",
-"seed": 957386028,
+"w": 12.523,
+"d": 15.458,
+"floors": 6,
+"roof": "flat",
+"front": "laden",
+"seed": 162110776,
 "max_h": 14.0,
 "at": [
--67.0,
+-13.9,
+47.0
+],
+"u": [
+0.0,
+1.0
+],
+"f": [
+-1.0,
+0.0
+]
+},
+{
+"kind": "eckhaus",
+"style": "altbau",
+"w": 15.929,
+"d": 16.381,
+"floors": 5,
+"roof": "flat",
+"front": "laden",
+"seed": 78574707,
+"max_h": 14.0,
+"at": [
+-13.9,
+62.0
+],
+"u": [
+0.0,
+1.0
+],
+"f": [
+-1.0,
+0.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "altbau",
+"w": 11.264,
+"d": 10.209,
+"floors": 3,
+"roof": "flat",
+"front": "laden",
+"seed": 524015722,
+"max_h": 14.0,
+"at": [
+-42.9,
+45.5
+],
+"u": [
+0.0,
+1.0
+],
+"f": [
+1.0,
+-0.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "altbau",
+"w": 7.583,
+"d": 15.595,
+"floors": 4,
+"roof": "flat",
+"front": "wohn",
+"seed": 465250381,
+"max_h": 14.0,
+"at": [
+-46.1,
+55.5
+],
+"u": [
+0.0,
+1.0
+],
+"f": [
+1.0,
+-0.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "backstein",
+"w": 3.384,
+"d": 11.373,
+"floors": 3,
+"roof": "flat",
+"front": "wohn",
+"seed": 129835739,
+"max_h": 14.0,
+"at": [
+-44.1,
+62.0
+],
+"u": [
+0.0,
+1.0
+],
+"f": [
+1.0,
+-0.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "altbau",
+"w": 12.116,
+"d": 11.375,
+"floors": 6,
+"roof": "flat",
+"front": "wohn",
+"seed": 946933712,
+"max_h": 14.0,
+"at": [
+-57.5,
 32.5
 ],
 "u": [
@@ -714,17 +668,155 @@
 ]
 },
 {
-"kind": "reihenhaus",
+"kind": "stadthaus",
 "style": "altbau",
-"w": 5.163,
-"d": 9.998,
-"floors": 3,
-"roof": "gable",
+"w": 7.518,
+"d": 10.091,
+"floors": 5,
+"roof": "hip",
+"front": "laden",
+"seed": 271031688,
+"max_h": 14.0,
+"at": [
+-67.5,
+30.9
+],
+"u": [
+-1.0,
+0.0
+],
+"f": [
+-0.0,
+-1.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "backstein",
+"w": 4.032,
+"d": 13.117,
+"floors": 4,
+"roof": "flat",
 "front": "wohn",
-"seed": 10013010,
+"seed": 934249814,
+"max_h": 14.0,
+"at": [
+-74.0,
+32.1
+],
+"u": [
+-1.0,
+0.0
+],
+"f": [
+-0.0,
+-1.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "backstein",
+"w": 10.934,
+"d": 12.304,
+"floors": 4,
+"roof": "hip",
+"front": "laden",
+"seed": 153316158,
 "max_h": 18.0,
 "at": [
-20.5,
+-68.0,
+-54.0
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+-0.0,
+-1.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "altbau",
+"w": 5.639,
+"d": 12.304,
+"floors": 2,
+"roof": "gable",
+"front": "wohn",
+"seed": 486189090,
+"max_h": 18.0,
+"at": [
+-57.5,
+-53.6
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+-0.0,
+-1.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "altbau",
+"w": 12.288,
+"d": 11.397,
+"floors": 5,
+"roof": "flat",
+"front": "laden",
+"seed": 520701008,
+"max_h": 18.0,
+"at": [
+43.5,
+-53.6
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+-0.0,
+-1.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "backstein",
+"w": 8.034,
+"d": 10.347,
+"floors": 2,
+"roof": "flat",
+"front": "laden",
+"seed": 20248336,
+"max_h": 18.0,
+"at": [
+55.0,
+-55.5
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+-0.0,
+-1.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "altbau",
+"w": 7.232,
+"d": 9.687,
+"floors": 2,
+"roof": "gable",
+"front": "wohn",
+"seed": 705472801,
+"max_h": 18.0,
+"at": [
+64.0,
 -55.2
 ],
 "u": [
@@ -737,18 +829,18 @@
 ]
 },
 {
-"kind": "stadthaus",
-"style": "putz",
-"w": 12.256,
-"d": 13.451,
-"floors": 3,
+"kind": "eckhaus",
+"style": "backstein",
+"w": 5.183,
+"d": 18.429,
+"floors": 2,
 "roof": "flat",
 "front": "laden",
-"seed": 1073415596,
+"seed": 389090842,
 "max_h": 18.0,
 "at": [
-63.5,
--53.2
+70.5,
+-51.0
 ],
 "u": [
 1.0,
@@ -761,40 +853,17 @@
 },
 {
 "kind": "stadthaus",
-"style": "putz",
-"w": 10.304,
-"d": 14.282,
-"floors": 4,
-"roof": "hip",
+"style": "backstein",
+"w": 10.161,
+"d": 10.926,
+"floors": 3,
+"roof": "flat",
 "front": "laden",
-"seed": 290091482,
+"seed": 1013512641,
 "max_h": 18.0,
 "at": [
--69.0,
--74.8
-],
-"u": [
-1.0,
-0.0
-],
-"f": [
-0.0,
-1.0
-]
-},
-{
-"kind": "reihenhaus",
-"style": "altbau",
-"w": 5.16,
-"d": 10.788,
-"floors": 2,
-"roof": "gable",
-"front": "wohn",
-"seed": 563562900,
-"max_h": 18.0,
-"at": [
--59.0,
--72.8
+-69.5,
+-74.0
 ],
 "u": [
 1.0,
@@ -808,15 +877,15 @@
 {
 "kind": "stadthaus",
 "style": "putz",
-"w": 12.022,
-"d": 11.812,
-"floors": 5,
-"roof": "flat",
+"w": 8.792,
+"d": 11.07,
+"floors": 3,
+"roof": "hip",
 "front": "laden",
-"seed": 765372753,
+"seed": 958839139,
 "max_h": 18.0,
 "at": [
-26.0,
+-58.5,
 -73.1
 ],
 "u": [
@@ -830,17 +899,17 @@
 },
 {
 "kind": "stadthaus",
-"style": "altbau",
-"w": 9.008,
-"d": 15.877,
-"floors": 6,
+"style": "putz",
+"w": 13.541,
+"d": 13.227,
+"floors": 4,
 "roof": "flat",
 "front": "laden",
-"seed": 549098855,
+"seed": 741921428,
 "max_h": 18.0,
 "at": [
-39.0,
--76.0
+28.5,
+-74.8
 ],
 "u": [
 1.0,
@@ -852,18 +921,18 @@
 ]
 },
 {
-"kind": "eckhaus",
-"style": "altbau",
-"w": 20.736,
-"d": 16.254,
-"floors": 5,
-"roof": "flat",
+"kind": "stadthaus",
+"style": "backstein",
+"w": 12.011,
+"d": 13.767,
+"floors": 3,
+"roof": "hip",
 "front": "laden",
-"seed": 675163613,
+"seed": 173628441,
 "max_h": 18.0,
 "at": [
-55.0,
--76.0
+43.0,
+-75.5
 ],
 "u": [
 1.0,
@@ -877,85 +946,16 @@
 {
 "kind": "buero",
 "style": "buero",
-"w": 17.113,
-"d": 23.476,
-"floors": 4,
+"w": 20.106,
+"d": 20.777,
+"floors": 6,
 "roof": "flat",
 "front": "wohn",
-"seed": 374968659,
+"seed": 351323777,
 "max_h": 18.0,
 "at": [
-73.0,
--79.2
-],
-"u": [
-1.0,
-0.0
-],
-"f": [
-0.0,
-1.0
-]
-},
-{
-"kind": "stadthaus",
-"style": "backstein",
-"w": 10.65,
-"d": 10.998,
-"floors": 6,
-"roof": "hip",
-"front": "wohn",
-"seed": 290717370,
-"max_h": 18.0,
-"at": [
-59.5,
--18.0
-],
-"u": [
-1.0,
-0.0
-],
-"f": [
--0.0,
--1.0
-]
-},
-{
-"kind": "stadthaus",
-"style": "backstein",
-"w": 9.764,
-"d": 15.937,
-"floors": 6,
-"roof": "hip",
-"front": "laden",
-"seed": 784936161,
-"max_h": 18.0,
-"at": [
-71.5,
--16.5
-],
-"u": [
-1.0,
-0.0
-],
-"f": [
--0.0,
--1.0
-]
-},
-{
-"kind": "stadthaus",
-"style": "backstein",
-"w": 12.338,
-"d": 11.899,
-"floors": 3,
-"roof": "flat",
-"front": "laden",
-"seed": 957446606,
-"max_h": 18.0,
-"at": [
-62.5,
--38.0
+60.0,
+-77.6
 ],
 "u": [
 1.0,
@@ -969,16 +969,16 @@
 {
 "kind": "reihenhaus",
 "style": "backstein",
-"w": 8.185,
-"d": 10.887,
+"w": 4.467,
+"d": 10.968,
 "floors": 2,
 "roof": "gable",
 "front": "wohn",
-"seed": 66964069,
+"seed": 275842066,
 "max_h": 18.0,
 "at": [
-73.5,
--38.0
+73.0,
+-74.0
 ],
 "u": [
 1.0,
@@ -990,64 +990,18 @@
 ]
 },
 {
-"kind": "stadthaus",
-"style": "altbau",
-"w": 9.244,
-"d": 12.8,
-"floors": 4,
+"kind": "riegel",
+"style": "riegel",
+"w": 34.385,
+"d": 14.156,
+"floors": 7,
 "roof": "flat",
 "front": "wohn",
-"seed": 573725891,
+"seed": 867131509,
 "max_h": 18.0,
 "at": [
--69.5,
-54.4
-],
-"u": [
-1.0,
-0.0
-],
-"f": [
--0.0,
--1.0
-]
-},
-{
-"kind": "stadthaus",
-"style": "altbau",
-"w": 10.446,
-"d": 12.036,
-"floors": 6,
-"roof": "flat",
-"front": "laden",
-"seed": 957383506,
-"max_h": 18.0,
-"at": [
--58.5,
-54.4
-],
-"u": [
-1.0,
-0.0
-],
-"f": [
--0.0,
--1.0
-]
-},
-{
-"kind": "stadthaus",
-"style": "backstein",
-"w": 6.833,
-"d": 15.906,
-"floors": 3,
-"roof": "flat",
-"front": "wohn",
-"seed": 643687482,
-"max_h": 18.0,
-"at": [
--2.5,
-55.5
+70.0,
+-16.8
 ],
 "u": [
 1.0,
@@ -1061,15 +1015,130 @@
 {
 "kind": "stadthaus",
 "style": "putz",
-"w": 11.926,
-"d": 14.323,
-"floors": 6,
-"roof": "hip",
+"w": 9.68,
+"d": 14.624,
+"floors": 5,
+"roof": "flat",
 "front": "laden",
-"seed": 1055462544,
+"seed": 375064799,
 "max_h": 18.0,
 "at": [
-55.0,
+60.0,
+-38.8
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+1.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "altbau",
+"w": 2.866,
+"d": 10.586,
+"floors": 2,
+"roof": "gable",
+"front": "wohn",
+"seed": 199201548,
+"max_h": 18.0,
+"at": [
+73.0,
+-36.8
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+1.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "putz",
+"w": 9.941,
+"d": 13.411,
+"floors": 4,
+"roof": "flat",
+"front": "laden",
+"seed": 494634446,
+"max_h": 18.0,
+"at": [
+43.5,
+-2.8
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+1.0
+]
+},
+{
+"kind": "eckhaus",
+"style": "altbau",
+"w": 20.243,
+"d": 17.928,
+"floors": 5,
+"roof": "flat",
+"front": "laden",
+"seed": 875621485,
+"max_h": 18.0,
+"at": [
+-64.5,
+57.6
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+-0.0,
+-1.0
+]
+},
+{
+"kind": "riegel",
+"style": "riegel",
+"w": 8.536,
+"d": 11.238,
+"floors": 5,
+"roof": "flat",
+"front": "wohn",
+"seed": 5930165,
+"max_h": 18.0,
+"at": [
+-1.5,
+53.4
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+-0.0,
+-1.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "putz",
+"w": 8.788,
+"d": 12.038,
+"floors": 2,
+"roof": "gable",
+"front": "wohn",
+"seed": 375627749,
+"max_h": 18.0,
+"at": [
+55.5,
 54.8
 ],
 "u": [
@@ -1082,18 +1151,18 @@
 ]
 },
 {
-"kind": "reihenhaus",
-"style": "putz",
-"w": 6.796,
-"d": 9.226,
-"floors": 2,
-"roof": "gable",
-"front": "wohn",
-"seed": 19330012,
+"kind": "eckhaus",
+"style": "altbau",
+"w": 18.338,
+"d": 18.06,
+"floors": 5,
+"roof": "flat",
+"front": "laden",
+"seed": 734365402,
 "max_h": 18.0,
 "at": [
-66.5,
-53.1
+70.5,
+57.6
 ],
 "u": [
 1.0,
@@ -1106,155 +1175,86 @@
 },
 {
 "kind": "stadthaus",
-"style": "altbau",
-"w": 2.961,
-"d": 12.918,
-"floors": 3,
-"roof": "flat",
-"front": "laden",
-"seed": 99665364,
-"max_h": 18.0,
-"at": [
-73.5,
-54.4
-],
-"u": [
-1.0,
-0.0
-],
-"f": [
--0.0,
--1.0
-]
-},
-{
-"kind": "reihenhaus",
-"style": "altbau",
-"w": 6.82,
-"d": 11.484,
-"floors": 2,
-"roof": "gable",
-"front": "wohn",
-"seed": 60265773,
-"max_h": 16.0,
-"at": [
--64.56,
--60.91
-],
-"u": [
--0.0,
-1.0
-],
-"f": [
-1.0,
-0.0
-]
-},
-{
-"kind": "reihenhaus",
-"style": "putz",
-"w": 7.247,
-"d": 12.816,
-"floors": 3,
-"roof": "gable",
-"front": "wohn",
-"seed": 563160400,
-"max_h": 16.0,
-"at": [
-31.139,
--63.027
-],
-"u": [
--0.0,
--1.0
-],
-"f": [
--1.0,
-0.0
-]
-},
-{
-"kind": "stadthaus",
-"style": "altbau",
-"w": 9.912,
-"d": 14.098,
-"floors": 4,
-"roof": "flat",
-"front": "laden",
-"seed": 327117378,
-"max_h": 16.0,
-"at": [
-46.614,
--60.348
-],
-"u": [
--0.0,
--1.0
-],
-"f": [
--1.0,
-0.0
-]
-},
-{
-"kind": "reihenhaus",
 "style": "backstein",
-"w": 7.526,
-"d": 10.077,
-"floors": 2,
-"roof": "gable",
-"front": "wohn",
-"seed": 449097114,
-"max_h": 16.0,
+"w": 7.778,
+"d": 11.309,
+"floors": 3,
+"roof": "flat",
+"front": "laden",
+"seed": 1062406014,
+"max_h": 18.0,
 "at": [
--41.135,
--41.594
+-5.0,
+34.0
 ],
 "u": [
--0.0,
-1.0
-],
-"f": [
 1.0,
 0.0
+],
+"f": [
+0.0,
+1.0
 ]
 },
 {
 "kind": "reihenhaus",
 "style": "altbau",
-"w": 5.032,
-"d": 11.108,
+"w": 6.686,
+"d": 11.122,
 "floors": 2,
 "roof": "gable",
 "front": "wohn",
-"seed": 1042133061,
+"seed": 715338625,
 "max_h": 16.0,
 "at": [
-64.074,
--28.243
+4.05,
+32.228
 ],
 "u": [
--0.0,
--1.0
+1.0,
+0.0
 ],
 "f": [
--1.0,
-0.0
+0.0,
+-1.0
 ]
 },
 {
-"kind": "stadthaus",
-"style": "putz",
-"w": 10.0,
-"d": 13.282,
+"kind": "riegel",
+"style": "riegel",
+"w": 6.0,
+"d": 12.25,
 "floors": 4,
 "roof": "flat",
-"front": "laden",
-"seed": 654896604,
+"front": "wohn",
+"seed": 506487347,
 "max_h": 16.0,
 "at": [
-46.222,
--17.003
+-46.648,
+-41.685
+],
+"u": [
+-1.0,
+0.0
+],
+"f": [
+0.0,
+1.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "putz",
+"w": 6.514,
+"d": 12.958,
+"floors": 3,
+"roof": "gable",
+"front": "wohn",
+"seed": 188775639,
+"max_h": 16.0,
+"at": [
+71.553,
+-28.28
 ],
 "u": [
 -0.0,
@@ -1268,76 +1268,58 @@
 ],
 "trees": [
 {
-"model": "stadt_baum_ahorn",
-"at": [
-4.5,
-24.6
-],
-"yaw": 1.2275,
-"height": 5.33
-},
-{
 "model": "stadt_baum_linde",
-"at": [
-4.5,
-11.4
-],
-"yaw": 3.4757,
-"height": 5.55
-},
-{
-"model": "stadt_baum_ahorn",
 "at": [
 13.5,
 24.6
 ],
-"yaw": 3.9604,
-"height": 5.7
+"yaw": 2.3264,
+"height": 5.29
 },
 {
-"model": "stadt_baum_linde",
+"model": "stadt_baum_kastanie",
 "at": [
 13.5,
 11.4
 ],
-"yaw": 3.8131,
-"height": 5.07
+"yaw": 0.4881,
+"height": 5.59
 },
 {
-"model": "stadt_baum_linde",
+"model": "stadt_baum_ahorn",
 "at": [
 13.759,
 4.6
 ],
-"yaw": 4.7569,
-"height": 5.05
+"yaw": 0.9036,
+"height": 5.54
 },
 {
-"model": "stadt_baum_ahorn",
+"model": "stadt_baum_kastanie",
 "at": [
 4.759,
 4.6
 ],
-"yaw": 5.256,
-"height": 5.56
+"yaw": 3.2327,
+"height": 5.25
 },
 {
-"model": "stadt_baum_ahorn",
+"model": "stadt_baum_kastanie",
 "at": [
 0.718,
 -8.736
 ],
-"yaw": 5.1132,
-"height": 5.04
+"yaw": 0.7984,
+"height": 5.2
 },
 {
-"model": "stadt_baum_platane",
+"model": "stadt_baum_linde",
 "at": [
 -8.236,
 0.962
 ],
-"yaw": 1.7326,
-"height": 5.71
+"yaw": 0.1162,
+"height": 5.45
 },
 {
 "model": "stadt_baum_kastanie",
@@ -1345,26 +1327,17 @@
 0.6,
 -12.257
 ],
-"yaw": 6.0694,
-"height": 5.74
+"yaw": 3.606,
+"height": 5.51
 },
 {
-"model": "stadt_baum_linde",
+"model": "stadt_baum_ahorn",
 "at": [
 -12.6,
 -12.257
 ],
-"yaw": 5.752,
-"height": 5.75
-},
-{
-"model": "stadt_baum_platane",
-"at": [
--14.768,
--19.382
-],
-"yaw": 1.8034,
-"height": 5.27
+"yaw": 4.1569,
+"height": 5.68
 },
 {
 "model": "stadt_baum_kastanie",
@@ -1372,26 +1345,26 @@
 -36.6,
 -11.003
 ],
-"yaw": 0.4693,
-"height": 5.31
+"yaw": 4.7382,
+"height": 5.32
 },
 {
-"model": "stadt_baum_ahorn",
+"model": "stadt_baum_linde",
 "at": [
 -23.4,
 -11.003
 ],
-"yaw": 6.2766,
-"height": 5.57
+"yaw": 2.5787,
+"height": 5.42
 },
 {
-"model": "stadt_baum_platane",
+"model": "stadt_baum_linde",
 "at": [
 -23.4,
 -2.003
 ],
-"yaw": 6.0486,
-"height": 5.47
+"yaw": 3.8868,
+"height": 5.21
 },
 {
 "model": "stadt_baum_platane",
@@ -1399,208 +1372,272 @@
 -36.6,
 6.997
 ],
-"yaw": 5.8384,
-"height": 5.39
+"yaw": 3.1877,
+"height": 5.37
 },
 {
-"model": "stadt_baum_ahorn",
+"model": "stadt_baum_kastanie",
 "at": [
 -23.4,
 6.997
 ],
-"yaw": 2.0777,
-"height": 5.4
-},
-{
-"model": "stadt_baum_platane",
-"at": [
--19.132,
-24.6
-],
-"yaw": 5.7549,
-"height": 5.49
+"yaw": 6.2505,
+"height": 5.45
 },
 {
 "model": "stadt_baum_linde",
 "at": [
 -19.132,
+24.6
+],
+"yaw": 5.434,
+"height": 5.08
+},
+{
+"model": "stadt_baum_ahorn",
+"at": [
+-19.132,
 11.4
 ],
-"yaw": 4.9129,
+"yaw": 4.3923,
+"height": 5.17
+},
+{
+"model": "stadt_baum_linde",
+"at": [
+-10.132,
+24.6
+],
+"yaw": 3.3043,
+"height": 5.01
+},
+{
+"model": "stadt_baum_linde",
+"at": [
+-10.132,
+11.4
+],
+"yaw": 1.4338,
+"height": 5.07
+},
+{
+"model": "stadt_baum_kastanie",
+"at": [
+41.5,
+11.4
+],
+"yaw": 6.2276,
+"height": 5.54
+},
+{
+"model": "stadt_baum_ahorn",
+"at": [
+65.5,
+11.4
+],
+"yaw": 3.3555,
+"height": 5.38
+},
+{
+"model": "stadt_baum_platane",
+"at": [
+77.5,
+24.6
+],
+"yaw": 0.1804,
+"height": 5.07
+},
+{
+"model": "stadt_baum_platane",
+"at": [
+36.6,
+29.5
+],
+"yaw": 2.9936,
+"height": 5.24
+},
+{
+"model": "stadt_baum_ahorn",
+"at": [
+23.4,
+-49.5
+],
+"yaw": 1.4566,
+"height": 5.52
+},
+{
+"model": "stadt_baum_ahorn",
+"at": [
+0.6,
+-49.5
+],
+"yaw": 3.1017,
+"height": 5.0
+},
+{
+"model": "stadt_baum_platane",
+"at": [
+-12.6,
+-61.5
+],
+"yaw": 6.0775,
+"height": 5.58
+},
+{
+"model": "stadt_baum_platane",
+"at": [
+-41.5,
+-32.6
+],
+"yaw": 1.6035,
 "height": 5.06
 },
 {
 "model": "stadt_baum_kastanie",
 "at": [
--10.132,
-24.6
+-53.5,
+-32.6
 ],
-"yaw": 4.6797,
-"height": 5.28
-},
-{
-"model": "stadt_baum_linde",
-"at": [
--10.132,
-11.4
-],
-"yaw": 5.968,
-"height": 5.49
-},
-{
-"model": "stadt_baum_kastanie",
-"at": [
--1.132,
-24.6
-],
-"yaw": 0.3429,
-"height": 5.27
-},
-{
-"model": "stadt_baum_platane",
-"at": [
--1.132,
-11.4
-],
-"yaw": 5.1252,
-"height": 5.36
-},
-{
-"model": "stadt_baum_platane",
-"at": [
-41.5,
-24.6
-],
-"yaw": 2.934,
-"height": 5.44
-},
-{
-"model": "stadt_baum_linde",
-"at": [
-23.4,
-29.5
-],
-"yaw": 4.5017,
-"height": 5.3
-},
-{
-"model": "stadt_baum_kastanie",
-"at": [
-36.6,
-41.5
-],
-"yaw": 3.3436,
+"yaw": 4.7922,
 "height": 5.11
 },
 {
 "model": "stadt_baum_ahorn",
 "at": [
-23.4,
--13.5
+-65.5,
+-19.4
 ],
-"yaw": 6.2339,
-"height": 5.15
-},
-{
-"model": "stadt_baum_linde",
-"at": [
-36.6,
--49.5
-],
-"yaw": 2.9704,
-"height": 5.06
-},
-{
-"model": "stadt_baum_linde",
-"at": [
-0.6,
--37.5
-],
-"yaw": 1.5577,
-"height": 5.26
-},
-{
-"model": "stadt_baum_ahorn",
-"at": [
--12.6,
--61.5
-],
-"yaw": 4.771,
-"height": 5.18
+"yaw": 3.0322,
+"height": 5.03
 },
 {
 "model": "stadt_baum_kastanie",
 "at": [
-0.6,
--61.5
+-65.5,
+-32.6
 ],
-"yaw": 1.6822,
+"yaw": 4.5141,
 "height": 5.72
 },
 {
 "model": "stadt_baum_kastanie",
 "at": [
--12.6,
--73.5
+-77.5,
+-19.4
 ],
-"yaw": 4.6107,
-"height": 5.23
-},
-{
-"model": "stadt_baum_ahorn",
-"at": [
--53.5,
--32.6
-],
-"yaw": 1.3552,
-"height": 5.63
+"yaw": 0.1225,
+"height": 5.0
 },
 {
 "model": "stadt_baum_kastanie",
-"at": [
--65.5,
--32.6
-],
-"yaw": 3.1764,
-"height": 5.37
-},
-{
-"model": "stadt_baum_linde",
 "at": [
 -36.6,
 -61.5
 ],
-"yaw": 4.752,
-"height": 5.21
+"yaw": 4.9166,
+"height": 5.65
 },
 {
 "model": "stadt_baum_kastanie",
 "at": [
--65.5,
-24.6
+-36.6,
+41.5
 ],
-"yaw": 6.1581,
-"height": 5.4
+"yaw": 0.0298,
+"height": 5.64
+},
+{
+"model": "stadt_baum_kastanie",
+"at": [
+-23.4,
+53.5
+],
+"yaw": 1.4315,
+"height": 5.3
+},
+{
+"model": "stadt_baum_kastanie",
+"at": [
+-36.6,
+65.5
+],
+"yaw": 4.6718,
+"height": 5.33
 },
 {
 "model": "stadt_baum_ahorn",
 "at": [
-17.859,
--10.0
+-41.5,
+11.4
 ],
-"yaw": 6.2002,
-"height": 5.68
+"yaw": 4.6705,
+"height": 5.19
 },
 {
 "model": "stadt_baum_linde",
 "at": [
--74.0,
+-53.5,
+24.6
+],
+"yaw": 1.3885,
+"height": 5.29
+},
+{
+"model": "stadt_baum_platane",
+"at": [
+-50.0,
+-10.603
+],
+"yaw": 1.6029,
+"height": 5.65
+},
+{
+"model": "stadt_baum_platane",
+"at": [
+-62.0,
 2.597
 ],
-"yaw": 4.595,
-"height": 5.58
+"yaw": 3.2038,
+"height": 5.38
+},
+{
+"model": "stadt_baum_linde",
+"at": [
+-16.771,
+0.47
+],
+"yaw": 0.3072,
+"height": 7.82
 }
 ],
+"event": {
+"portal": {
+"at": [
+0.0,
+18.0
+],
+"dir": [
+1.0,
+0.0
+]
+},
+"zones": [
+{
+"side": 1,
+"s": [
+-26.0,
+26.0
+]
+},
+{
+"side": -1,
+"s": [
+-26.0,
+26.0
+]
+}
+]
+},
 "lamps": [
 {
 "at": [

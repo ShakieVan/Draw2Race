@@ -196,6 +196,25 @@ for _name in list(KIT_TILES) + ["farbe", "lampe_rot", "lampe_blau"]:
     M["k:" + _name] = kit_material(_name)
 
 
+def event_material(name, vertex_color=False):
+    """Platzhalter für Oberflächen der Rennausstattung (E_*): Textur bzw. Shader setzt das Spiel (world.gd, event_material)."""
+    mat = bpy.data.materials.new("E_" + name)
+    mat.use_nodes = True
+    nt = mat.node_tree
+    nt.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.85
+    if vertex_color:
+        vc = nt.nodes.new("ShaderNodeVertexColor")
+        vc.layer_name = "Color"
+        nt.links.new(vc.outputs["Color"], nt.nodes["Principled BSDF"].inputs["Base Color"])
+    return mat
+
+
+for _name in ("menge", "banner", "portal", "schach"):
+    M["e:" + _name] = event_material(_name)
+M["e:flagge"] = event_material("flagge", True)
+M["stahl"] = material("D_Stahl", color=(0.62, 0.64, 0.68), rough=0.4)
+
+
 # ---------------------------------------------------------------- Netz-Helfer
 class Frame:
     """Ausgerichtetes 2D-Bezugssystem (Ursprung, Achse u = a, Achse v = b) für achsenparallele Rechtecke."""
@@ -656,6 +675,40 @@ for J in corners:
         arms.append((F.pt(0, -H), -v, u, W + 14, s_len - 5))
     print("DIORAMA Ecke", (round(P.x, 1), round(P.y, 1)), "Ost-Arm", e_len, "| Süd-Arm", s_len)
 
+# ---------------------------------------------------------------- Rennausstattung: Startportal
+dress_parts = []          # Flächen der Ausstattung (ein Objekt je Material): Portal, Zuschauerzonen, Fahnen
+event_decals = []         # dünne Auflagen (Zuschauerstreifen): beim Backen der Umgebungsverdeckung unsichtbar
+PORTAL_I = 0              # Startlinie: erste Stützstelle der Mittellinie
+
+
+def build_portal(i):
+    """Startportal über der Startlinie: zwei Pylone auf den Gehwegen, Querbalken mit Schriftzug (Längsseiten) und Schachbrett (oben)."""
+    f = Frame(center[i], tang[i], left[i])
+    bp = HW + KERB_W + 0.65                     # Mitte der Pylone (auf dem Gehweg)
+    hb = bp + 0.45                              # halbe Länge des Balkens
+    y0, y1 = Y_W + 5.3, Y_W + 6.5
+    for s in (-1, 1):
+        dress_parts.extend(box(f, "beton", -0.45, 0.45, s * bp - 0.45, s * bp + 0.45, Y_W, Y_W + 0.5))
+        dress_parts.extend(box(f, "weiss", -0.35, 0.35, s * bp - 0.35, s * bp + 0.35, Y_W + 0.5, Y_W + 6.3))
+        dress_parts.extend(box(f, "rot", -0.37, 0.37, s * bp - 0.37, s * bp + 0.37, Y_W + 3.4, Y_W + 3.9))
+        placed.append(f.poly(-0.6, 0.6, s * bp - 0.6, s * bp + 0.6))
+    # Balken: Oberseite Schachbrett, Stirnseiten weiß, Längsseiten mit dem Schriftzug (gespiegelt auf der Rückseite, damit er lesbar bleibt)
+    for a0, a1, key in ((-0.42, -0.15, "weiss"), (-0.15, 0.15, "e:schach"), (0.15, 0.42, "weiss")):
+        ab = ((a0, -hb), (a1, -hb), (a1, hb), (a0, hb))
+        dress_parts.append((key, [(*f.pt(a, b), y1) for a, b in ab], [(a / 0.3, b / 0.3) for a, b in ab]))
+    for a, facing, uv in ((-0.42, (-1, 0), ((0, 0), (1, 0), (1, 1), (0, 1))), (0.42, (1, 0), ((1, 0), (0, 0), (0, 1), (1, 1)))):
+        p0, p1 = f.pt(a, -hb), f.pt(a, hb)
+        fv = f.u * facing[0] + f.v * facing[1]
+        dress_parts.append(("e:portal", [(p0.x, p0.y, y0), (p1.x, p1.y, y0), (p1.x, p1.y, y1), (p0.x, p0.y, y1)], list(uv), (fv.x, fv.y)))
+    for b, facing in ((-hb, (0, -1)), (hb, (0, 1))):
+        dress_parts.append(wall(f, "weiss", -0.42, b, 0.42, b, y0, y1, facing))
+    # Schutzfläche: An der Startlinie entsteht keine Zufahrt (Tiefgarage/Seitenstraße) gegenüber dem Portal.
+    placed.append(f.poly(-8.0, 8.0, -FOOT, HW + SIDE + 1.0))
+    placed.append(f.poly(-8.0, 8.0, -HW - SIDE - 1.0, FOOT))
+
+
+build_portal(PORTAL_I)
+
 # T-Einmündungen an langen Geraden (Außenseite der Gesamtform)
 t_count = 0
 runs = []
@@ -940,6 +993,106 @@ infill()
 infill(step=6.5, skip=0.25, w_max=10.0)      # zweiter Durchgang: Lücken mit kleineren Häusern schließen
 print("DIORAMA Häuser", sum(house_kinds.values()), house_kinds, len(kit_near), "+", len(kit_far), "Flächen (nah + fern)")
 
+# ---------------------------------------------------------------- Rennausstattung: Zuschauerzonen (Gitter, Werbebanner, Menge, Fahnen)
+lamp_pos = [Vector((p["x"], p["z"])) for p in data["props"] if p["type"] == "lamp"]
+FLAG_COLORS = [(0.70, 0.03, 0.02), (0.86, 0.86, 0.84), (0.90, 0.50, 0.02), (0.02, 0.08, 0.50)]   # linear: rot, weiß, gelb, blau
+PANEL = 2.4               # Teilung der Gitterfelder (m)
+CROWD_TILE = 6.0          # Länge einer Zuschauerkachel (Textur, m)
+
+
+def fence_panel(g, length=2.2):
+    """Absperrgitter für Zuschauer: zwei Holme, neun Stäbe, zwei Füße. g: a längs der Reihe, b zur Zuschauerseite."""
+    parts = []
+    for a in (-length / 2 + 0.12, length / 2 - 0.12):
+        parts += box(g, "stahl", a - 0.04, a + 0.04, -0.28, 0.28, Y_W, Y_W + 0.05)
+    parts += box(g, "stahl", -length / 2, length / 2, -0.015, 0.015, Y_W + 0.98, Y_W + 1.04)
+    parts += box(g, "stahl", -length / 2, length / 2, -0.015, 0.015, Y_W + 0.25, Y_W + 0.30)
+    n = 9
+    for k in range(n):
+        a = -length / 2 + 0.08 + k * (length - 0.16) / (n - 1)
+        parts += box(g, "stahl", a - 0.012, a + 0.012, -0.012, 0.012, Y_W + 0.05, Y_W + 0.98)
+    return parts
+
+
+def banner_quad(g, a0, a1, b, y0, y1, toward, cell, flip, cols=2, rows=4):
+    """Werbebanner als senkrechte Fläche bei b (Blick in Richtung toward = ±b); cell = Nummer im Bannerbild; flip: Schrift spiegeln."""
+    c, r = cell % cols, cell // cols
+    u0, u1 = c / cols, (c + 1) / cols
+    v1, v0 = 1.0 - r / rows, 1.0 - (r + 1) / rows          # Zeile 0 liegt im Bild oben (UV: oben = 1)
+    if flip:
+        u0, u1 = u1, u0
+    p0, p1 = g.pt(a0, b), g.pt(a1, b)
+    fv = g.v * toward
+    return ("e:banner", [(p0.x, p0.y, y0), (p1.x, p1.y, y0), (p1.x, p1.y, y1), (p0.x, p0.y, y1)],
+            [(u0, v0), (u1, v0), (u1, v1), (u0, v1)], (fv.x, fv.y))
+
+
+def crowd_quad(g, a0, a1, b0, b1, y, s_mid):
+    """Zuschauerstreifen (Auflage auf dem Gehweg); die Textur kachelt mit der Streckenlänge s (naht los über die Felder)."""
+    ab = ((a0, b0), (a1, b0), (a1, b1), (a0, b1))
+    return ("e:menge", [(*g.pt(a, b), y) for a, b in ab], [((s_mid + a) / CROWD_TILE, 1.0 - (b - b0) / (b1 - b0)) for a, b in ab])
+
+
+def flag_parts(g, a, b, color, length=0.62, height=1.45, top=3.3):
+    """Fahne auf schlankem Mast; vier Stücke, damit der Shader sie wehen lassen kann (UV.x = Abstand vom Mast)."""
+    parts = box(g, "stahl", a - 0.025, a + 0.025, b - 0.025, b + 0.025, Y_W, Y_W + 3.4)
+    n = 4
+    for k in range(n):
+        a0, a1 = a + 0.025 + k * length / n, a + 0.025 + (k + 1) * length / n
+        p0, p1 = g.pt(a0, b), g.pt(a1, b)
+        parts.append(("e:flagge", [(p0.x, p0.y, Y_W + top - height), (p1.x, p1.y, Y_W + top - height), (p1.x, p1.y, Y_W + top), (p0.x, p0.y, Y_W + top)],
+                      [(k / n, 0.0), ((k + 1) / n, 0.0), ((k + 1) / n, 1.0), (k / n, 1.0)], None, [color] * 4))
+    return parts
+
+
+def crowd_zone(side, s_from, s_to):
+    """Zuschauerzone an einer Seite der Geraden zwischen den Streckenlängen s_from..s_to (m, relativ zum Start): Gitter am Randstein,
+    Werbebanner an beiden Gitterseiten, dahinter die Menge, dahinter Fahnen zwischen den Laternen."""
+    a_f = HW + KERB_W + 0.15
+    n_panels = int((s_to - s_from) / PANEL)
+    count = 0
+    for k in range(n_panels):
+        s = s_from + (k + 0.5) * PANEL
+        if abs(s) < 1.6:                                   # Startportal
+            continue
+        i = int(round(s / 0.5)) % N
+        if not all(straight_i[(i + d) % N] for d in range(-5, 6)) or i in skip_by_side[side]:
+            continue
+        origin = center[i] + left[i] * side * a_f
+        g = Frame(origin, tang[i], left[i] * side)
+        ends = np.array([tuple(g.pt(a, b)) for a, b in ((-1.3, 0.0), (1.3, 0.0), (-1.3, 1.9), (1.3, 1.9))])
+        if in_footprints(ends, margin=0.6).any() or (dist_to_center(ends) < HW + 0.5).any():
+            continue
+        dress_parts.extend(fence_panel(g))
+        cell = (k * 3 + (0 if side > 0 else 5)) % 8
+        for toward, flip in ((-1, side > 0), (1, side < 0)):       # zur Straße hin und zur Zuschauerseite hin (Schrift nie gespiegelt)
+            dress_parts.append(banner_quad(g, -1.1, 1.1, 0.03 * toward, Y_W + 0.36, Y_W + 0.91, toward, cell, flip))
+        dress_parts.append(crowd_quad(g, -PANEL / 2, PANEL / 2, 0.30, 1.55, Y_W + 0.004, dist[i]))
+        count += 1
+    # Fahnen hinter der Menge, abseits der Laternen
+    m = 0
+    s = s_from + 2.0
+    while s < s_to - 1.0:
+        i = int(round(s / 0.5)) % N
+        if abs(s) > 2.6 and not i in skip_by_side[side] and all(straight_i[(i + d) % N] for d in range(-5, 6)):
+            g = Frame(center[i] + left[i] * side * (HW + KERB_W + 0.15), tang[i], left[i] * side)
+            pos = g.pt(0.0, 1.85)
+            if all((pos - lp).length > 1.5 for lp in lamp_pos) and not in_footprints(np.array([tuple(pos)]), margin=0.6).any():
+                dress_parts.extend(flag_parts(g, 0.0, 1.85, FLAG_COLORS[m % len(FLAG_COLORS)]))
+                placed.append(rect_corners(pos.x, pos.y, 0.35, 0.35, 0.0))
+                m += 1
+        s += 4.8
+    return count, m
+
+
+straight_i = [c < 0.01 for c in curv]
+zone_counts = [crowd_zone(side, -26.0, 26.0) for side in (1.0, -1.0)]
+print("DIORAMA Zuschauerzonen (Felder, Fahnen):", zone_counts)
+event_objs = mesh_objects("Ausstattung", dress_parts)
+event_decals += [o for o in event_objs if o.name.endswith("_e_menge")]
+recipe["event"] = {"portal": {"at": [round(center[PORTAL_I].x, 3), round(center[PORTAL_I].y, 3)], "dir": [round(tang[PORTAL_I].x, 4), round(tang[PORTAL_I].y, 4)]},
+                   "zones": [{"side": int(sd), "s": [-26.0, 26.0]} for sd in (1.0, -1.0)]}
+
 # ---------------------------------------------------------------- Park, Brunnen, Bäume
 fountain = next((p for p in data["props"] if p["type"] == "fountain"), None)
 if fountain:
@@ -1028,7 +1181,7 @@ ao = bpy.data.images.new("Diorama_AO", SIZE, SIZE, alpha=False)
 # Sie würden den Asphalt darunter dunkel färben und mit ihm um dieselben Bildpunkte streiten. Markierungen bekommen
 # die Licht-UV nur zum Auslesen im Spiel und sind beim Backen unsichtbar; Absperrungen bleiben als Hindernis sichtbar.
 decal_objs = [o for o in objs_ground if o.name.endswith("_linie")]
-solid_objs = [o for o in objs_ground if o.name.endswith(("_rot", "_weiss", "_beton", "_orange", "_gummi", "_dunkel", "_blau", "_gelb"))]
+solid_objs = [o for o in objs_ground if o.name.endswith(("_rot", "_weiss", "_beton", "_orange", "_gummi", "_dunkel", "_blau", "_gelb", "_stahl"))]
 bake_objs = [o for o in objs_ground if o not in decal_objs and o not in solid_objs] +             [o for o in scene.objects if o.name.startswith("Brunnen_Rand")]
 EDGE_OUT, EDGE_IN = FOOT, HW + 5.8      # Außenkanten der glatten Bänder
 for o in bake_objs + decal_objs:
@@ -1074,11 +1227,11 @@ scene.world.light_settings.distance = 6.0
 bpy.ops.object.select_all(action="DESELECT")
 for o in bake_objs:
     o.select_set(True)
-for o in decal_objs:
+for o in decal_objs + event_decals:
     o.hide_render = True
 bpy.context.view_layer.objects.active = bake_objs[0]
 bpy.ops.object.bake(type="AO", margin=8)
-for o in decal_objs:
+for o in decal_objs + event_decals:
     o.hide_render = False
 # Ungebackene Lücken (reines Schwarz) hell füllen, dann kompakt als Graustufen-JPG speichern.
 px = np.array(ao.pixels[:], dtype=np.float32).reshape(SIZE, SIZE, 4)

@@ -1257,7 +1257,7 @@
   },
   {
    "type": "billboard",
-   "x": 0,
+   "x": -14,
    "z": 23.5,
    "text": "DRAW2RACE CITY"
   },
@@ -1270,7 +1270,7 @@
   },
   {
    "type": "tower",
-   "x": 12,
+   "x": 14,
    "z": 24,
    "text": "03  /  CITY"
   },

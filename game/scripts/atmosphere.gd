@@ -5,9 +5,21 @@ extends Node3D
 # liefert grip_factor() an die Fahrphysik (Leitplanke 3/4: Darstellung ändert die Simulation nicht,
 # die Wetterbedingung selbst ist aber Teil der Herausforderung).
 const TIMES := {
-	"day": {"sun":"fff0ce","sun_energy":0.8,"sun_angle":-52.0,"ambient":"c8e4ed","ambient_energy":0.35,"sky_mix":0.0,"sky":"327d88"},
+	"day": {"sun":"fff0ce","sun_energy":0.95,"sun_angle":-52.0,"ambient":"c8e4ed","ambient_energy":0.35,"sky_mix":0.0,"sky":"327d88"},
 	"dusk": {"sun":"ffb070","sun_energy":0.6,"sun_angle":-20.0,"ambient":"ffc9a0","ambient_energy":0.32,"sky_mix":0.75,"sky":"8a5a6a"},
 	"night": {"sun":"8fa8ff","sun_energy":0.12,"sun_angle":-62.0,"ambient":"3a4a78","ambient_energy":0.28,"sky_mix":0.95,"sky":"0b1626"},
+}
+# Hemisphärisches Umgebungslicht (Premium): oben die Himmelsfarbe, an Wänden der Horizont, unten die Bodenrückstrahlung. So liegen
+# Schatten kühler als besonnte Flächen, Wände dunkler als Dächer, Kronen oben heller (vorher eine einzige Umgebungsfarbe).
+const SKY_LIGHT := {
+	"day": {"top": "adbfdb", "horizon": "e0ded6", "ground_horizon": "b8a68c", "ground": "756654", "energy": 0.85},
+	"dusk": {"top": "b79aa8", "horizon": "ffa070", "ground_horizon": "a6684f", "ground": "5a4038", "energy": 0.38},
+	"night": {"top": "243060", "horizon": "34406e", "ground_horizon": "141726", "ground": "0f1219", "energy": 0.5},
+}
+# Bedeckter Himmel (Regen, Schnee): neutral grau, bei Schnee mit heller Rückstrahlung des Bodens.
+const OVERCAST_LIGHT := {
+	"rain": {"top": "a9b3bb", "horizon": "b4b9bc", "ground_horizon": "8f8f8c", "ground": "6a6a67"},
+	"snow": {"top": "b9c2cb", "horizon": "c8cfd4", "ground_horizon": "b2b8bd", "ground": "989ea3"},
 }
 const WEATHER_GRIP := {"dry": 1.0, "rain": 0.85, "snow": 0.7}
 const QUALITY_NAMES := ["Niedrig", "Mittel", "Hoch"]
@@ -40,6 +52,7 @@ var puddles: Array[MeshInstance3D] = []
 var night_lights: Array[Node3D] = []
 var tinted: Dictionary = {}
 var road_material: StandardMaterial3D
+var sky_material := ProceduralSkyMaterial.new()
 var road_shader: ShaderMaterial            # Premium-Fahrbahn (world.gd), sonst null
 var road_shaders_extra: Array = []         # weitere Fahrbahn-Shader (Diorama: Nebenstraßen mit eigener Textur)
 
@@ -70,6 +83,7 @@ func setup(owner_world: Node3D, sky: Color, bounds: Rect2) -> void:
 	holder.environment = env
 	add_child(holder)
 	sun.shadow_enabled = true
+	sun.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_ONLY
 	sun.directional_shadow_max_distance = 150
 	# Halbschatten wie bei echter Sonne (Winkelgröße), dazu leicht weichgezeichnete Schattenkanten.
 	sun.light_angular_distance = 1.2
@@ -150,6 +164,31 @@ func fog_material() -> ShaderMaterial:
 	m.set_shader_parameter("soft_tex", fog_texture)
 	return m
 
+func apply_sky_light(time_name: String, weather: String) -> void:
+	# Der Himmel wird nicht gezeichnet (Hintergrund bleibt eine Farbe); er liefert nur das Umgebungs- und Spiegellicht.
+	var sl: Dictionary = SKY_LIGHT.get(time_name, SKY_LIGHT.day)
+	var colors: Dictionary = sl
+	var energy := float(sl.energy)
+	if weather != "dry" and time_name == "day":
+		colors = OVERCAST_LIGHT[weather]
+		energy *= 0.92 if weather == "rain" else 0.72
+	elif weather == "snow":
+		energy += 0.1
+	sky_material.sky_top_color = Color(colors.top)
+	sky_material.sky_horizon_color = Color(colors.horizon)
+	sky_material.ground_horizon_color = Color(colors.ground_horizon)
+	sky_material.ground_bottom_color = Color(colors.ground)
+	sky_material.sky_curve = 0.25
+	sky_material.ground_curve = 0.08
+	if env.sky == null:
+		var sky_res := Sky.new()
+		sky_res.sky_material = sky_material
+		env.sky = sky_res
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+	env.ambient_light_sky_contribution = 1.0
+	env.ambient_light_energy = energy
+
 func light_rel(t: Dictionary, sun_energy: float) -> Color:
 	# Streulicht aus Umgebung und Sonne/Mond relativ zu einem trockenen Tag: 1 am Tag, nachts klein. Nebel und Schnee haben
 	# kein Eigenlicht; sie sind nur so hell wie dieses Licht (die Laternen kommen im Shader aus der Lichtkarte dazu).
@@ -210,8 +249,13 @@ func apply(new_conditions: Dictionary, new_quality: int) -> void:
 		sky = sky.lerp(Color("6f7a80") if weather == "rain" else Color("c9d3d8"), 0.45 if conditions.time == "day" else 0.2)
 		sun_energy *= 0.55
 	env.background_color = sky
-	env.ambient_light_color = Color(t.ambient)
-	env.ambient_light_energy = float(t.ambient_energy) + (0.12 if weather == "snow" else 0.0)
+	if premium:
+		apply_sky_light(str(conditions.time), weather)
+	else:
+		env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+		env.reflected_light_source = Environment.REFLECTION_SOURCE_BG
+		env.ambient_light_color = Color(t.ambient)
+		env.ambient_light_energy = float(t.ambient_energy) + (0.12 if weather == "snow" else 0.0)
 	sun.light_color = Color(t.sun)
 	sun.light_energy = sun_energy
 	sun.rotation_degrees = Vector3(float(t.sun_angle), -32, 0)

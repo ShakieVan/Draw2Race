@@ -591,9 +591,9 @@ func light_pool(head: Vector3, reach: float, color: Color) -> void:
 	node.add_child(pool)
 	var glow := MeshInstance3D.new()
 	var gq := QuadMesh.new()
-	gq.size = Vector2(1.6,1.6)
+	gq.size = Vector2(1.25,1.25)
 	glow.mesh = gq
-	var gm := Atmosphere.soft_material(Color(1.0,0.92,0.7,0.9), true)
+	var gm := Atmosphere.soft_material(Color(1.0,0.92,0.7,0.6), true)
 	gm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	glow.material_override = gm
 	glow.position = head
@@ -1018,7 +1018,7 @@ const DIORAMA_PATH := "res://dioramas/%s.glb"
 # Bausteine, die das Diorama selbst enthält (Laternen, Schilder usw. bleiben Laufzeit-Bauteile).
 const DIORAMA_BAKED := ["building", "street_tree", "fountain"]
 # Farbtöne der Diorama-Materialien (Fototexturen angleichen).
-const DIORAMA_TINT := {"D_Asphalt": Color(0.42, 0.44, 0.46), "D_Randstein": Color(0.8, 0.8, 0.78),
+const DIORAMA_TINT := {"D_Asphalt": Color(0.62, 0.63, 0.64), "D_Randstein": Color(0.8, 0.8, 0.78),
 	"D_Gehweg": Color(0.78, 0.76, 0.72), "D_Pflaster": Color(0.86, 0.84, 0.8), "D_Gras": Color(0.9, 0.95, 0.85),
 	"D_Stein": Color(0.9, 0.88, 0.84), "D_Weite": Color(0.62, 0.62, 0.6), "D_Beton": Color(0.75, 0.75, 0.73),
 	"D_Asphalt_Strasse": Color(0.9, 0.9, 0.88)}
@@ -1091,10 +1091,46 @@ func kit_material(key: String) -> StandardMaterial3D:
 	kit_materials[key] = mat
 	return mat
 
+const EVENT_PATH := "res://assets/event/%s.png"
+var event_materials := {}
+
+func event_material(key: String) -> Material:
+	# Rennausstattung (tools/diorama.py, Platzhalter E_*): Zuschauer, Werbebanner, Startportal, Schachbrett und wehende Fahnen.
+	if event_materials.has(key):
+		return event_materials[key]
+	var result: Material
+	if key == "flagge":
+		var flag := ShaderMaterial.new()
+		flag.shader = preload("res://assets/flag.gdshader")
+		result = flag
+	elif key == "menge":
+		var crowd := ShaderMaterial.new()
+		crowd.shader = preload("res://assets/crowd.gdshader")
+		crowd.set_shader_parameter("albedo_tex", load(EVENT_PATH % key))
+		result = crowd
+	else:
+		var mat := StandardMaterial3D.new()
+		mat.resource_name = "E_" + key
+		mat.albedo_texture = load(EVENT_PATH % key)
+		mat.roughness = 0.9
+		mat.metallic_specular = 0.2
+		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		if key == "banner" or key == "portal":
+			# Beleuchtete Werbeflächen: nachts leuchten sie mit ihrem eigenen Bild (Stärke wie das Fensterlicht).
+			mat.emission_enabled = true
+			mat.emission = Color.WHITE
+			mat.emission_texture = mat.albedo_texture
+			mat.emission_energy_multiplier = 0.0
+			mat.set_meta("glow", 0.3)      # nur schwach: Die Flächen sind auch vom Laternen- und Umgebungslicht beschienen
+			window_materials.append(mat)
+		result = mat
+	event_materials[key] = result
+	return result
+
 func set_windows(level: float) -> void:
 	# Fensterlicht der Bausatz-Häuser: 0 am Tag, in der Dämmerung schwach, nachts voll.
 	for mat in window_materials:
-		mat.emission_energy_multiplier = level * 0.9   # unter der Glühschwelle (1,15), sonst verschmieren die Fenster zu weißen Wänden
+		mat.emission_energy_multiplier = level * float(mat.get_meta("glow", 0.9))   # unter der Glühschwelle (1,15), sonst verschmieren die Fenster zu weißen Wänden
 	blink_level = level
 	if level <= 0.0:
 		for mat in blink_materials:
@@ -1163,6 +1199,10 @@ func build_diorama() -> void:
 			if mname == "D_Wasser":
 				mi.set_surface_override_material(i, premium_water())
 				continue
+			if mname.begins_with("E_"):
+				mi.set_surface_override_material(i, event_material(mname.substr(2)))
+				lit = false         # Menge, Fahnen, Banner: weder Laternen-Zusatzlicht noch Schneedecke
+				continue
 			if mname.begins_with("K_"):
 				var kit := kit_material(mname.substr(2))
 				mi.set_surface_override_material(i, kit)
@@ -1176,7 +1216,7 @@ func build_diorama() -> void:
 					mat.ao_enabled = true
 					mat.ao_texture = ao
 					mat.ao_on_uv2 = true
-					mat.ao_light_affect = 0.85
+					mat.ao_light_affect = 0.7
 					mat.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
 		# Schneedecke: auf allem außer Fahrbahn (eigener Shader) und Wasser; Markierungen scheinen durch, Kronen nur oben.
 		var snow_layer: ShaderMaterial = null

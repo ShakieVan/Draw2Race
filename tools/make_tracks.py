@@ -239,10 +239,10 @@ def city():
     for i in range(14):
         p, _ = at(dense, total, i / 14.0 + 0.035, 7.5)
         props.append({"type": "street_tree", "x": p[0], "z": p[1]})
-    props += [{"type": "billboard", "x": 0, "z": 23.5, "text": "DRAW2RACE CITY"},
+    props += [{"type": "billboard", "x": -14, "z": 23.5, "text": "DRAW2RACE CITY"},
               {"type": "billboard", "x": 36, "z": 3, "rot": 90, "text": "NIGHT RUN"},
               {"type": "stand", "x": -14, "z": 24, "w": 10, "d": 3.5},
-              {"type": "tower", "x": 12, "z": 24, "text": "03  /  CITY"},
+              {"type": "tower", "x": 14, "z": 24, "text": "03  /  CITY"},
               {"type": "fountain", "x": -18, "z": 7}]
     save({"format": 1, "id": "city", "name": "Downtown L", "subtitle": "Enge Häuserschluchten, harte Bremspunkte.",
           "theme": "city", "half_width": HALF_WIDTH, "points": pts,

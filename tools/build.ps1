@@ -22,7 +22,7 @@ if ($lossless) {
     Invoke-Godot -Arguments @('--headless','--path',$gamePath,'--editor','--import','--quit')
 }
 # Bausatz-Texturen der Diorama-Häuser (tools/make_kit_textures.py): in 3D brauchen sie Mipmaps; Grafikkartenkompression spart Speicher.
-$kit = Get-ChildItem (Join-Path $gamePath 'assets/kit') -Filter '*.png.import' -ErrorAction SilentlyContinue |
+$kit = Get-ChildItem (Join-Path $gamePath 'assets/kit'), (Join-Path $gamePath 'assets/event') -Filter '*.png.import' -ErrorAction SilentlyContinue |
     Where-Object { (Get-Content -LiteralPath $_.FullName -Raw) -match '(?m)^mipmaps/generate=false\r?$' }
 if ($kit) {
     foreach ($file in $kit) {

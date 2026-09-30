@@ -635,6 +635,9 @@ const AI_PROP_YAW := {"hafen_lagerhalle": 90.0, "hafen_frachtschiff": 90.0, "haf
 var ai_prop_meshes := {}
 var ai_prop_batches := {}
 
+# Laternen aus dem Bausatz (tools/make_lamp.py): Mast im Ursprung, Ausleger in +x; Kopf (Reichweite, Höhe) in Modellmetern.
+const POLE_MODELS := ["stadt_laterne_kit"]
+const LAMP_HEAD := {"stadt_laterne_kit": Vector2(1.2, 4.1)}
 const METAL_SCALE := {"hafen_kran": 0.15}
 
 func ai_prop_mesh(name: String) -> Mesh:
@@ -645,6 +648,10 @@ func ai_prop_mesh(name: String) -> Mesh:
 			var found := scene.find_children("*", "MeshInstance3D", true, false)
 			if not found.is_empty():
 				mesh = (found[0] as MeshInstance3D).mesh
+				for i in range(mesh.get_surface_count()):
+					var kit_mat := mesh.surface_get_material(i)
+					if kit_mat != null and kit_mat.resource_name.begins_with("K_"):
+						mesh.surface_set_material(i, kit_material(kit_mat.resource_name.substr(2)))
 				if METAL_SCALE.has(name.trim_suffix("_lo")):
 					# Lack statt blankem Metall: die KI hält glänzende weiße Farbe teils für Metall (wirkt silbrig).
 					for i in range(mesh.get_surface_count()):
@@ -711,6 +718,8 @@ func place_ai(name: String, x: float, z: float, yaw: float, height: float, footp
 		# Größere Bauten werfen Laternenschatten (vorberechnet in Atmosphere.bake_rain_lights).
 		atmosphere.occluders.append([Vector2(x, z), Vector2(box.size.x * scale3.x, box.size.z * scale3.z) * 0.5, -yaw])
 	var anchor := Vector3(box.get_center().x, box.position.y, box.get_center().z)
+	if POLE_MODELS.has(name):
+		anchor = Vector3.ZERO        # Mast im Ursprung des Modells: er steht genau auf (x, z), der Ausleger ragt hinaus
 	var origin := Vector3(x, base_y + track.terrain_height(Vector2(x, z)), z) - basis * anchor
 	if not ai_prop_batches.has(name):
 		ai_prop_batches[name] = []
@@ -837,6 +846,7 @@ func lit_overlay(mesh: Mesh) -> ShaderMaterial:
 		if base.albedo_texture != null:
 			mat.set_shader_parameter("albedo_tex", base.albedo_texture)
 		mat.set_shader_parameter("tint", base.albedo_color)
+		mat.set_shader_parameter("use_vertex_color", base.vertex_color_use_as_albedo)
 	return mat
 
 func lit_overlay_color(color: Color) -> ShaderMaterial:
@@ -1005,7 +1015,13 @@ func kit_material(key: String) -> StandardMaterial3D:
 	mat.roughness = 0.85
 	mat.metallic_specular = 0.3
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-	if key != "farbe":
+	if key == "lampe":
+		# Leuchtfläche unter dem Laternenkopf: nachts warmweiß, am Tag aus (gleiche Stärke wie das Fensterlicht).
+		mat.emission_enabled = true
+		mat.emission = Color(1.0, 0.86, 0.62)
+		mat.emission_energy_multiplier = 0.0
+		window_materials.append(mat)
+	elif key != "farbe":
 		mat.albedo_texture = load(KIT_PATH % key)
 		if ResourceLoader.exists(KIT_PATH % (key + "_n")):
 			mat.normal_enabled = true
@@ -1160,7 +1176,7 @@ func premium_prop(prop: Dictionary) -> bool:
 			return place_ai(pick, x, z, rot, 0.0, Vector2(w, d))
 		"lamp":
 			# Ausleger zur Fahrbahn drehen; das Licht sitzt am Leuchtenkopf über der Straße.
-			var model := str(prop.get("model", "stadt_laterne" if track.theme == "city" else "kueste_laterne"))
+			var model := str(prop.get("model", ("stadt_laterne_kit" if diorama else "stadt_laterne") if track.theme == "city" else "kueste_laterne"))
 			var arm := ai_arm(model)
 			var here := Vector2(x, z)
 			var to_road := track.at(track.phase(here)) - here
@@ -1168,8 +1184,14 @@ func premium_prop(prop: Dictionary) -> bool:
 				to_road = Vector2(float(prop.toward[0]), float(prop.toward[1])) - here   # Diorama-Straße: Blickpunkt vorgegeben
 			var yaw := float(arm[0]) - atan2(to_road.y, to_road.x) if to_road.length() > 0.1 else spin
 			if place_ai(model, x, z, yaw, 4.2):
-				var head := here + to_road.normalized() * float(arm[1]) * 4.2
-				light_pool(Vector3(head.x,3.9,head.y), 4.0, Color(1.0,0.82,0.5,0.5))
+				var reach := float(arm[1]) * 4.2
+				var head_y := 3.9
+				if LAMP_HEAD.has(model):
+					var lamp_scale := 4.2 / maxf(ai_prop_mesh(model).get_aabb().size.y, 0.001)
+					reach = LAMP_HEAD[model].x * lamp_scale
+					head_y = LAMP_HEAD[model].y * lamp_scale
+				var head := here + to_road.normalized() * reach
+				light_pool(Vector3(head.x,head_y,head.y), 4.0, Color(1.0,0.82,0.5,0.5))
 				return true
 			return false
 		"floodlight":

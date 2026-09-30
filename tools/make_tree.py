@@ -3,7 +3,7 @@
 Die Bild-zu-3D-KI baut Laub nur als dünne, löchrige Hülle; für die Draufsicht braucht es volle Kronen. Deshalb baut dieses
 Skript die Form selbst (Blasen mit leichter Verformung, innen liegende Flächen entfernt, Vertexfarben als Höhenschatten)
 und legt die Blätter der ChatGPT-Vorlage als Textur darüber. Ergebnis ist auf Höhe 1 normiert, Fuß auf y = 0.
-Aufruf: tools/blender.ps1 tools/make_tree.py <blatt.jpg> <aus.glb> <art> <seed>      art: linde | ahorn | platane | kastanie
+Aufruf: tools/blender.ps1 tools/make_tree.py <blatt.jpg> <aus.glb> <art> <seed> [<feinheit 2|3>]      art: linde | ahorn | platane | kastanie
 """
 import math
 import random
@@ -14,6 +14,8 @@ import bpy
 from mathutils import Matrix, Vector, noise
 
 blatt, dst, art, seed = sys.argv[sys.argv.index("--") + 1:][:4]
+_extra = sys.argv[sys.argv.index("--") + 5:]
+SUBDIV = int(_extra[0]) if _extra else 2      # Feinheit der Kronenblasen: 2 genügt (Blattstruktur kommt aus der Textur), 3 ist das Doppelte
 rng = random.Random(int(seed))
 # Verhältnisse zur Gesamthöhe 8 m: Kronenradius, Kronenhöhe (Anteil), Stammhöhe bis Kronenansatz, Stammfarbe, Blattfarbton
 ARTEN = {
@@ -53,11 +55,11 @@ for _ in range(6):                                                         # kle
 
 bm = bmesh.new()
 for center, radius in blobs:
-    bmesh.ops.create_icosphere(bm, subdivisions=3, radius=radius, matrix=Matrix.Translation(center), calc_uvs=False)
+    bmesh.ops.create_icosphere(bm, subdivisions=SUBDIV, radius=radius, matrix=Matrix.Translation(center), calc_uvs=False)
 bm.verts.ensure_lookup_table()
 # Verformung: Rauschen entlang der Normale (Blattbüschel), Kugelzugehörigkeit vorher merken.
 owner = {}
-per = len(bmesh.ops.create_icosphere(bmesh.new(), subdivisions=3, radius=1.0)["verts"])
+per = len(bmesh.ops.create_icosphere(bmesh.new(), subdivisions=SUBDIV, radius=1.0)["verts"])
 for idx, v in enumerate(bm.verts):
     owner[v.index] = idx // per
 for v in bm.verts:

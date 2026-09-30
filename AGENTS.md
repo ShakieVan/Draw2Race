@@ -19,6 +19,7 @@ Am 24.09.2026 wurden Referenzanalyse, Richtlinien und Umsetzungsplan erstellt un
 - `game/scripts/`: getrennte Eingabe-, Strecken-, Fahrzeug-, Renn-, UI-, Audio- und Speicherlogik.
 - `game/tracks/*.json` und `tools/make_tracks.py`: Strecken als Daten (Mittellinie, Thema, Belag, Deko). Neue Strecken entstehen als Datei, nicht im Code; eine spätere Companion-App soll dieses Format erzeugen.
 - `game/tests/`: Godot-Headless-Prüfungen; `tools/build.ps1 -Target Test` führt sie aus.
+- `tools/diorama.py`: baut aus einer Streckendatei in Blender ein Diorama (Bildebene: Straße, Kreuzungen, Häuser, Bäume, gebackene Umgebungsverdeckung, Szenenrezept `<id>_recipe.json`); Häuser kommen aus dem prozeduralen Bausatz `tools/kit_house.py` mit den Texturen aus `tools/make_kit_textures.py` (`game/assets/kit/`), Laternen aus `tools/make_lamp.py`. Stand und Entscheidungen: `docs/IMPLEMENTIERUNG.md` (Abschnitt 30.09.2026) und `docs/BESPRECHUNG_GRAFIK.md`.
 
 ## Dauerhafte fachliche Leitplanken
 

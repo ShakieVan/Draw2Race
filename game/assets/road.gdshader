@@ -40,7 +40,9 @@ void fragment() {
 		base = texture(albedo_tex, world_xz / albedo_scale).rgb * albedo_tint.rgb;
 	}
 	vec3 col = base * (1.0 - grain_strength * 0.5 + grain_strength * (0.6 * g1 + 0.4 * g2));
-	float puddle = smoothstep(puddle_cover, puddle_cover + 0.08, texture(puddle_tex, world_xz * 0.035).r) * puddles;
+	// Pfützen: mittelgroße, unregelmäßige Lachen (zwei Rauschlagen) statt weiträumiger Flecken.
+	float pn = texture(puddle_tex, world_xz * 0.05).r * 0.66 + texture(puddle_tex, world_xz * 0.14 + vec2(0.31, 0.17)).r * 0.34;
+	float puddle = smoothstep(puddle_cover, puddle_cover + 0.05, pn) * puddles;
 	float wet = clamp(max(wetness * 0.65, puddle), 0.0, 1.0);
 	col *= mix(1.0, 0.5, wet);
 	// Aufschlagringe der Regentropfen: je 0,45-m-Zelle ein Tropfen mit eigener Phase und Lage, zwei Lagen.
@@ -76,8 +78,10 @@ void fragment() {
 			uv.x = 1.0 - uv.x;
 		}
 		vec3 refl = texture(reflection_tex, clamp(uv, vec2(0.001), vec2(0.999))).rgb;
+		// Spiegelbild neutraler halten: der Himmel der Dämmerung färbt sonst ganze Pfützen violett.
+		refl = mix(vec3(dot(refl, vec3(0.299, 0.587, 0.114))), refl, 0.55);
 		// Pfützen spiegeln fast wie ein Spiegel, der nasse Film nur schwach.
-		float strength = mix(wetness * 0.22, 0.75, puddle);
+		float strength = mix(wetness * 0.2, 0.62, puddle);
 		EMISSION = refl * strength;
 		ALBEDO *= 1.0 - strength * 0.6;
 	}

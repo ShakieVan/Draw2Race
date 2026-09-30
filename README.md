@@ -44,6 +44,7 @@ Android benötigt zusätzlich JDK 17 und das Android SDK. Strecken sind Daten (`
 - [Gestaltungs- und Spielrichtlinien](docs/RICHTLINIEN.md)
 - [Umsetzungsplan](docs/UMSETZUNGSPLAN.md)
 - [Referenzanalyse](docs/REFERENZANALYSE.md) und [Klang-Steckbriefe](docs/KLANG_STECKBRIEFE.md)
+- [Grafikbesprechung mit ChatGPT (30.09.2026)](docs/BESPRECHUNG_GRAFIK.md)
 
 ## Herkunft und Lizenzen
 

@@ -681,11 +681,13 @@ def place(name, x, z, ang, height, clearance=FOOT + 0.2, trunk=0.0, check_center
     scene.collection.objects.link(inst)
     inst.matrix_world = Matrix.Translation((x, -z, GROUND_Y)) @ Matrix.Rotation(-ang, 4, "Z") @ Matrix.Scale(s, 4)
     placed.append(poly)
+    recipe["trees"].append({"model": name, "at": [round(x, 3), round(z, 3)], "yaw": round(ang, 4), "height": round(height, 2)})
     return True
 
 
 kit_near, kit_far = [], []      # Flächen aller Häuser, getrennt nach Nähe zur Strecke
 house_kinds = {}
+recipe = {"houses": [], "trees": []}   # Szenenrezept: alle Platzierungen einmal berechnet und gespeichert (gemeinsame Quelle für Bake und Vorschau)
 
 
 def kit_dims(spec):
@@ -698,10 +700,14 @@ def place_house(spec, cx, cz, ux, uz, fx, fz, check_center=True, clearance=FOOT 
     parts, foot, dims = kit_house.build_house(KIT_TILES, spec, cx, cz, ux, uz, fx, fz, base_y=GROUND_Y - 0.03)
     if check_center and (dist_to_center(np.array(foot + [(cx, cz)])) < clearance).any():
         return False
+    if inside(np.array([(cx, cz)]))[0] and check_center:
+        return False               # der Park im Inneren der Rennstrecke bleibt frei
     if any(overlaps(foot, q) for q in placed):
         return False
     placed.append(foot)
     house_kinds[spec["kind"]] = house_kinds.get(spec["kind"], 0) + 1
+    recipe["houses"].append({**{k: (round(v, 3) if isinstance(v, float) else v) for k, v in spec.items()},
+                             "at": [round(cx, 3), round(cz, 3)], "u": [round(ux, 5), round(uz, 5)], "f": [round(fx, 5), round(fz, 5)]})
     (kit_near if dist_to_center(np.array([(cx, cz)]))[0] < LOD_DIST else kit_far).extend(parts)
     return True
 
@@ -730,9 +736,7 @@ def row_along(pts, tans, lefts, side, offset, max_h, check_center=True):
             i += 3
 
 
-row_along(center, tang, left, outer, FOOT + 0.6, 14.0)
-row_along(center, tang, left, outer, FOOT + 14, 18.0)
-row_along(center, tang, left, outer, FOOT + 27, 21.0)
+row_along(center, tang, left, outer, FOOT + 0.6, 14.0)      # erste Reihe hinter dem Gehweg der Rennstrecke; weiter außen füllt das Stadtraster
 for origin, direction, normal, s0, s1 in arms:
     if s1 - s0 < 6:
         continue
@@ -755,25 +759,44 @@ def nearest_street(p):
     return best[1], best[2]
 
 
-def infill():
+def infill(step=11.0, skip=0.08, w_max=None):
     """Übrige Blockflächen mit Häusern füllen, Fassade zur nächsten Straße; Plätze am Raster, leicht versetzt."""
-    for zz in np.arange(z0 + 4, z1 - 2, 11.0):
-        for xx in np.arange(x0 + 4, x1 - 2, 11.0):
-            if rng.random() > 0.92:
+    for zz in np.arange(z0 + 4, z1 - 2, step):
+        for xx in np.arange(x0 + 4, x1 - 2, step):
+            if rng.random() < skip:
                 continue
             p = Vector((xx + rng.uniform(-2, 2), zz + rng.uniform(-2, 2)))
             dirv, to_street = nearest_street(p)
-            f = to_street - dirv * to_street.dot(dirv)
-            f = f.normalized() if f.length > 1e-4 else Vector((-dirv.y, dirv.x))
+            # Stadtraster: Fassade zeigt in die Achsrichtung, die der Richtung zur nächsten Straße am nächsten liegt
+            if abs(to_street.x) >= abs(to_street.y):
+                f = Vector((1.0 if to_street.x >= 0 else -1.0, 0.0))
+            else:
+                f = Vector((0.0, 1.0 if to_street.y >= 0 else -1.0))
+            dirv = Vector((-f.y, f.x))
             for attempt in range(3):
                 spec = kit_house.choose(rng, 16.0)
+                if w_max:
+                    spec["w"] = min(spec["w"], w_max)
                 spec["w"] *= 1.0 - 0.2 * attempt
                 spec["floors"] = max(2, spec["floors"] - attempt)
                 if place_house(spec, p.x, p.y, dirv.x, dirv.y, f.x, f.y):
                     break
 
 
+def block_rows(spacing=36.0, lane=4.0):
+    """Blockfüllung im Stadtraster: je Ost-West-Linie zwei Häuserreihen mit einander zugewandten Fassaden und einer Gasse."""
+    z_line = z0 + 8.0
+    while z_line < z1 - 6.0:
+        n_pts = int((x1 - x0 - 4.0) / 0.5)
+        pts = [Vector((x0 + 2.0 + 0.5 * k, z_line)) for k in range(n_pts)]
+        for side in (1, -1):
+            row_along(pts, [Vector((1.0, 0.0))] * n_pts, [Vector((0.0, 1.0))] * n_pts, side, lane, 18.0)
+        z_line += spacing
+
+
+block_rows()
 infill()
+infill(step=6.5, skip=0.25, w_max=10.0)      # zweiter Durchgang: Lücken mit kleineren Häusern schließen
 print("DIORAMA Häuser", sum(house_kinds.values()), house_kinds, len(kit_near), "+", len(kit_far), "Flächen (nah + fern)")
 
 # ---------------------------------------------------------------- Park, Brunnen, Bäume
@@ -941,6 +964,9 @@ for fr, a0, a1, b0, b1 in asphalt_rects:
 json.dump({"blocked": blocked,
            "lamps": [{"x": round(a.x, 3), "z": round(a.y, 3), "toward": [round(t.x, 3), round(t.y, 3)]} for a, t in lamps]},
           open(OUT_GLB.replace(".glb", "_layout.json"), "w"))
+recipe["lamps"] = [{"at": [round(a.x, 3), round(a.y, 3)], "toward": [round(t.x, 3), round(t.y, 3)]} for a, t in lamps]
+recipe["track"] = os.path.basename(TRACK)
+json.dump(recipe, open(OUT_GLB.replace(".glb", "_recipe.json"), "w"), indent=0)
 print("DIORAMA Boden", sum(len(o.data.polygons) for o in objs_ground), "Flächen, Modelle", len(placed), "Zufahrten", len(arms))
 bpy.ops.export_scene.gltf(filepath=OUT_GLB, export_format="GLB", export_yup=True, export_image_format="JPEG",
                           export_jpeg_quality=88, export_apply=True)

@@ -9,7 +9,7 @@ func run() -> void:
 	var app: Node = load("res://main.tscn").instantiate()
 	root.add_child(app)
 	app.store = ProgressStore.new("user://shots_%s.json" % Time.get_ticks_usec())
-	app.debug_data()["override"] = {"time": time, "weather": "dry", "fog": 0}
+	app.debug_data()["override"] = {"time": time, "weather": OS.get_environment("WEATHER") if OS.get_environment("WEATHER") != "" else "dry", "fog": 0}
 	app.select_track(id)
 	app.start_drawing()
 	for k in range(30):
@@ -19,6 +19,7 @@ func run() -> void:
 	app.cam_zoom = float(OS.get_environment("ZOOM")) if OS.get_environment("ZOOM") != "" else 220.0
 	app.set_camera(app.track_center())
 	app.world.atmosphere.reflect_far = true
+	app.set_process(true)
 	for k in range(10):
 		await process_frame
 	root.get_texture().get_image().save_png("user://weit_%s_%s.png" % [id, time])

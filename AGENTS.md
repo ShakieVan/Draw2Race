@@ -39,7 +39,7 @@ Am 24.09.2026 wurden Referenzanalyse, Richtlinien und Umsetzungsplan erstellt un
    - Vereinbarte neue Strecken: Hafenviertel, Jahrmarkt, Serra-Pass (Sprint, Steilküste), Steinbruch (Looping), Drift-Arena; Bonus-Gegend „Kinderzimmer“; Zusatzfunktion „Geisterlinie“ (beste eigene Fahrt als Geisterauto).
 9. Exaktes Originalverhalten nicht erfinden: Die Referenz wurde anhand von Bildstichproben ausgewertet, der Ton gemessen und KI-gestützt beschrieben (siehe Punkt 13). Online-Ranglisten wurden im Video nicht geöffnet.
 10. Vor der Produktion vieler Strecken zuerst Eingabe und Fahrgefühl auf einem echten Android-Gerät prüfen.
-11. Verbindliche Linienkodierung: **Langsam = breit und hell; schnell = schmal und rot.** Fließende Übergänge zeigen geplanten Tempoaufbau/Bremsen. Die tatsächliche Beschleunigung bleibt Aufgabe der Fahrzeugphysik.
+11. Verbindliche Linienkodierung: **Langsam = breit und grün; schnell = schmal und rot** (dazwischen gelb/orange; Nutzerentscheidung 30.09.2026, vorher hellgelb → rot). Fließende Übergänge zeigen geplanten Tempoaufbau/Bremsen. Die tatsächliche Beschleunigung bleibt Aufgabe der Fahrzeugphysik.
 12. Reifen hinterlassen untergrundabhängige Profil-/Schmutzspuren (Erde, Dreck, Matsch); starkes Bremsen und Rutschen erzeugen dunklen Abrieb. Spuren folgen den tatsächlichen Rädern, bleiben begrenzt und beeinflussen die Simulation nicht.
 13. **Klang und Musik:** Verbindliche Grundlage ist `docs/KLANG_STECKBRIEFE.md`. Der Referenzton wurde am 26.09.2026 mit lokalen KI-Modellen beschrieben und gemessen; Claude selbst kann nicht hören.
     - **Menüs:** ruhig, melancholisch, akustisch. Solo-Klavier mit Rubato, Streicher; tonales Zentrum d-Moll/F-Dur.

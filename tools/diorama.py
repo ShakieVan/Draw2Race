@@ -173,6 +173,9 @@ M = {
     "weiss": material("D_Weiss", color=(0.9, 0.9, 0.87), rough=0.55),
     "orange": material("D_Orange", color=(0.95, 0.42, 0.05), rough=0.5),
     "gummi": material("D_Gummi", color=(0.035, 0.035, 0.04), rough=0.95),
+    "dunkel": material("D_Dunkel", color=(0.012, 0.012, 0.016), rough=1.0),
+    "blau": material("D_Blau", color=(0.03, 0.2, 0.68), rough=0.5),
+    "gelb": material("D_Gelb", color=(0.96, 0.74, 0.04), rough=0.55),
 }
 
 
@@ -189,7 +192,7 @@ def kit_material(name):
 
 
 KIT_TILES = json.load(open(os.path.join(PROPS, "..", "kit", "kit.json"), encoding="utf-8"))
-for _name in list(KIT_TILES) + ["farbe", "lampe_rot"]:
+for _name in list(KIT_TILES) + ["farbe", "lampe_rot", "lampe_blau"]:
     M["k:" + _name] = kit_material(_name)
 
 
@@ -428,14 +431,114 @@ def build_arm(fr, region, length, kind_key, lateral_a, lateral_b, start, axis_di
         parts.append(flat(fr, "gehweg", lo, hi, start + (SIDE if kind_key in ("T", "S") else 0.0), end, Y_W, 2.5))
     asphalt_rects.append((fr, -HW, HW, start, end))
     # Laternen abwechselnd links/rechts auf dem Gehweg, alle 9 m (je Seite alle 18 m)
-    b = start + (SIDE + 3.0 if kind_key in ("T", "S") else 3.0)
+    b = start + (SIDE + 1.0 if kind_key in ("T", "S") else 3.0)
     k = 0
-    while b < end - 7.0:
+    while b < end - 4.0:
         side = 1 if k % 2 == 0 else -1
         lamps.append((fr.pt(side * (HW + SIDE * 0.5 + 0.2), b), fr.pt(0, b)))
         b += 9.0
         k += 1
     parts += barrier(fr.pt(0, end - 2.2), fr.u, -fr.v, HW - 0.35)
+
+
+def sloped(fr, key, a0, a1, b0, b1, y_b0, y_b1, tile=6.0):
+    """Geneigtes Rechteck (Rampe): Höhe y_b0 bei b0, y_b1 bei b1."""
+    ab = ((a0, b0, y_b0), (a1, b0, y_b0), (a1, b1, y_b1), (a0, b1, y_b1))
+    return (key, [(*fr.pt(a, b), y) for a, b, y in ab], [(a / tile, b / tile) for a, b, y in ab])
+
+
+def build_garage(fr, length, start):
+    """Tiefgaragen-Ein- und -Ausfahrt am Ende einer kurzen Zufahrt: Vorplatz mit Schranken, Rampe zwischen Stützwänden,
+    Portal unter einer Betonhaube mit P-Schild. Zwei Fahrspuren (rechts hinein, links heraus). Rein Kulisse."""
+    parts = arm_parts
+    end = start + length
+    b0 = start + 3.2                         # Rampenbeginn
+    b1 = end - 4.0                           # Portalwand
+    depth = 1.8
+    y_bot = Y_J - depth
+    y_c = GROUND_Y + 2.8                     # Oberkante der Haube
+    hood = HW + KERB_W                       # halbe Breite der Haube
+    parts.append(flat(fr, "asphalt_str", -HW, HW, start, b0, Y_J, 6.0))
+    parts.append(sloped(fr, "asphalt_str", -HW, HW, b0, b1, Y_J, y_bot, 6.0))
+    parts.append(sloped(fr, "dunkel", -HW, HW, b1, b1 + 0.3, y_bot, y_bot, 1.0))
+    asphalt_rects.append((fr, -HW, HW, start, end))
+
+    def ry(b):
+        return Y_J - depth * min(1.0, max(0.0, (b - b0) / (b1 - b0)))
+    # Mittellinie: Vorplatz gestrichelt, Rampe durchgezogen
+    b = start + 0.6
+    while b + 1.6 < b0:
+        parts.append(flat(fr, "linie", -0.08, 0.08, b, b + 1.6, Y_J + 0.003, 1.0))
+        b += 3.0
+    parts.append(sloped(fr, "linie", -0.08, 0.08, b0, b1, Y_J + 0.004, y_bot + 0.004, 1.0))
+    # Pfeile: rechts (in Fahrtrichtung hinein) nach unten, links heraus nach oben
+    rx, rz = -fr.v.y, fr.v.x                 # rechts, wenn man in die Zufahrt blickt
+    entry = 1.0 if (rx * fr.u.x + rz * fr.u.y) >= 0 else -1.0
+
+    def arrow(a_c, b_from, b_to):
+        d = 1.0 if b_to > b_from else -1.0
+        b_head = b_to - d * 1.0
+        stem = [(a_c - 0.12, b_from), (a_c + 0.12, b_from), (a_c + 0.12, b_head), (a_c - 0.12, b_head)]
+        head = [(a_c - 0.55, b_head), (a_c + 0.55, b_head), (a_c, b_to)]
+        for poly_ab in (stem, head):
+            parts.append(("linie", [(*fr.pt(a, bb), ry(bb) + 0.005) for a, bb in poly_ab], [(a, bb) for a, bb in poly_ab]))
+    arrow(entry * 1.75, b0 + 0.8, b0 + 3.4)
+    arrow(-entry * 1.75, b0 + 5.2, b0 + 2.6)
+    for sgn in (-1, 1):
+        a_in, a_k, a_w = sgn * HW, sgn * (HW + KERB_W), sgn * (HW + SIDE)
+        lo, hi = sorted((a_in, a_k))
+        parts.append(flat(fr, "kerb", lo, hi, start, end, Y_K, 1.0))                  # Randstein bzw. Mauerkrone
+        parts.append(wall(fr, "kerb", a_in, start, a_in, b0, Y_J, Y_K, (-sgn, 0)))
+        face = fr.u * (-sgn)                                                           # Stützwand der Rampe, Sicht zur Mitte
+        parts.append(("beton", [(*fr.pt(a_in, b0), Y_J), (*fr.pt(a_in, b1), y_bot), (*fr.pt(a_in, b1), Y_K), (*fr.pt(a_in, b0), Y_K)],
+                      [(0, 0), (b1 - b0, 0), (b1 - b0, Y_K - y_bot), (0, Y_K - Y_J)], (face.x, face.y)))
+        lo, hi = sorted((a_k, a_w))
+        parts.append(flat(fr, "gehweg", lo, hi, start + SIDE, end, Y_W, 2.5))
+        # Seitenwand der Haube über dem Gehweg und Warnstreifen am Portal
+        parts += wall_quad(fr, "beton", sgn * hood, b1, sgn * hood, end, Y_W, y_c, (sgn, 0))
+        n_bands = 8
+        for k in range(n_bands):
+            y0_ = Y_K + k * (y_c - Y_K) / n_bands
+            parts += box(fr, "gelb" if k % 2 == 0 else "gummi", *sorted((sgn * HW, sgn * hood)), b1 - 0.03, b1, y0_, y0_ + (y_c - Y_K) / n_bands)
+    # Betonhaube: Portalwand mit Sturz, Dach, Rückwand
+    parts += wall_quad(fr, "beton", -HW, b1, HW, b1, y_bot + 2.3, y_c, (0, -1))             # Sturz über der Öffnung
+    parts += wall_quad(fr, "dunkel", -HW, b1 + 0.3, HW, b1 + 0.3, y_bot, y_bot + 2.3, (0, -1))   # dunkle Öffnung
+    parts += wall_quad(fr, "beton", -hood, end, hood, end, Y_W, y_c, (0, 1))
+    parts.append(flat(fr, "beton", -hood, hood, b1, end, y_c, 2.0))
+    for sgn in (-1, 1):                                                                     # Dachrand
+        parts += box(fr, "beton", *sorted((sgn * (hood - 0.12), sgn * hood)), b1, end, y_c, y_c + 0.22)
+    parts += box(fr, "beton", -hood, hood, end - 0.12, end, y_c, y_c + 0.22)
+    parts += box(fr, "beton", -hood, hood, b1, b1 + 0.12, y_c, y_c + 0.22)
+    for a_v in (-2.0, 1.6):                                                                  # Lüftungshauben auf dem Dach
+        parts += box(fr, "beton", a_v, a_v + 1.4, end - 1.8, end - 0.9, y_c, y_c + 0.55)
+    # P-Schild auf Mast (leuchtet nachts), weißes P aus Balken
+    a_p, b_p = 2.4, b1 + 0.6
+    parts += box(fr, "gummi", a_p - 0.07, a_p + 0.07, b_p - 0.07, b_p + 0.07, y_c, y_c + 2.0)
+    y_s = y_c + 1.35
+    parts += box(fr, "k:lampe_blau", a_p - 0.65, a_p + 0.65, b_p - 0.09, b_p - 0.03, y_s, y_s + 1.3)
+    # Das System dieser Zufahrt ist von vorn gesehen gespiegelt (a wächst nach links): Buchstabe daher mit umgekehrtem Vorzeichen.
+    for a0_, a1_, y0_, y1_ in ((-0.3, -0.13, 0.22, 1.08), (-0.3, 0.26, 0.92, 1.08), (-0.3, 0.26, 0.6, 0.76), (0.1, 0.26, 0.6, 1.08)):
+        parts += box(fr, "weiss", a_p - a1_, a_p - a0_, b_p - 0.12, b_p - 0.09, y_s + y0_, y_s + y1_)
+    # Schranken am Vorplatz (geschlossen), rot-weiß gestreift
+    b_s = start + 1.4
+    for sgn in (-1, 1):
+        parts += box(fr, "gummi", *sorted((sgn * 3.05, sgn * 3.45)), b_s - 0.2, b_s + 0.2, Y_J, Y_J + 1.05)
+        for k in range(6):
+            a_a = sgn * (2.95 - k * 0.47)
+            parts += box(fr, "rot" if k % 2 == 0 else "weiss", *sorted((a_a, a_a - sgn * 0.47)), b_s - 0.05, b_s + 0.05, Y_J + 0.98, Y_J + 1.08)
+    # Laternen wie bei jeder Zufahrt
+    b = start + SIDE + 0.5
+    k = 0
+    while b < end - 2.5:
+        side = 1 if k % 2 == 0 else -1
+        lamps.append((fr.pt(side * (HW + SIDE * 0.5 + 0.2), b), fr.pt(0, b)))
+        b += 8.0
+        k += 1
+
+
+def wall_quad(fr, key, a0, b0, a1, b1, y0, y1, facing):
+    """Senkrechte Fläche von (a0, b0) nach (a1, b1) zwischen den Höhen y0 und y1 (Liste mit einer Fläche)."""
+    return [wall(fr, key, a0, b0, a1, b1, y0, y1, facing)]
 
 
 # Ecken (Kurven um rund 90°): Erkennung über Krümmungsabschnitte
@@ -578,7 +681,10 @@ for (r0, r1) in runs:
         t_len += W
         skip_by_side[outer].update(x % N for x in range(kk - 8, kk + 9))
         ft = Frame(Ft.pt(0, 0), Ft.u, Ft.v)
-        build_arm(ft, None, t_len, "T", 0, 0, H, Ft.v, 1, 0)
+        if t_len <= 20.0:
+            build_garage(ft, t_len, H)        # kurze Zufahrt: Tiefgarage statt Sackgasse
+        else:
+            build_arm(ft, None, t_len, "T", 0, 0, H, Ft.v, 1, 0)
         footprints.append((Ft, -FOOT, FOOT, H, H + t_len))
         placed.append(Ft.poly(-FOOT + 1.5, FOOT - 1.5, H, H + t_len))
         arms.append((Ft.pt(0, 0), Ft.v, Ft.u, H + W + 14, H + t_len - 5))
@@ -622,7 +728,7 @@ objs_ground += mesh_objects("Kreuzungen", arm_parts)
 
 
 # ---------------------------------------------------------------- Bodenraster (Zonen)
-def in_footprints(P, margin=0.6):
+def in_footprints(P, margin=0.0):
     hit = np.zeros(len(P), bool)
     for fr, a0, a1, b0, b1 in footprints:
         rel = P - np.array([fr.o.x, fr.o.y])
@@ -643,7 +749,7 @@ for step, want_inside in ((1.0, False), (0.5, True)):
     P = np.array([[x, z] for z in gz for x in gx])
     d = dist_to_center(P)
     ins = inside(P)
-    blocked = in_footprints(P)
+    blocked = in_footprints(P, margin=-step / 2)      # nur Kacheln, die ganz unter Straße/Gehweg liegen, entfallen (keine schwarzen Lücken am Rand)
     for (x, z), dd, ii, bl in zip(P, d, ins, blocked):
         if dd < HW + 3.0 or ii != want_inside or bl:
             continue
@@ -718,6 +824,7 @@ def place(name, x, z, ang, height, clearance=FOOT + 0.2, trunk=0.0, check_center
 
 kit_near, kit_far = [], []      # Flächen aller Häuser, getrennt nach Nähe zur Strecke
 house_kinds = {}
+light_blockers = []   # Gebäude als Rechtecke (Mitte, halbe Maße, Drehung): blockieren das Laternenlicht im Spiel
 recipe = {"houses": [], "trees": []}   # Szenenrezept: alle Platzierungen einmal berechnet und gespeichert (gemeinsame Quelle für Bake und Vorschau)
 
 
@@ -737,6 +844,9 @@ def place_house(spec, cx, cz, ux, uz, fx, fz, check_center=True, clearance=FOOT 
         return False
     placed.append(foot)
     house_kinds[spec["kind"]] = house_kinds.get(spec["kind"], 0) + 1
+    wu, wv = (foot[1][0] - foot[0][0], foot[1][1] - foot[0][1]), (foot[2][0] - foot[1][0], foot[2][1] - foot[1][1])
+    light_blockers.append([round(sum(q[0] for q in foot) / 4, 3), round(sum(q[1] for q in foot) / 4, 3),
+                           round(math.hypot(*wu) / 2, 3), round(math.hypot(*wv) / 2, 3), round(math.atan2(wu[1], wu[0]), 4)])
     recipe["houses"].append({**{k: (round(v, 3) if isinstance(v, float) else v) for k, v in spec.items()},
                              "at": [round(cx, 3), round(cz, 3)], "u": [round(ux, 5), round(uz, 5)], "f": [round(fx, 5), round(fz, 5)]})
     (kit_near if dist_to_center(np.array([(cx, cz)]))[0] < LOD_DIST else kit_far).extend(parts)
@@ -918,7 +1028,7 @@ ao = bpy.data.images.new("Diorama_AO", SIZE, SIZE, alpha=False)
 # Sie würden den Asphalt darunter dunkel färben und mit ihm um dieselben Bildpunkte streiten. Markierungen bekommen
 # die Licht-UV nur zum Auslesen im Spiel und sind beim Backen unsichtbar; Absperrungen bleiben als Hindernis sichtbar.
 decal_objs = [o for o in objs_ground if o.name.endswith("_linie")]
-solid_objs = [o for o in objs_ground if o.name.endswith(("_rot", "_weiss", "_beton", "_orange", "_gummi"))]
+solid_objs = [o for o in objs_ground if o.name.endswith(("_rot", "_weiss", "_beton", "_orange", "_gummi", "_dunkel", "_blau", "_gelb"))]
 bake_objs = [o for o in objs_ground if o not in decal_objs and o not in solid_objs] +             [o for o in scene.objects if o.name.startswith("Brunnen_Rand")]
 EDGE_OUT, EDGE_IN = FOOT, HW + 5.8      # Außenkanten der glatten Bänder
 for o in bake_objs + decal_objs:
@@ -973,6 +1083,7 @@ for o in decal_objs:
 # Ungebackene Lücken (reines Schwarz) hell füllen, dann kompakt als Graustufen-JPG speichern.
 px = np.array(ao.pixels[:], dtype=np.float32).reshape(SIZE, SIZE, 4)
 px[px[..., 0] < 0.02, :3] = 1.0
+px[SIZE - 4:, :4, :3] = 1.0      # Ecke (0,1) der Lichttextur bleibt weiß: Dorthin zeigen die Bodenkacheln, die nicht mitbacken
 ao.pixels = px.ravel()
 ao.scale(2048, 2048)
 scene.view_settings.view_transform = "Standard"
@@ -992,7 +1103,7 @@ blocked = []
 for fr, a0, a1, b0, b1 in asphalt_rects:
     blocked.append([round(fr.o.x, 3), round(fr.o.y, 3), round(fr.u.x, 5), round(fr.u.y, 5), round(fr.v.x, 5), round(fr.v.y, 5),
                     a0 - 0.4, a1 + 0.4, b0 - 0.4, b1 + 0.4])
-json.dump({"blocked": blocked,
+json.dump({"blocked": blocked, "extent": [x0, z0, x1, z1], "occluders": light_blockers,
            "lamps": [{"x": round(a.x, 3), "z": round(a.y, 3), "toward": [round(t.x, 3), round(t.y, 3)]} for a, t in lamps]},
           open(OUT_GLB.replace(".glb", "_layout.json"), "w"))
 recipe["lamps"] = [{"at": [round(a.x, 3), round(a.y, 3)], "toward": [round(t.x, 3), round(t.y, 3)]} for a, t in lamps]

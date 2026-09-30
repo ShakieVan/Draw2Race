@@ -17,6 +17,9 @@ func run() -> void:
 		await process_frame
 	if OS.get_environment("NOOVERLAY") == "1":
 		app.world.set_overlays(false)
+	if OS.get_environment("BGPINK") == "1":
+		app.world.atmosphere.env.background_color = Color(1, 0, 1)
+		app.world.atmosphere.env.fog_enabled = false
 	if OS.get_environment("NOGLOW") == "1":
 		app.world.atmosphere.env.glow_enabled = false
 	if OS.get_environment("WINLEVEL") != "":

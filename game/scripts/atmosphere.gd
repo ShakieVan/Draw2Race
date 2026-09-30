@@ -122,7 +122,7 @@ func setup(owner_world: Node3D, sky: Color, bounds: Rect2) -> void:
 	snow.gravity = Vector3.ZERO
 	snow.initial_velocity_min = 2.5
 	snow.initial_velocity_max = 4.0
-	snow.lifetime = 7.0
+	snow.lifetime = 9.0           # 22 m Starthöhe bei mindestens 2,5 m/s: die Flocken erreichen den Boden
 	# Nebelbänke: flache, weich auslaufende Schwaden knapp über dem Boden, die langsam treiben.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 5
@@ -287,55 +287,76 @@ func apply(new_conditions: Dictionary, new_quality: int) -> void:
 		node.visible = is_dark()
 	if world != null and world.has_method("set_overlays"):
 		world.set_overlays(is_dark())
+	if world != null and world.has_method("set_snow"):
+		world.set_snow(weather == "snow")
 	if world != null and world.has_method("set_windows"):
 		world.set_windows(1.0 if conditions.time == "night" else (0.55 if conditions.time == "dusk" else 0.0))
 
 var occluders: Array = []      # [Mitte Vector2, halbe Größe Vector2, Drehung] von Gebäuden (werfen Laternenschatten)
 
-func blocked(from: Vector2, to: Vector2, near: Array) -> float:
-	# Anteil des Wegs Laterne -> Punkt, der durch Gebäude verdeckt ist (0 frei, 1 verdeckt), in 0,4-m-Schritten.
-	var steps := maxi(2, int(from.distance_to(to) / 0.6))
-	for k in range(1, steps):
-		var p := from.lerp(to, float(k) / steps)
-		for o in near:
-			var local: Vector2 = (p - o[0]).rotated(-float(o[2]))
-			if absf(local.x) < o[1].x and absf(local.y) < o[1].y:
-				return 1.0
-	return 0.0
-
-func bake_rain_lights(area: Rect2) -> void:
+func bake_rain_lights(area: Rect2, cells := 256) -> void:
 	# Vorberechnetes Laternenlicht (Draufsicht): Farbe x Stärke je Zelle, Gebäude werfen Schatten; danach
 	# weichgezeichnet (unscharfe Schattenkanten). Wird als globaler Shaderwert von Fahrbahn, Gelände, Kulisse,
-	# Autos und Regen gelesen.
-	var cells := 256
+	# Autos, Nebel und Niederschlag gelesen. Gebäude stehen als Maske (ein Byte je Zelle) bereit: Licht gelangt
+	# weder hinein noch hindurch; die Sichtprüfung je Zelle ist damit ein Feldzugriff je Schritt.
 	var data := PackedFloat32Array()
 	data.resize(cells * cells * 3)
 	var cell := area.size / cells
+	var solid := PackedByteArray()
+	solid.resize(cells * cells)
+	for o in occluders:
+		var oc: Vector2 = o[0]
+		var oh: Vector2 = o[1]
+		var rot := float(o[2])
+		var rad := oh.length()
+		var bx0 := maxi(0, int((oc.x - rad - area.position.x) / cell.x))
+		var bx1 := mini(cells - 1, int((oc.x + rad - area.position.x) / cell.x))
+		var by0 := maxi(0, int((oc.y - rad - area.position.y) / cell.y))
+		var by1 := mini(cells - 1, int((oc.y + rad - area.position.y) / cell.y))
+		for iy in range(by0, by1 + 1):
+			for ix in range(bx0, bx1 + 1):
+				var local := (area.position + Vector2((ix + 0.5) * cell.x, (iy + 0.5) * cell.y) - oc).rotated(-rot)
+				if absf(local.x) < oh.x and absf(local.y) < oh.y:
+					solid[iy * cells + ix] = 1
+	var step_len := minf(cell.x, cell.y)
 	for lamp in lamps:
 		var p: Vector3 = lamp[0]
 		# Lichtradius am Boden: höher hängende Köpfe leuchten weiter als die frühere Lichtscheibe.
 		var reach: float = lamp[1] * 1.8
 		var col: Color = lamp[2]
 		var head := Vector2(p.x, p.z)
-		var near: Array = occluders.filter(func(o): return head.distance_to(o[0]) < reach + o[1].length())
 		var x0 := maxi(0, int((p.x - reach - area.position.x) / cell.x))
 		var x1 := mini(cells - 1, int((p.x + reach - area.position.x) / cell.x))
 		var y0 := maxi(0, int((p.z - reach - area.position.y) / cell.y))
 		var y1 := mini(cells - 1, int((p.z + reach - area.position.y) / cell.y))
 		for iy in range(y0, y1 + 1):
 			for ix in range(x0, x1 + 1):
+				if solid[iy * cells + ix] == 1:
+					continue
 				var q := area.position + Vector2((ix + 0.5) * cell.x, (iy + 0.5) * cell.y)
 				var d := q.distance_to(head)
 				if d >= reach:
 					continue
-				if not near.is_empty() and blocked(head, q, near) > 0.0:
+				# Sichtlinie Laterne -> Zelle durch die Gebäudemaske (die ersten 1,2 m am Mast zählen nicht).
+				var steps := int(d / step_len)
+				var hidden := false
+				for k in range(1, steps):
+					var t := float(k) / steps
+					if d * t < 1.2:
+						continue
+					var sx := int((lerpf(head.x, q.x, t) - area.position.x) / cell.x)
+					var sy := int((lerpf(head.y, q.y, t) - area.position.y) / cell.y)
+					if sx >= 0 and sy >= 0 and sx < cells and sy < cells and solid[sy * cells + sx] == 1:
+						hidden = true
+						break
+				if hidden:
 					continue
 				var f := 1.0 - smoothstep(0.0, reach, d)
 				f = f * f * 1.6
-				var k := (iy * cells + ix) * 3
-				data[k] += col.r * f
-				data[k + 1] += col.g * f
-				data[k + 2] += col.b * f
+				var k2 := (iy * cells + ix) * 3
+				data[k2] += col.r * f
+				data[k2 + 1] += col.g * f
+				data[k2 + 2] += col.b * f
 	var img := Image.create_from_data(cells, cells, false, Image.FORMAT_RGBF, data.to_byte_array())
 	# Weiche Schatten: verkleinern und wieder vergrößern (bilinear) wirkt wie eine Unschärfe von ~1 m.
 	img.resize(cells / 3, cells / 3, Image.INTERPOLATE_BILINEAR)
@@ -358,6 +379,25 @@ func update_rain_cars(cars: Array) -> void:
 	for m in [rain_material, snow_material]:
 		m.set_shader_parameter("car_pos", data)
 		m.set_shader_parameter("car_count", mini(cars.size(), 8))
+
+func follow_view(focus: Vector3, zoom: float, aspect: float, pitch: float) -> void:
+	# Regen und Schnee folgen dem Bild: Die Emissionsbox deckt stets den sichtbaren Bereich samt Rand ab (Perspektive:
+	# die Tiefe des Bildes wächst mit der Neigung), so gibt es beim Zoomen und Fahren keine sichtbare Grenze.
+	var hx := zoom * aspect * 0.5 * 1.45 + 8.0
+	var hz := zoom / maxf(0.45, sin(pitch)) * 0.5 * 1.6 + 10.0
+	for p in [rain, snow]:
+		if p.emitting:
+			p.emission_box_extents = Vector3(hx, 1.0, hz)
+			p.position.x = focus.x
+			p.position.z = focus.z
+
+func set_area(area: Rect2) -> void:
+	# Nebelbänke treiben über die ganze Fläche (Diorama: Stadt), nicht nur über die Rennstrecke.
+	var rng2 := RandomNumberGenerator.new()
+	rng2.seed = 5
+	for bank in fog_banks:
+		bank.set_meta("area", area)
+		bank.position = Vector3(rng2.randf_range(area.position.x, area.end.x), rng2.randf_range(0.8, 2.4), rng2.randf_range(area.position.y, area.end.y))
 
 func fit_shadow(distance: float) -> void:
 	# Die schräge Draufsicht hat nur einen schmalen Tiefenbereich: eine einzige orthogonale Schattenkarte, deren Reichweite

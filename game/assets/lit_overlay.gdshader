@@ -37,7 +37,7 @@ void fragment() {
 	float height = world_pos.y;
 	// Laternenköpfe hängen bei ~4 m: darüber nimmt das Licht auf Wänden rasch ab.
 	float reach = 1.0 - smoothstep(3.0, 9.0, height);
-	vec3 direct = front * length(n) * reach * 1.8 + here * up * 0.75;
+	vec3 direct = front * length(n) * reach * 1.8 + here * up * 0.75 * reach;
 	// Indirekt: vom Boden zurückgeworfen, nur nahe am Boden, nasser Boden reflektiert mehr.
 	vec3 bounce = front * (1.0 - smoothstep(0.0, 3.5, height)) * (0.25 + 0.35 * street_wet);
 	vec3 lit = (direct + bounce) * light_gain;

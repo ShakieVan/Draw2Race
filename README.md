@@ -10,7 +10,7 @@ Ein Rennspiel für Android, bei dem du nicht lenkst, sondern planst: Du zeichnes
 2. Auf dem Android-Handy öffnen und die Installation erlauben (Installation aus unbekannten Quellen).
 3. „Linie zeichnen“, am leuchtenden Startpunkt ansetzen und **zwei Runden in Pfeilrichtung** zeichnen.
 
-**Linienkodierung:** langsam = breit und hell, schnell = schmal und rot. Wird die Linie breiter, bremst das Auto – plane den Bremsweg vor der Kurve ein.
+**Linienkodierung:** langsam = breit und grün, schnell = schmal und rot (dazwischen gelb/orange). Wird die Linie breiter, bremst das Auto – plane den Bremsweg vor der Kurve ein.
 
 **Beim Zeichnen**
 - Finger abheben pausiert. Im **schimmernden Linienende** (jüngste Sekunde) darfst du neu ansetzen; nach 0,5 s Weitermalen ersetzt der neue Ansatz den alten Rest, das Tempo wird weich übergeblendet.

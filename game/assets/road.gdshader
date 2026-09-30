@@ -75,13 +75,13 @@ void fragment() {
 		}
 		rings *= rain * mix(0.35, 1.0, puddle);
 	}
-	col = mix(col, vec3(0.86, 0.9, 0.93), snow * (0.45 + 0.25 * g2));
+	col = mix(col, vec3(0.88, 0.91, 0.95), snow * (0.82 + 0.14 * g2));      // starker Schneefall: die Straße ist kaum noch zu erkennen
 	ALBEDO = col;
 	if (use_ao) {
 		AO = texture(ao_tex, UV2).r;
 		AO_LIGHT_AFFECT = 0.85;
 	}
-	ROUGHNESS = mix(0.88, 0.06, wet);
+	ROUGHNESS = mix(mix(0.88, 0.06, wet), 0.8, snow);
 	SPECULAR = mix(0.4, 0.6, wet);
 	if (use_reflection && wet > 0.01) {
 		vec2 ripple = (vec2(texture(grain_tex, world_xz * 0.9 + vec2(TIME * 0.21, TIME * 0.13)).r,
@@ -102,5 +102,5 @@ void fragment() {
 	EMISSION += vec3(0.55, 0.62, 0.7) * rings * 0.35;
 	// Laternenlicht (vorberechnet, mit weichen Gebäudeschatten) als beleuchtete Albedo.
 	// Diffus (Farbe x Licht) plus Glanzanteil: Asphalt – vor allem nasser – wirft Laternenlicht auch als Schimmer zurück.
-	EMISSION += lamp_at(world_xz) * (ALBEDO * 2.6 + vec3(0.07 + 0.16 * wetness + 0.25 * puddle));
+	EMISSION += lamp_at(world_xz) * (ALBEDO * mix(2.6, 0.9, snow) + vec3(0.07 + 0.16 * wetness + 0.25 * puddle));
 }

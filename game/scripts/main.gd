@@ -191,6 +191,8 @@ func set_camera(target: Vector3) -> void:
 	camera.position = target + Vector3(0,sin(cam_pitch),cos(cam_pitch))*distance
 	if world != null and world.atmosphere != null:
 		world.atmosphere.fit_shadow(distance)
+		var screen := get_viewport().get_visible_rect().size
+		world.atmosphere.follow_view(target, cam_zoom, screen.x / maxf(1.0, screen.y), cam_pitch)
 	# Bildschirm oben = Welt −z (auch senkrecht von oben eindeutig).
 	camera.look_at(target,Vector3(0,0,-1))
 
@@ -569,16 +571,30 @@ func reset_view() -> void:
 	view_zoom = overview_size()
 	view_focus = track_center()
 
+const VIEW_MARGIN := 6.0      # so weit über die Streckenkante (samt Bankett) hinaus darf das sichtbare Stück Boden reichen (m)
+
 func clamp_view_state() -> void:
 	# Weitester Zoom = ganze Strecke im freien Sichtbereich, engster = Fahrbahn füllt die kürzere Seite.
-	# Verschieben: Die Streckenkante (mit Bankett) darf bis in die Mitte des freien Bereichs kommen.
+	# Verschieben: Das sichtbare Stück Boden (zwischen den HUD-Leisten) bleibt innerhalb der Strecke samt schmalem Rand; ist es in einer
+	# Richtung größer als die Strecke (breiter Bildschirm), bleibt die Ansicht dort mittig. So richtet sich die Grenze nach der
+	# Strecke und nicht nach der Umgebung (Häuser, Bäume), und man sieht nie viel leere Fläche hinter dem Rand.
 	var widest := overview_size()
 	view_zoom = clampf(view_zoom,minf(road_fill_size()*1.2,widest),widest)
-	var area := track.bounds.grow(Circuit.HALF_WIDTH+2.0)
 	if view_zoom >= widest*0.98:
 		view_focus = track_center()
-	view_focus.x = clampf(view_focus.x,area.position.x,area.end.x)
-	view_focus.z = clampf(view_focus.z,area.position.y,area.end.y)
+		return
+	var screen := get_viewport().get_visible_rect().size
+	var band: Vector2 = hud.free_band()
+	var k := screen_scale()
+	var limit := track.bounds.grow(Circuit.HALF_WIDTH+VIEW_MARGIN)
+	view_focus.x = fit_axis(view_focus.x,limit.position.x,limit.end.x,screen.x*0.5*k.x)
+	view_focus.z = fit_axis(view_focus.z,limit.position.y,limit.end.y,(band.y-band.x)*0.5*k.y)
+
+func fit_axis(value: float, lo: float, hi: float, half: float) -> float:
+	# Mitte der Ansicht so begrenzen, dass ihre Hälfte-Ausdehnung half zwischen lo und hi bleibt; passt sie nicht hinein: mittig.
+	if hi-lo <= 2.0*half:
+		return (lo+hi)*0.5
+	return clampf(value,lo+half,hi-half)
 
 func screen_scale() -> Vector2:
 	# Meter pro Bildpunkt auf dem Boden (x, z) beim aktuellen Zoom.
@@ -595,8 +611,8 @@ func zoom_view(factor: float, anchor: Vector2) -> void:
 	# Um den Punkt unter den Fingern zoomen: Er bleibt an seiner Stelle.
 	var w := world_point(anchor)
 	var old := view_zoom
-	view_zoom *= factor
-	clamp_view_state()
+	var widest := overview_size()
+	view_zoom = clampf(view_zoom*factor,minf(road_fill_size()*1.2,widest),widest)
 	var k := view_zoom/old
 	view_focus.x = w.x-(w.x-view_focus.x)*k
 	view_focus.z = w.y-(w.y-view_focus.z)*k

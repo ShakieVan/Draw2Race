@@ -416,7 +416,7 @@ func speed_legend(parent: Control, pos: Vector2) -> void:
 	parent.add_child(legend)
 	label(legend,"LANGSAM",Vector2.ZERO,13,MUTED)
 	label(legend,"SCHNELL",Vector2(152,0),13,MUTED)
-	label(legend,"breit & hell",Vector2(0,54),14,MUTED)
+	label(legend,"breit & grün",Vector2(0,54),14,MUTED)
 	label(legend,"schmal & rot",Vector2(152,54),14,MUTED)
 	legend.draw.connect(func():
 		# Dark road swatch keeps the pale end readable on the cream HUD.
@@ -529,7 +529,7 @@ func paused() -> void:
 
 func help_overlay() -> void:
 	app.recorder.end()
-	var p := overlay("Dein Finger gibt das Tempo vor.","Zeichne zwei volle Runden ab dem Startpunkt.\n\nLangsam = breit & hell. Schnell = schmal & rot.\nWird die Linie schmaler und röter, gibst du Gas. Wird sie breiter und heller, bremst du. Plane den Bremsweg vor der Kurve ein.\n\nAbheben pausiert. Im schimmernden Ende der Linie darfst du neu ansetzen – nach 0,5 s Weitermalen ersetzt der neue Ansatz den alten Rest. Ziehen verschiebt die Kamera, zwei Finger zoomen, Doppeltipp zeigt die ganze Strecke.
+	var p := overlay("Dein Finger gibt das Tempo vor.","Zeichne zwei volle Runden ab dem Startpunkt.\n\nLangsam = breit & grün. Schnell = schmal & rot.\nWird die Linie schmaler und röter, gibst du Gas. Wird sie breiter und grüner, bremst du. Plane den Bremsweg vor der Kurve ein.\n\nAbheben pausiert. Im schimmernden Ende der Linie darfst du neu ansetzen – nach 0,5 s Weitermalen ersetzt der neue Ansatz den alten Rest. Ziehen verschiebt die Kamera, zwei Finger zoomen, Doppeltipp zeigt die ganze Strecke.
 Neben der Fahrbahn darfst du zeichnen – der Untergrund bremst. Die Wegpunkt-Tore musst du aber durchfahren.",Vector2(820,800))
 	button(p,"Verstanden",Rect2(34,706,752,66),func(): p.get_parent().queue_free(),true)
 

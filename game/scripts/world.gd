@@ -230,7 +230,11 @@ func build(circuit: Circuit) -> void:
 		build_prop({"type": "lamp", "x": lamp.x, "z": lamp.z, "toward": lamp.toward})
 	flush_ai_props()
 	flush_cards()
-	atmosphere.bake_rain_lights(track.bounds.grow(Circuit.HALF_WIDTH + 12.0))
+	# Laternenlicht über die ganze Stadt (im Diorama reichen Straßen weit über die Rennstrecke hinaus).
+	atmosphere.bake_rain_lights(diorama_extent if diorama and diorama_extent.has_area() else track.bounds.grow(Circuit.HALF_WIDTH + 12.0),
+		512 if diorama else 256)
+	if diorama and diorama_extent.has_area():
+		atmosphere.set_area(diorama_extent)
 	bake()
 	for key in ["ground","stripe","shoulder","rim2"]:
 		atmosphere.register_tint(material(Color(theme[key])))
@@ -729,18 +733,52 @@ func place_ai(name: String, x: float, z: float, yaw: float, height: float, footp
 const CHUNK := 24.0            # Kachelgröße (m): Kacheln außerhalb des Bildes zeichnet die GPU nicht
 var detail_hi: Array[GeometryInstance3D] = []
 var detail_lo: Array[GeometryInstance3D] = []
-var overlay_nodes: Array = []  # [Knoten, Zusatzlicht-Material] – nur bei Dunkelheit eingehängt
+var overlay_nodes: Array = []  # [Knoten, Zusatzlicht-Material, Schneedecke] – Zusatzlicht nur bei Dunkelheit, Schnee nur bei Schneefall
 var detail_high := true
+var dark_on := false
+var snow_on := false
+const SNOW_SHADER := preload("res://assets/snow_cover.gdshader")
+var snow_mats := {}
 
-func add_overlay(node: GeometryInstance3D, mat: Material) -> void:
-	if mat != null:
-		overlay_nodes.append([node, mat])
+func add_overlay(node: GeometryInstance3D, mat: Material, snow: Material = null) -> void:
+	if mat != null or snow != null:
+		overlay_nodes.append([node, mat, snow])
 
 func set_overlays(on: bool) -> void:
 	# Zusatzlicht (Laternen) kostet einen weiteren Durchgang; am Tag trägt es nichts bei.
+	dark_on = on
+	refresh_overlays()
+
+func set_snow(on: bool) -> void:
+	# Schneefall: Die Schneedecke ersetzt das Zusatzlicht (sie bringt das Laternenlicht selbst mit).
+	snow_on = on
+	refresh_overlays()
+
+func refresh_overlays() -> void:
 	for entry in overlay_nodes:
-		if is_instance_valid(entry[0]):
-			entry[0].material_overlay = entry[1] if on else null
+		var node = entry[0]
+		if not is_instance_valid(node):
+			continue
+		if snow_on and entry[2] != null:
+			node.material_overlay = entry[2]
+		else:
+			node.material_overlay = entry[1] if (dark_on and entry[1] != null) else null
+
+func snow_cover_material(kind: String) -> ShaderMaterial:
+	# Gemeinsame Schneeschichten: "full" (Boden, Dächer), "tree" (nur oben auf der Krone), "light" (Markierungen scheinen durch).
+	if snow_mats.has(kind):
+		return snow_mats[kind]
+	var m := ShaderMaterial.new()
+	m.shader = SNOW_SHADER
+	m.set_shader_parameter("noise_tex", noise_texture(0.03, 77, 256))
+	match kind:
+		"tree":
+			m.set_shader_parameter("min_up", 0.5)
+			m.set_shader_parameter("strength", 0.9)
+		"light":
+			m.set_shader_parameter("strength", 0.55)
+	snow_mats[kind] = m
+	return m
 
 func set_detail(high: bool) -> void:
 	# Volle Modelle nur nah; in der Übersicht die vereinfachte Fassung. Schatten immer von der einfachen.
@@ -988,6 +1026,7 @@ const DIORAMA_TINT := {"D_Asphalt": Color(0.42, 0.44, 0.46), "D_Randstein": Colo
 var diorama := false
 var diorama_blocked: Array = []   # Straßenflächen des Dioramas: [ox, oz, ux, uz, vx, vz, a0, a1, b0, b1] (Begleitdatei)
 var diorama_lamps: Array = []     # zusätzliche Laternen für Kreuzungen/Nebenstraßen: {x, z, toward}
+var diorama_extent := Rect2()      # Fläche des Dioramas (Laternenlicht, Niederschlag und Nebel gelten für die ganze Stadt)
 
 func diorama_blocks(prop: Dictionary) -> bool:
 	# Liegt ein Laufzeit-Bauteil (Laterne, Tafel …) auf einer Diorama-Straße? Dann entfällt es.
@@ -1024,6 +1063,13 @@ func kit_material(key: String) -> StandardMaterial3D:
 		mat.emission = Color(1.0, 0.1, 0.04)
 		mat.emission_energy_multiplier = 0.0
 		blink_materials.append(mat)
+	elif key == "lampe_blau":
+		# Leuchtschild der Tiefgarage (blau, nachts leuchtend).
+		mat.albedo_color = Color(0.03, 0.25, 0.75)
+		mat.emission_enabled = true
+		mat.emission = Color(0.15, 0.45, 1.0)
+		mat.emission_energy_multiplier = 0.0
+		window_materials.append(mat)
 	elif key == "lampe":
 		# Leuchtfläche unter dem Laternenkopf: nachts warmweiß, am Tag aus (gleiche Stärke wie das Fensterlicht).
 		mat.emission_enabled = true
@@ -1064,6 +1110,12 @@ func build_diorama() -> void:
 		if layout is Dictionary:
 			diorama_blocked = layout.get("blocked", [])
 			diorama_lamps = layout.get("lamps", [])
+			var ext: Array = layout.get("extent", [])
+			if ext.size() == 4:
+				diorama_extent = Rect2(Vector2(float(ext[0]), float(ext[1])), Vector2(float(ext[2]) - float(ext[0]), float(ext[3]) - float(ext[1])))
+			# Häuser werfen Laternenschatten (Lichtkarte, Atmosphere.bake_rain_lights).
+			for o in layout.get("occluders", []):
+				atmosphere.occluders.append([Vector2(float(o[0]), float(o[1])), Vector2(float(o[2]), float(o[3])), float(o[4])])
 	add_child(scene)
 	var ao_path: String = (DIORAMA_PATH % track.id).replace(".glb", "_ao.jpg")
 	var ao: Texture2D = load(ao_path) if ResourceLoader.exists(ao_path) else null
@@ -1126,18 +1178,23 @@ func build_diorama() -> void:
 					mat.ao_on_uv2 = true
 					mat.ao_light_affect = 0.85
 					mat.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+		# Schneedecke: auf allem außer Fahrbahn (eigener Shader) und Wasser; Markierungen scheinen durch, Kronen nur oben.
+		var snow_layer: ShaderMaterial = null
+		if lit and not node_name.begins_with("Brunnen_Wasser"):
+			snow_layer = snow_cover_material("tree" if node_name.begins_with("Prop_") else ("light" if node_name.ends_with("_linie") else "full"))
 		if lit and node_name.begins_with("Haus_"):
 			# Laternenlicht nur auf die Häuser nahe der Strecke (der Zusatzdurchgang kostet die Dreiecke ein zweites Mal).
+			var glow: ShaderMaterial = null
 			if node_name.begins_with("Haus_nah"):
-				var glow := lit_overlay_color(Color(0.6, 0.6, 0.6))
+				glow = lit_overlay_color(Color(0.6, 0.6, 0.6))
 				if glow != null:
 					glow.set_shader_parameter("albedo_tex", kit_albedo)
 					glow.set_shader_parameter("use_vertex_color", true)
 					glow.set_shader_parameter("soft_clip", true)
 					glow.set_shader_parameter("light_gain", 0.7)
-					add_overlay(mi, glow)
+			add_overlay(mi, glow, snow_layer)
 		elif lit:
-			add_overlay(mi, lit_overlay(mi.mesh))
+			add_overlay(mi, lit_overlay(mi.mesh), snow_layer)
 
 func premium_prop(prop: Dictionary) -> bool:
 	# true = als KI-Modell gebaut (samt Licht/Schrift), false = Klötzchen-Fassung verwenden.
@@ -1397,7 +1454,10 @@ static func line_half_width(speed: float) -> float:
 	return lerpf(0.48,0.05,pow(t,0.4))
 
 static func line_color(speed: float) -> Color:
-	return Color("fff1b8").lerp(Color("ed3c32"),clampf((speed-5.0)/24.0,0.0,1.0))
+	# Tempo-Skala von grün (langsam) über gelb und orange zu rot (schnell) – Nutzerwunsch 30.09.2026. Langsam bleibt breit und
+	# zart (hell), schnell schmal und satt.
+	var t := clampf((speed-5.0)/24.0,0.0,1.0)
+	return Color.from_hsv(lerpf(0.36,0.004,t),lerpf(0.50,0.88,t),0.97)
 
 func draw_route(route: Array[Dictionary], subdued := false, open_from := -1, ghost: Array[Dictionary] = []) -> void:
 	# open_from: Routenindex, ab dem die Linie offen ist (schimmert); ghost: alter Rest während einer Probe.

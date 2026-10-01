@@ -101,11 +101,20 @@ func set_beta(on: bool) -> void:
 	apk_ready = false
 	check(true)
 
+# HTTPRequest.timeout begrenzt die GESAMTE Anfrage, nicht die Pause zwischen zwei Paketen. Für die Versionsabfrage (klein) passt
+# das; der Download (rund 180 MB) lief damit nach 30 s ab, egal wie gut die Verbindung war. Beim Download ist die Grenze daher aus,
+# stattdessen bricht ein Wächter erst ab, wenn STALL_TIMEOUT Sekunden lang kein Byte mehr ankommt.
+const CHECK_TIMEOUT := 30.0
+const STALL_TIMEOUT := 30.0
+var downloading := false
+var last_bytes := -1
+var stall := 0.0
+
 func setup(progress_store: ProgressStore) -> void:
 	store = progress_store
 	http = HTTPRequest.new()
 	http.use_threads = true
-	http.timeout = 30.0
+	http.timeout = CHECK_TIMEOUT
 	add_child(http)
 	var cached := parse(str(store.data.get("update_release", "")), beta())
 	if not cached.is_empty() and compare_versions(cached.version, current_version()) > 0:
@@ -144,6 +153,7 @@ func request_next() -> void:
 	var headers := PackedStringArray(["User-Agent: Draw2Race/%s" % current_version(),
 		"Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"])
 	http.download_file = ""
+	http.timeout = CHECK_TIMEOUT
 	http.request_completed.connect(_checked, CONNECT_ONE_SHOT)
 	if http.request(str(pending.pop_front()), headers) != OK:
 		http.request_completed.disconnect(_checked)
@@ -190,14 +200,33 @@ func download() -> void:
 	percent = 0
 	publish("Lade herunter …")
 	http.download_file = apk_path() + ".part"
+	http.timeout = 0.0
+	downloading = true
+	last_bytes = -1
+	stall = 0.0
 	http.request_completed.connect(_downloaded, CONNECT_ONE_SHOT)
 	var headers := PackedStringArray(["User-Agent: Draw2Race/%s" % current_version(), "Accept: application/octet-stream"])
 	if http.request(str(release.url), headers) != OK:
 		http.request_completed.disconnect(_downloaded)
 		busy = false
+		downloading = false
 		publish("Download fehlgeschlagen.")
 
-func _process(_dt: float) -> void:
+func _process(dt: float) -> void:
+	if downloading and http != null:
+		# Wächter: solange Bytes ankommen, läuft der Download weiter; erst eine Pause von STALL_TIMEOUT bricht ab.
+		var bytes := http.get_downloaded_bytes()
+		if bytes != last_bytes:
+			last_bytes = bytes
+			stall = 0.0
+		else:
+			stall += dt
+			if stall > STALL_TIMEOUT:
+				http.cancel_request()
+				downloading = false
+				http.request_completed.disconnect(_downloaded)
+				_downloaded(HTTPRequest.RESULT_TIMEOUT, 0, PackedStringArray(), PackedByteArray())
+				return
 	if busy and http != null and http.get_http_client_status() == HTTPClient.STATUS_BODY and not release.is_empty():
 		var p := int(http.get_downloaded_bytes() * 100 / maxi(1, int(release.size)))
 		if p != percent:
@@ -205,6 +234,7 @@ func _process(_dt: float) -> void:
 			changed.emit()
 
 func _downloaded(result: int, code: int, _headers: PackedStringArray, _body: PackedByteArray) -> void:
+	downloading = false
 	var part := apk_path() + ".part"
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
 		busy = false

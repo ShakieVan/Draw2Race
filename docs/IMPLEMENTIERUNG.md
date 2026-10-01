@@ -345,3 +345,9 @@ Nutzerentscheidung: Die Linie darf durch Hindernisse führen; dann kracht es.
 - **KI:** fährt die Stadt ohne einen Stoß ins Ziel; alle bisherigen KI-Tests bestehen. Zwei künstliche Sprungtests auf Azure (Schanze direkt vor der Kurve) räumen die Deko vorher weg, weil sie nur die Flugphase prüfen.
 - **Tests:** `tests/test_collision.gd` (11 Prüfungen, in `tools/build.ps1`), `tests/crash_shot.gd` (Bilder einer zu schnellen Linie).
 - **Grenzen:** Getroffene Absperrungen bleiben stehen (sie sind ins Diorama gebacken). Die Maße der KI-Modelle ohne `w`/`d` sind geschätzt.
+
+## Hotfix Update-Download (01.10.2026, Beta 0.2.26)
+
+- **Fehler:** Der Download des Updates brach nach 30 s ab. `HTTPRequest.timeout` begrenzt in Godot die gesamte Anfrage, nicht die Zeit ohne Daten; ein APK mit rund 180 MB braucht im Mobilfunk/WLAN länger.
+- **Korrektur (`scripts/updater.gd`):** Die Versionsabfrage behält 30 s Grenze. Beim Download ist die Grenze aus; ein Wächter bricht erst ab, wenn 30 s lang kein Byte mehr ankommt (`get_downloaded_bytes()` unverändert).
+- **Hinweis:** Installierte Versionen bis 0.2.25 haben noch den alten Updater; 0.2.26 muss einmal von Hand (Browser oder adb) installiert werden.

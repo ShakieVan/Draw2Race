@@ -95,6 +95,7 @@ func _init(path := DEFAULT_TRACK) -> void:
 	for p in data.points:
 		control.append(Vector2(float(p[0]), float(p[1])))
 	build(control)
+	load_obstacles()
 
 static func load_track(track_id: String) -> Circuit:
 	return Circuit.new("res://tracks/%s.json" % track_id)
@@ -548,3 +549,149 @@ func ai_route(skill := 0.0, lane := 0.0) -> Array[Dictionary]:
 		var o: float = lane if bias == 0.0 else lerpf(lane, bias, absf(bias) / LOOP_LANE)
 		route.append({"p": at(s, o), "speed": speeds[mini(i, count - 1)], "s": s, "o": o})
 	return route
+
+# ---------- Hindernisse (Deko mit Körper: Häuser, Absperrungen, Laternen, Bäume …) ----------
+# Teil der Spielebene: dieselben Hindernisse in jeder Grafikstufe. Quelle ist die Begleitdatei des Dioramas
+# (tools/diorama.py, "obstacles"), sonst die Bausteine der Streckendatei mit Maßen aus PROP_CIRCLES/AI_RADIUS.
+const OBSTACLE_CELL := 8.0
+const DIORAMA_BAKED := ["building", "street_tree", "fountain"]
+const PROP_CIRCLES := {"lamp": 0.18, "lantern": 0.15, "floodlight": 0.35, "street_tree": 0.35, "palm": 0.3, "pine": 0.35,
+	"oak": 0.45, "rock": 0.9, "parasol": 0.12, "tower": 1.2, "billboard": 0.25, "fountain": 3.4}
+const AI_RADIUS := {"drift_zuschauer_container": 3.0, "hafen_faesser": 0.8, "hafen_gabelstapler": 1.3, "hafen_kran": 1.2,
+	"hafen_paletten": 0.9, "hafen_poller": 0.3, "jahrmarkt_autoscooter": 6.0, "jahrmarkt_bude": 2.0, "jahrmarkt_karussell": 4.5,
+	"jahrmarkt_losbude": 2.0, "jahrmarkt_riesenrad": 3.5, "jahrmarkt_zelt": 5.5, "kinder_ball": 2.8, "kinder_bauklotz": 1.3,
+	"kinder_bausteinturm": 2.0, "kinder_kreisel": 2.0, "kinder_teddy": 3.0, "serra_agave": 0.6, "serra_aussicht": 1.0,
+	"serra_fels": 1.3, "serra_kapelle": 3.5, "serra_leuchtturm": 2.5, "serra_olivenbaum": 0.4, "serra_pinie": 0.4,
+	"steinbruch_bagger": 2.5, "steinbruch_brecher": 4.0, "steinbruch_buero": 3.0, "steinbruch_kieshaufen": 3.0, "steinbruch_kipper": 2.5}
+const SOFT_OBSTACLES := ["absperrung", "gitter", "bank", "reifen"]
+var obstacles: Array = []        # {k: Art, c: Mitte, u: a-Achse, h: halbe Maße (Rechteck) | r: Radius (Kreis), y: Höhe}
+var obstacle_grid := {}
+var obstacle_source := "props"   # "layout": Hindernisse aus der Diorama-Begleitdatei (Häuser stehen dort, nicht an den Bausteinen)
+
+func add_circle(c: Vector2, r: float, height: float, kind: String) -> void:
+	obstacles.append({"k": kind, "c": c, "r": r, "y": height})
+
+func add_rect(c: Vector2, u: Vector2, half: Vector2, height: float, kind: String) -> void:
+	obstacles.append({"k": kind, "c": c, "u": u.normalized(), "h": half, "y": height})
+
+func load_obstacles() -> void:
+	obstacles.clear()
+	obstacle_grid.clear()
+	obstacle_source = "props"
+	var layout_path := "res://dioramas/%s_layout.json" % id
+	var blocked: Array = []
+	var from_layout := false
+	if FileAccess.file_exists(layout_path):
+		var layout = JSON.parse_string(FileAccess.get_file_as_string(layout_path))
+		if layout is Dictionary and layout.has("obstacles"):
+			from_layout = true
+			obstacle_source = "layout"
+			blocked = layout.get("blocked", [])
+			for o in layout.obstacles:
+				var c := Vector2(float(o.c[0]), float(o.c[1]))
+				if o.has("r"):
+					add_circle(c, float(o.r), float(o.y), str(o.k))
+				else:
+					add_rect(c, Vector2(float(o.u[0]), float(o.u[1])), Vector2(float(o.h[0]), float(o.h[1])), float(o.y), str(o.k))
+			for lamp in layout.get("lamps", []):
+				add_circle(Vector2(float(lamp.x), float(lamp.z)), 0.18, 4.0, "mast")
+	for prop in props:
+		var kind := str(prop.get("type", ""))
+		if from_layout and (kind in DIORAMA_BAKED or on_layout_road(prop, blocked)):
+			continue
+		prop_obstacle(prop)
+	for i in range(obstacles.size()):
+		var o: Dictionary = obstacles[i]
+		var reach: float = float(o.r) if o.has("r") else Vector2(o.h).length()
+		var c: Vector2 = o.c
+		for gx in range(floori((c.x - reach) / OBSTACLE_CELL), floori((c.x + reach) / OBSTACLE_CELL) + 1):
+			for gz in range(floori((c.y - reach) / OBSTACLE_CELL), floori((c.y + reach) / OBSTACLE_CELL) + 1):
+				var key := Vector2i(gx, gz)
+				if not obstacle_grid.has(key):
+					obstacle_grid[key] = []
+				obstacle_grid[key].append(i)
+
+static func on_layout_road(prop: Dictionary, blocked: Array) -> bool:
+	# Wie World.diorama_blocks: Laufzeit-Bauteile auf einer Diorama-Straße entfallen (und mit ihnen ihr Hindernis).
+	var x := float(prop.get("x", 0.0))
+	var z := float(prop.get("z", 0.0))
+	for r in blocked:
+		var rx: float = x - float(r[0])
+		var rz: float = z - float(r[1])
+		var a: float = rx * float(r[2]) + rz * float(r[3])
+		var b: float = rx * float(r[4]) + rz * float(r[5])
+		if a >= float(r[6]) and a <= float(r[7]) and b >= float(r[8]) and b <= float(r[9]):
+			return true
+	return false
+
+func prop_obstacle(prop: Dictionary) -> void:
+	var kind := str(prop.get("type", ""))
+	var c := Vector2(float(prop.get("x", 0.0)), float(prop.get("z", 0.0)))
+	var rot := deg_to_rad(float(prop.get("rot", 0.0)))
+	var u := Vector2(cos(rot), sin(rot))
+	var sc := float(prop.get("scale", 1.0))
+	match kind:
+		"building", "pavilion":
+			add_rect(c, u, Vector2(float(prop.get("w", 4.0)), float(prop.get("d", 4.0))) * 0.5, float(prop.get("h", 3.0)), "mauer")
+		"planter":
+			add_rect(c, u, Vector2(float(prop.get("w", 2.0)), float(prop.get("d", 0.6))) * 0.5, 0.6, "mauer")
+		"stand":
+			add_rect(c, u, Vector2(float(prop.get("w", 8.0)), float(prop.get("d", 3.0)) + 2.0) * 0.5, 3.0, "mauer")
+		"cabin":
+			add_rect(c, u, Vector2(2.5, 2.0), 2.4, "mauer")
+		"boathouse":
+			add_rect(c, u, Vector2(2.25, 2.5), 2.5, "mauer")
+		"log":
+			add_rect(c, u, Vector2(1.6, 0.35), 0.7, "mauer")
+		"ai":
+			var model := str(prop.get("model", ""))
+			if float(prop.get("y", 0.0)) < -1.0:
+				return                                   # im Wasser (Schiffsrumpf)
+			if prop.has("w") and prop.has("d"):
+				var soft := "reifen" if model == "drift_reifenwand" else "mauer"
+				add_rect(c, u, Vector2(float(prop.w), float(prop.d)) * 0.5, float(prop.get("h", 3.0)), soft)
+			elif AI_RADIUS.has(model):
+				add_circle(c, float(AI_RADIUS[model]), float(prop.get("h", 3.0)), "mauer")
+			if model == "hafen_kran" and prop.has("feet"):
+				add_circle(Vector2(float(prop.feet[0]), float(prop.feet[1])), 1.2, 20.0, "mauer")
+		_:
+			if PROP_CIRCLES.has(kind):
+				add_circle(c, float(PROP_CIRCLES[kind]) * (sc if kind in ["pine", "oak", "rock"] else 1.0), 4.0, "baum" if kind in ["street_tree", "palm", "pine", "oak"] else "mast")
+
+func obstacles_near(p: Vector2) -> Array:
+	var key := Vector2i(floori(p.x / OBSTACLE_CELL), floori(p.y / OBSTACLE_CELL))
+	return obstacle_grid.get(key, [])
+
+func obstacle_contact(o: Dictionary, p: Vector2, radius: float) -> Vector3:
+	# Kreis (Mitte p, Radius) gegen Hindernis: (Normale x, Normale z, Eindringtiefe); Tiefe <= 0 = keine Berührung.
+	var c: Vector2 = o.c
+	if o.has("r"):
+		var d := p - c
+		var dist := d.length()
+		var n := d / dist if dist > 0.0001 else Vector2.RIGHT
+		return Vector3(n.x, n.y, float(o.r) + radius - dist)
+	var u: Vector2 = o.u
+	var v := Vector2(-u.y, u.x)
+	var half: Vector2 = o.h
+	var rel := p - c
+	var a := rel.dot(u)
+	var b := rel.dot(v)
+	var q := Vector2(clampf(a, -half.x, half.x), clampf(b, -half.y, half.y))
+	var diff := Vector2(a, b) - q
+	var dist := diff.length()
+	var nl: Vector2
+	var depth: float
+	if dist > 0.0001:
+		nl = diff / dist
+		depth = radius - dist
+	else:
+		var ex := half.x - absf(a)
+		var ez := half.y - absf(b)
+		if ex < ez:
+			nl = Vector2(signf(a) if a != 0.0 else 1.0, 0.0)
+			depth = radius + ex
+		else:
+			nl = Vector2(0.0, signf(b) if b != 0.0 else 1.0)
+			depth = radius + ez
+	var n := u * nl.x + v * nl.y
+	return Vector3(n.x, n.y, depth)

@@ -311,6 +311,18 @@ def mesh_objects(name, parts):
 
 # ---------------------------------------------------------------- Kreuzungen und Seitenstraßen planen
 placed = []          # Flächen (Vierecke in 2D), auf denen keine Häuser/Bäume stehen dürfen
+colliders = []       # Hindernisse für die Fahrphysik (Begleitdatei "obstacles"): Rechteck oder Kreis, Höhe, Art
+
+
+def collide_rect(cx, cz, ux, uz, ha, hb, height, kind):
+    """Rechteckiges Hindernis: Mitte, Richtung der a-Achse (Einheitsvektor), halbe Maße entlang a und quer dazu."""
+    n = math.hypot(ux, uz) or 1.0
+    colliders.append({"k": kind, "c": [round(cx, 3), round(cz, 3)], "u": [round(ux / n, 5), round(uz / n, 5)],
+                      "h": [round(ha, 3), round(hb, 3)], "y": round(height, 2)})
+
+
+def collide_circle(cx, cz, r, height, kind):
+    colliders.append({"k": kind, "c": [round(cx, 3), round(cz, 3)], "r": round(r, 3), "y": round(height, 2)})
 footprints = []      # (Frame, a0, a1, b0, b1): Gesamtfläche von Straße + Rand + Gehweg (für Boden und Häuser)
 asphalt_rects = []   # (Frame, a0, a1, b0, b1): reine Fahrbahnflächen (Begleitdatei für das Spiel)
 arm_parts = []       # Flächen aller Kreuzungen/Seitenstraßen
@@ -414,6 +426,8 @@ def barrier_segment(g, a_c, length, lamp=False):
         parts += box(g, "weiss", i0 + 2 * i * ws, i0 + (2 * i + 1) * ws, -0.015, 0.015, Y_J + 0.14, Y_J + 0.46)
     if lamp:
         parts += post(g.pt(a0 + 0.05, 0.0), 0.09, Y_J + 1.02, Y_J + 1.18, "k:lampe_rot", "k:lampe_rot", cap_h=0.05)
+    c = g.pt(a_c, 0.0)
+    collide_rect(c.x, c.y, g.u.x, g.u.y, length / 2, 0.3, 1.1, "absperrung")
     return parts
 
 
@@ -540,8 +554,12 @@ def build_garage(fr, length, start):
     # Das System dieser Zufahrt ist von vorn gesehen gespiegelt (a wächst nach links): Buchstabe daher mit umgekehrtem Vorzeichen.
     for a0_, a1_, y0_, y1_ in ((-0.3, -0.13, 0.22, 1.08), (-0.3, 0.26, 0.92, 1.08), (-0.3, 0.26, 0.6, 0.76), (0.1, 0.26, 0.6, 1.08)):
         parts += box(fr, "weiss", a_p - a1_, a_p - a0_, b_p - 0.12, b_p - 0.09, y_s + y0_, y_s + y1_)
-    # Schranken am Vorplatz (geschlossen), rot-weiß gestreift
+    # Schranken am Vorplatz (geschlossen), rot-weiß gestreift; die Haube ist ein festes Hindernis
     b_s = start + 1.4
+    sc = fr.pt(0.0, b_s)
+    collide_rect(sc.x, sc.y, fr.u.x, fr.u.y, HW, 0.15, 1.1, "absperrung")
+    hc = fr.pt(0.0, (b1 + end) / 2)
+    collide_rect(hc.x, hc.y, fr.u.x, fr.u.y, hood, (end - b1) / 2, 3.0, "mauer")
     for sgn in (-1, 1):
         parts += box(fr, "gummi", *sorted((sgn * 3.05, sgn * 3.45)), b_s - 0.2, b_s + 0.2, Y_J, Y_J + 1.05)
         for k in range(6):
@@ -577,6 +595,7 @@ def on_asphalt(p):
 def traffic_light(pos, look, state):
     """Ampelmast mit einem Lampenkasten (Blick look, also zur anfahrenden Straße hin); state: rot | gruen (eine Lampe leuchtet nachts)."""
     g = Frame(pos, look, Vector((-look.y, look.x)))
+    collide_circle(pos.x, pos.y, 0.15, 3.3, "mast")
     parts = box(g, "stahl", -0.06, 0.06, -0.06, 0.06, Y_W, Y_W + 3.3)
     parts += box(g, "dunkel", 0.06, 0.32, -0.16, 0.16, Y_W + 2.3, Y_W + 3.25)
     for k, key in enumerate(("ampel_rot", "ampel_gelb", "ampel_gruen")):
@@ -726,6 +745,8 @@ def build_portal(i):
         dress_parts.extend(box(f, "weiss", -0.35, 0.35, s * bp - 0.35, s * bp + 0.35, Y_W + 0.5, Y_W + 6.3))
         dress_parts.extend(box(f, "rot", -0.37, 0.37, s * bp - 0.37, s * bp + 0.37, Y_W + 3.4, Y_W + 3.9))
         placed.append(f.poly(-0.6, 0.6, s * bp - 0.6, s * bp + 0.6))
+        pc = f.pt(0.0, s * bp)
+        collide_rect(pc.x, pc.y, f.u.x, f.u.y, 0.45, 0.45, 6.3, "mauer")
     # Balken: Oberseite Schachbrett, Stirnseiten weiß, Längsseiten mit dem Schriftzug (gespiegelt auf der Rückseite, damit er lesbar bleibt)
     for a0, a1, key in ((-0.42, -0.15, "weiss"), (-0.15, 0.15, "e:schach"), (0.15, 0.42, "weiss")):
         ab = ((a0, -hb), (a1, -hb), (a1, hb), (a0, hb))
@@ -932,6 +953,7 @@ def place(name, x, z, ang, height, clearance=FOOT + 0.2, trunk=0.0, check_center
     scene.collection.objects.link(inst)
     inst.matrix_world = Matrix.Translation((x, -z, GROUND_Y)) @ Matrix.Rotation(-ang, 4, "Z") @ Matrix.Scale(s, 4)
     placed.append(poly)
+    collide_circle(x, z, 0.35, 3.0, "baum")
     recipe["trees"].append({"model": name, "at": [round(x, 3), round(z, 3)], "yaw": round(ang, 4), "height": round(height, 2)})
     return True
 
@@ -959,6 +981,7 @@ def place_house(spec, cx, cz, ux, uz, fx, fz, check_center=True, clearance=FOOT 
     placed.append(foot)
     house_kinds[spec["kind"]] = house_kinds.get(spec["kind"], 0) + 1
     wu, wv = (foot[1][0] - foot[0][0], foot[1][1] - foot[0][1]), (foot[2][0] - foot[1][0], foot[2][1] - foot[1][1])
+    collide_rect(sum(q[0] for q in foot) / 4, sum(q[1] for q in foot) / 4, wu[0], wu[1], math.hypot(*wu) / 2 - 0.15, math.hypot(*wv) / 2 - 0.15, 6.0, "mauer")
     light_blockers.append([round(sum(q[0] for q in foot) / 4, 3), round(sum(q[1] for q in foot) / 4, 3),
                            round(math.hypot(*wu) / 2, 3), round(math.hypot(*wv) / 2, 3), round(math.atan2(wu[1], wu[0]), 4)])
     recipe["houses"].append({**{k: (round(v, 3) if isinstance(v, float) else v) for k, v in spec.items()},
@@ -1063,6 +1086,8 @@ CROWD_TILE = 6.0          # Länge einer Zuschauerkachel (Textur, m)
 
 def fence_panel(g, length=2.2):
     """Absperrgitter für Zuschauer: zwei Holme, neun Stäbe, zwei Füße. g: a längs der Reihe, b zur Zuschauerseite."""
+    c = g.pt(0.0, 0.0)
+    collide_rect(c.x, c.y, g.u.x, g.u.y, length / 2, 0.15, 1.1, "gitter")
     parts = []
     for a in (-length / 2 + 0.12, length / 2 - 0.12):
         parts += box(g, "stahl", a - 0.04, a + 0.04, -0.28, 0.28, Y_W, Y_W + 0.05)
@@ -1179,6 +1204,8 @@ def bleachers(side, s_from, s_to):
         dress_parts.extend(box(g, "weiss", a - 0.03, a + 0.03, -0.03, n_tiers * tier, Y_W + 0.55, Y_W + 0.62))
         dress_parts.extend(box(g, "weiss", a - 0.025, a + 0.025, -0.03, 0.03, Y_W, Y_W + 0.9))
     placed.append(poly)
+    tc = g.pt(0.0, n_tiers * tier / 2)
+    collide_rect(tc.x, tc.y, g.u.x, g.u.y, length / 2, n_tiers * tier / 2, 1.7, "mauer")
     return 1
 
 
@@ -1220,6 +1247,8 @@ for i in range(14, N, 34):
     for a in (-0.72, 0.72):
         bench_parts += box(g, "stahl", a - 0.03, a + 0.03, -0.2, 0.22, y, y + 0.42)           # Füße
     placed.append(g.poly(-1.2, 1.2, -0.7, 0.7))
+    bc = g.pt(0.0, 0.0)
+    collide_rect(bc.x, bc.y, g.u.x, g.u.y, 0.85, 0.25, 0.9, "bank")
     bench_count += 1
 bench_objs = mesh_objects("Bank", bench_parts)
 print("DIORAMA Parkbänke:", bench_count)
@@ -1236,6 +1265,7 @@ for origin, direction, normal, s0, s1 in arms:
             parts_c, (car_len, car_wid) = kit_car.random_car(car_rng, pos.x, pos.y, heading.x, heading.y, base_y=Y_J)
             if car_rng.random() < 0.6:
                 car_parts_all += parts_c
+                collide_rect(pos.x, pos.y, heading.x, heading.y, car_len / 2, car_wid / 2, 1.5, "auto")
                 recipe.setdefault("cars", []).append({"at": [round(pos.x, 3), round(pos.y, 3)], "dir": [round(heading.x, 4), round(heading.y, 4)]})
             s += car_len + car_rng.uniform(0.5, 4.5)
 car_objs = mesh_objects("Auto", car_parts_all)
@@ -1404,7 +1434,10 @@ blocked = []
 for fr, a0, a1, b0, b1 in asphalt_rects:
     blocked.append([round(fr.o.x, 3), round(fr.o.y, 3), round(fr.u.x, 5), round(fr.u.y, 5), round(fr.v.x, 5), round(fr.v.y, 5),
                     a0 - 0.4, a1 + 0.4, b0 - 0.4, b1 + 0.4])
-json.dump({"blocked": blocked, "extent": [x0, z0, x1, z1], "occluders": light_blockers,
+if fountain:
+    collide_circle(fountain["x"], fountain["z"], 3.4, 0.6, "mauer")
+print("DIORAMA Hindernisse:", len(colliders))
+json.dump({"blocked": blocked, "extent": [x0, z0, x1, z1], "occluders": light_blockers, "obstacles": colliders,
            "lamps": [{"x": round(a.x, 3), "z": round(a.y, 3), "toward": [round(t.x, 3), round(t.y, 3)]} for a, t in lamps]},
           open(OUT_GLB.replace(".glb", "_layout.json"), "w"))
 recipe["lamps"] = [{"at": [round(a.x, 3), round(a.y, 3)], "toward": [round(t.x, 3), round(t.y, 3)]} for a, t in lamps]

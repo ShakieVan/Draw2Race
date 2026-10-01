@@ -42,7 +42,7 @@ if ($engines) {
     }
     Invoke-Godot -Arguments @('--headless','--path',$gamePath,'--editor','--import','--quit')
 }
-foreach ($test in @('test_core','test_flow','test_tracks','test_air','test_diorama')) {
+foreach ($test in @('test_core','test_flow','test_tracks','test_air','test_diorama','test_collision')) {
     Invoke-Godot -Arguments @('--headless','--path',$gamePath,'--quit-after','180','--script',"res://tests/$test.gd")
 }
 if ($Target -eq 'Test') { exit 0 }

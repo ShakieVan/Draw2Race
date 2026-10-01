@@ -55,6 +55,8 @@ func _init() -> void:
 
 	# Lücke nach der Schanze (Sprung über eine andere Straße): 9 m ohne Boden.
 	var gap := Circuit.load_track("azure")
+	gap.obstacles.clear()        # hier zählt nur die Flugphase (Deko-Hindernisse prüft test_collision.gd)
+	gap.obstacle_grid.clear()
 	gap.ramps = [{"s": meters(gap, 8.0), "length": 5.0, "height": 1.6}]
 	gap.gaps = [{"from": meters(gap, 13.05), "to": meters(gap, 22.0)}]
 	var fast := drive(gap, 20.0, 4.0)
@@ -145,6 +147,8 @@ func _init() -> void:
 	# KI kennt Mindesttempo: fährt Looping und Lückensprung aus eigener Planung sicher.
 	for kind in ["loop", "gap"]:
 		var ai_track := Circuit.load_track("azure")
+		ai_track.obstacles.clear()   # Schanze vor der Kurve: die Landung liegt neben der Fahrbahn bei der Deko
+		ai_track.obstacle_grid.clear()
 		if kind == "loop":
 			ai_track.loops = [{"s": 0.47, "radius": 3.5}]   # Gegengerade: genug Anlauf
 		else:

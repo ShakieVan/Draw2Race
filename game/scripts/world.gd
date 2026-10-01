@@ -222,10 +222,15 @@ func build(circuit: Circuit) -> void:
 			shape("box", Vector3(center.x,0.20+s*0.004,center.y), Vector3(0.85,0.02,0.16), arrow_color, angle-sign_value*0.55)
 	build_stunts()
 	build_shortcuts()
+	var layout_world := not diorama and track.obstacle_source == "layout"
 	for prop in track.props:
 		if diorama and (str(prop.get("type", "")) in DIORAMA_BAKED or diorama_blocks(prop)):
 			continue   # im Diorama enthalten bzw. läge auf einer Diorama-Straße
+		if layout_world and (str(prop.get("type", "")) in DIORAMA_BAKED or Circuit.on_layout_road(prop, track_layout_blocked())):
+			continue   # einfache Grafik: Häuser und Bäume stehen dort, wo das Diorama (und damit die Physik) sie hat
 		build_prop(prop)
+	if layout_world:
+		build_obstacle_blocks()
 	for lamp in diorama_lamps:
 		build_prop({"type": "lamp", "x": lamp.x, "z": lamp.z, "toward": lamp.toward})
 	flush_ai_props()
@@ -1027,6 +1032,42 @@ var diorama := false
 var diorama_blocked: Array = []   # Straßenflächen des Dioramas: [ox, oz, ux, uz, vx, vz, a0, a1, b0, b1] (Begleitdatei)
 var diorama_lamps: Array = []     # zusätzliche Laternen für Kreuzungen/Nebenstraßen: {x, z, toward}
 var diorama_extent := Rect2()      # Fläche des Dioramas (Laternenlicht, Niederschlag und Nebel gelten für die ganze Stadt)
+
+func track_layout_blocked() -> Array:
+	var path := (DIORAMA_PATH % track.id).replace(".glb", "_layout.json")
+	var layout = JSON.parse_string(FileAccess.get_file_as_string(path)) if FileAccess.file_exists(path) else null
+	return layout.get("blocked", []) if layout is Dictionary else []
+
+func build_obstacle_blocks() -> void:
+	# Einfache Grafikstufe einer Strecke mit Diorama: die Hindernisse der Spielebene als Klötzchen (Häuser, Bäume, Absperrungen,
+	# parkende Autos), damit Bild und Zusammenstöße übereinstimmen.
+	var palette := [Color("e8d9b5"), Color("d98c6a"), Color("9fb7b5"), Color("c9b48f"), Color("b8a0a8")]
+	var k := 0
+	for o in track.obstacles:
+		var c: Vector2 = o.c
+		var height := float(o.y)
+		match str(o.k):
+			"baum":
+				shape("cylinder", Vector3(c.x, 1.2, c.y), Vector3(0.35, 2.4, 0.35), Color("6b4a32"))
+				shape("box", Vector3(c.x, 3.6, c.y), Vector3(2.6, 2.4, 2.6), Color("4f7f4a"))
+			"mast":
+				shape("cylinder", Vector3(c.x, height * 0.5, c.y), Vector3(0.16, height, 0.16), DARK)
+			_:
+				if o.has("r"):
+					shape("cylinder", Vector3(c.x, height * 0.5, c.y), Vector3(float(o.r) * 2.0, height, float(o.r) * 2.0), Color("9a9a96"))
+					continue
+				var u: Vector2 = o.u
+				var half: Vector2 = o.h
+				var color: Color = palette[k % palette.size()]
+				match str(o.k):
+					"absperrung":
+						color = CORAL
+					"gitter", "bank":
+						color = Color("a8adb3")
+					"auto":
+						color = Color.from_hsv(fposmod(c.x * 0.13 + c.y * 0.07, 1.0), 0.45, 0.75)
+				k += 1
+				shape("box", Vector3(c.x, 0.17 + height * 0.5, c.y), Vector3(half.x * 2.0, height, half.y * 2.0), color, -atan2(u.y, u.x))
 
 func diorama_blocks(prop: Dictionary) -> bool:
 	# Liegt ein Laufzeit-Bauteil (Laterne, Tafel …) auf einer Diorama-Straße? Dann entfällt es.

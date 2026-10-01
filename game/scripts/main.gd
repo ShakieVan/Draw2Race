@@ -400,7 +400,7 @@ func place_models() -> void:
 			if halo_off != null:
 				halo_off.visible = false
 			continue
-		if vehicles[i].crashed and not vehicles[i].rolled_back:
+		if vehicles[i].crashed and not vehicles[i].rolled_back and not vehicles[i].wrecked:
 			# Absturz: nur Darstellung – das Auto fällt aus dem Bild.
 			var fall: float = models[i].get_meta("fall", 0.0) + get_process_delta_time() * 9.81 * 0.5
 			models[i].set_meta("fall", fall)
@@ -583,6 +583,13 @@ func race_sounds() -> void:
 			sound.impact("rail", clampf(v.guard_hit / 9.0, 0.25, 1.0), pan, far)
 			world.sparks(Vector3(v.pos.x, 0.45, v.pos.y), Vector3(-v.velocity.y, 0, v.velocity.x).normalized(), clampf(v.guard_hit / 8.0, 0.2, 1.0))
 		v.guard_hit = 0.0
+		if v.obstacle_hit > 1.0:
+			# Zusammenstoß mit Deko (Haus, Absperrung, Laterne …): Blech klirrt an Metall, sonst ein dumpfer Schlag.
+			var metal := v.obstacle_kind in ["absperrung", "gitter", "mast"]
+			sound.impact("rail" if metal else "car", clampf(v.obstacle_hit / 9.0, 0.25, 1.0), pan, far)
+			if metal or v.obstacle_hit > 6.0:
+				world.sparks(Vector3(v.pos.x, 0.45, v.pos.y), Vector3(-v.velocity.y, 0, v.velocity.x).normalized(), clampf(v.obstacle_hit / 8.0, 0.2, 1.0))
+		v.obstacle_hit = 0.0
 	if not vehicles.is_empty():
 		if vehicles[0].boosting and not was_boosting:
 			sound.impact("kick", 0.9)

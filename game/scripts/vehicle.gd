@@ -2,7 +2,7 @@ class_name RaceVehicle
 extends RefCounted
 
 # Dynamic bicycle model. World position is integrated ONLY here.
-const VERSION := "bicycle-3"
+const VERSION := "bicycle-4"
 # Fahrer-Regler; gemessen mit tests/tune_controller.gd.
 static var LOOK_BASE := 4.0
 static var LOOK_GAIN := 0.40
@@ -203,6 +203,7 @@ func step(dt: float, boost: bool, time: float) -> void:
 		if outward > 0.0:
 			velocity -= normal * outward * 1.35
 		velocity *= 0.84
+	collide_obstacles(dt)
 	if track.mode == "drift":
 		score_drift(dt)
 	var ph := track.phase_near(pos, previous_phase, 0.08)
@@ -389,3 +390,78 @@ static func resolve_contact(a: RaceVehicle, b: RaceVehicle) -> float:
 		b.velocity += normal * impulse
 		return -closing
 	return 0.0
+
+# ---------- Zusammenstoß mit Hindernissen (Häuser, Absperrungen, Laternen, Bäume, parkende Autos …) ----------
+# Das Auto ist zwei Kreise (vorn, hinten). Der Stoß wirkt an der Berührstelle: Abprall entlang der Normalen (Rückprall je nach
+# Art), Reibung quer dazu und ein Drehimpuls um die Hochachse – schräge Treffer drehen das Auto. Bleibt das Auto an einem
+# Hindernis hängen (die Linie führt hindurch), ist es nach STUCK_TIME ein Wrack: das Rennen ist dann verloren.
+const CAR_REACH := 1.25
+const CAR_RADIUS := 0.95
+const CAR_INERTIA := 1.8
+const STUCK_TIME := 3.0
+const WRECK_SPEED := 17.0      # m/s senkrecht in eine Wand oder ein Auto: Totalschaden
+var obstacle_hit := 0.0         # stärkster Aufprall (m/s) seit dem letzten Abholen, für Geräusch/Funken (Aufrufer setzt zurück)
+var obstacle_kind := ""
+var stuck := 0.0
+var stuck_from := 0.0
+var last_touch := 9.0
+var wrecked := false
+
+func collide_obstacles(dt: float) -> void:
+	if track.obstacles.is_empty():
+		return
+	var forward := Vector2.from_angle(heading)
+	var touching := false
+	for off in [CAR_REACH, -CAR_REACH]:
+		var c: Vector2 = pos + forward * off
+		for idx in track.obstacles_near(c):
+			var o: Dictionary = track.obstacles[idx]
+			if airborne and z > float(o.y):
+				continue
+			var hit := track.obstacle_contact(o, c, CAR_RADIUS)
+			if hit.z <= 0.0:
+				continue
+			touching = true
+			var n := Vector2(hit.x, hit.y)
+			pos += n * hit.z
+			c += n * hit.z
+			var r := c - pos
+			var vc := velocity + Vector2(-r.y, r.x) * yaw
+			var vn := vc.dot(n)
+			if vn >= 0.0:
+				continue
+			var soft: bool = str(o.k) in Circuit.SOFT_OBSTACLES
+			var e := 0.12 if soft else 0.3
+			var rn := r.x * n.y - r.y * n.x
+			var j := -(1.0 + e) * vn / (1.0 + rn * rn / CAR_INERTIA)
+			velocity += n * j
+			yaw = clampf(yaw + rn * j / CAR_INERTIA, -3.0, 3.0)
+			var t := Vector2(-n.y, n.x)
+			velocity -= t * vc.dot(t) * (0.35 if soft else 0.22)
+			if soft:
+				velocity *= 0.9
+			if -vn > obstacle_hit:
+				obstacle_hit = -vn
+				obstacle_kind = str(o.k)
+			if not soft and -vn > WRECK_SPEED and str(o.k) in ["mauer", "auto"]:
+				wreck()
+				return
+	# Festgefahren: berührt (oder eben noch berührt) und kaum Fortschritt entlang der Strecke.
+	last_touch = 0.0 if touching else last_touch + dt
+	if last_touch < 0.6:
+		if stuck == 0.0:
+			stuck_from = progress
+		stuck += dt
+		if (progress - stuck_from) * track.length > 2.0:
+			stuck = 0.0
+		elif stuck > STUCK_TIME:
+			wreck()
+	else:
+		stuck = 0.0
+
+func wreck() -> void:
+	# Totalschaden bzw. festgefahren: das Auto bleibt stehen (kein Absturz aus dem Bild).
+	crashed = true
+	wrecked = true
+	velocity = Vector2.ZERO
+	yaw = 0.0

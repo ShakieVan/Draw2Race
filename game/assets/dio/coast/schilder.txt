@@ -1,0 +1,7 @@
+haupt 0 0 1024 128
+tribuene_a 0 128 512 256
+tribuene_w 512 128 1024 256
+tribuene_o 0 256 512 384
+tribuene_s 512 256 1024 384
+fahrerlager 0 384 512 512
+willkommen 512 384 1024 512

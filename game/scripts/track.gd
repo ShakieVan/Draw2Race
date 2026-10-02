@@ -515,6 +515,37 @@ func corner_factor(s: float) -> float:
 	# 0 auf Geraden, 1 in engen Kurven (Radius <= 13 m); nur für Messwerkzeuge.
 	return clampf(curvature(s) * 13.0, 0.0, 1.0)
 
+const WET_WALL_REACH := 6.0     # m neben dem Fahrbahnrand, in denen ein festes Hindernis die Nässeplanung vorsichtiger macht
+const WET_WALL_FACTOR := 0.86   # zulässige Querbeschleunigung direkt an einer Wand bei Nässe (Anteil)
+
+func wet_wall_margins() -> PackedFloat32Array:
+	# Bei Nässe plant die KI dort vorsichtiger, wo ein festes Hindernis (Mauer, Tribüne, Haus) nah am Fahrbahnrand steht:
+	# Rutscht sie dort hinaus, gibt es keine Auslaufzone (Stadion der Küste). Je Stützstelle ein Faktor für die Querbeschleunigung
+	# (1 = keine Wand in Reichweite). Weiche Hindernisse (Absperrung, Reifen …) zählen nicht. Trocken bleibt alles wie bisher.
+	var out := PackedFloat32Array()
+	out.resize(span())
+	for i in range(span()):
+		var s := float(i) / span()
+		var clear := WET_WALL_REACH
+		for side in [-1.0, 1.0]:
+			var d := 0.0
+			while d < clear:
+				var p := at(s, side * (HALF_WIDTH + d))
+				var hit := false
+				for idx in obstacles_near(p):
+					var o: Dictionary = obstacles[idx]
+					if str(o.k) in SOFT_OBSTACLES:
+						continue
+					if obstacle_contact(o, p, 0.9).z > 0.0:
+						hit = true
+						break
+				if hit:
+					clear = d
+					break
+				d += 0.5
+		out[i] = lerpf(WET_WALL_FACTOR, 1.0, clampf(clear / WET_WALL_REACH, 0.0, 1.0))
+	return out
+
 func ai_route(skill := 0.0, lane := 0.0) -> Array[Dictionary]:
 	# Tempoprofil aus der Krümmung: Kurventempo über die zulässige Querbeschleunigung, davor
 	# rechtzeitig bremsen (Rückwärtsdurchlauf). skill 0 = vorsichtig, 3 = gemessenes Optimum (mehr überzieht).
@@ -525,11 +556,13 @@ func ai_route(skill := 0.0, lane := 0.0) -> Array[Dictionary]:
 	var brake := 6.0 + skill * 1.0
 	var count := span() * laps
 	var speeds := PackedFloat32Array()
+	var margins := wet_wall_margins() if RaceVehicle.weather_grip < 0.999 else PackedFloat32Array()
 	for i in range(count):
 		var s := float(i) / span()
 		var k := maxf(curvature(s), 0.0005)
 		# Außen-/Innenspur ändern den Radius (Versatz relativ zur Kurvenrichtung wird näherungsweise ignoriert).
-		speeds.append(minf(top, sqrt(lateral / k)))
+		var lat := lateral * (margins[i % margins.size()] if not margins.is_empty() else 1.0)
+		speeds.append(minf(top, sqrt(lat / k)))
 	var ds := length / span()
 	for _round in range(2):
 		for i in range(count - 2, -1, -1):
@@ -566,6 +599,7 @@ const AI_RADIUS := {"drift_zuschauer_container": 3.0, "hafen_faesser": 0.8, "haf
 const SOFT_OBSTACLES := ["absperrung", "gitter", "bank", "reifen"]
 var obstacles: Array = []        # {k: Art, c: Mitte, u: a-Achse, h: halbe Maße (Rechteck) | r: Radius (Kreis), y: Höhe}
 var obstacle_grid := {}
+var baked_types: Array = DIORAMA_BAKED   # Bausteintypen, die das Diorama selbst enthält (Begleitdatei "baked"); "ai:<modell>" = nur dieses KI-Modell
 var obstacle_source := "props"   # "layout": Hindernisse aus der Diorama-Begleitdatei (Häuser stehen dort, nicht an den Bausteinen)
 
 func add_circle(c: Vector2, r: float, height: float, kind: String) -> void:
@@ -587,17 +621,20 @@ func load_obstacles() -> void:
 			from_layout = true
 			obstacle_source = "layout"
 			blocked = layout.get("blocked", [])
+			baked_types = layout.get("baked", DIORAMA_BAKED)
 			for o in layout.obstacles:
 				var c := Vector2(float(o.c[0]), float(o.c[1]))
 				if o.has("r"):
 					add_circle(c, float(o.r), float(o.y), str(o.k))
 				else:
 					add_rect(c, Vector2(float(o.u[0]), float(o.u[1])), Vector2(float(o.h[0]), float(o.h[1])), float(o.y), str(o.k))
+				if o.has("v") and not bool(o.v):
+					obstacles[-1]["v"] = false      # unsichtbarer Begrenzer: kollidiert, wird in der einfachen Grafikstufe aber nicht als Klotz gezeichnet
 			for lamp in layout.get("lamps", []):
 				add_circle(Vector2(float(lamp.x), float(lamp.z)), 0.18, 4.0, "mast")
 	for prop in props:
 		var kind := str(prop.get("type", ""))
-		if from_layout and (kind in DIORAMA_BAKED or on_layout_road(prop, blocked)):
+		if from_layout and (is_baked(prop) or on_layout_road(prop, blocked)):
 			continue
 		prop_obstacle(prop)
 	for i in range(obstacles.size()):
@@ -610,6 +647,11 @@ func load_obstacles() -> void:
 				if not obstacle_grid.has(key):
 					obstacle_grid[key] = []
 				obstacle_grid[key].append(i)
+
+func is_baked(prop: Dictionary) -> bool:
+	# Steckt der Baustein im Diorama (Typ in "baked", bei KI-Modellen auch "ai:<modell>")? Dann entfallen Laufzeit-Bauteil und -Hindernis.
+	var kind := str(prop.get("type", ""))
+	return kind in baked_types or (kind == "ai" and ("ai:" + str(prop.get("model", ""))) in baked_types)
 
 static func on_layout_road(prop: Dictionary, blocked: Array) -> bool:
 	# Wie World.diorama_blocks: Laufzeit-Bauteile auf einer Diorama-Straße entfallen (und mit ihnen ihr Hindernis).

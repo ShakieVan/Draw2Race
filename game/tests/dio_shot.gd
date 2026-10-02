@@ -1,6 +1,7 @@
 extends SceneTree
 # Kontrollbilder einer Strecke mit Diorama: Zeichen-Übersicht (senkrecht) und geneigte Nahansicht wie im Rennen.
-# TRACK (Standard city), TIME (day|dusk|night, Standard day), WEATHER, AT (Streckenanteil der Nahansicht), NOOVERLAY=1 (Laternen-Zusatzlicht aus), NOWINDOWS=1 (Fensterlicht aus).
+# TRACK (Standard city), TIME (day|dusk|night, Standard day), WEATHER, AT (Streckenanteil der Nahansicht; Blickhöhe = Fahrbahnhöhe dort),
+# CX/CZ (statt AT ein Weltpunkt, Höhe CY oder Gelände), NOOVERLAY=1 (Laternen-Zusatzlicht aus), NOWINDOWS=1 (Fensterlicht aus).
 func _initialize() -> void:
 	call_deferred("run")
 
@@ -91,10 +92,15 @@ func run() -> void:
 	# Geneigte Nahansicht (wie Rennkamera) auf den Startbereich.
 	app.cam_pitch = app.PITCH_RACE
 	app.cam_zoom = 26.0
-	var s: Vector2 = app.track.at(float(OS.get_environment("AT")) if OS.get_environment("AT") != "" else 0.02)
-	app.camera_target = Vector3(s.x, 0, s.y)
+	# Blickziel auf Höhe der Fahrbahn (Strecken mit Höhenprofil wie die Serra, bis 40 m): sonst liegt die Straße außermittig und viel zu weit weg.
+	var at := float(OS.get_environment("AT")) if OS.get_environment("AT") != "" else 0.02
+	var s: Vector2 = app.track.at(at)
+	app.camera_target = Vector3(s.x, app.track.surface_z(at), s.y)
 	if OS.get_environment("CX") != "":
-		app.camera_target = Vector3(float(OS.get_environment("CX")), 0, float(OS.get_environment("CZ")))
+		# Eigener Punkt (CX, CZ); Höhe CY, sonst das Gelände dort (Fahrbahn-Höhe nur mit AT).
+		var cp := Vector2(float(OS.get_environment("CX")), float(OS.get_environment("CZ")))
+		var cy: float = float(OS.get_environment("CY")) if OS.get_environment("CY") != "" else app.track.terrain_height(cp)
+		app.camera_target = Vector3(cp.x, cy, cp.y)
 	app.paused = true
 	app.set_camera(app.camera_target)
 	for k in range(10):

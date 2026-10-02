@@ -53,7 +53,11 @@ func _init() -> void:
 		kinds[o.k] = true
 	check(kinds.has("mauer") and kinds.has("absperrung") and kinds.has("baum") and kinds.has("auto") and kinds.has("mast"), "Stadt: Häuser, Absperrungen, Bäume, Autos, Masten")
 	var azure := Circuit.load_track("azure")
-	check(azure.obstacle_source == "props" and azure.obstacles.size() > 20, "Azure: Hindernisse aus den Bausteinen (%d)" % azure.obstacles.size())
+	check(azure.obstacle_source == "layout" and azure.obstacles.size() > 150, "Azure: Hindernisse aus der Diorama-Begleitdatei (%d)" % azure.obstacles.size())
+	var azure_kinds := {}
+	for o in azure.obstacles:
+		azure_kinds[o.k] = true
+	check(azure_kinds.has("mauer") and azure_kinds.has("reifen") and azure_kinds.has("auto") and azure_kinds.has("baum"), "Azure: Mauer, Reifenwand, Autos, Palmen")
 
 	# Frontal mit 10 m/s gegen eine Wand: Abprall, kein Durchfahren, kein Totalschaden.
 	var t1 := Circuit.load_track("azure")

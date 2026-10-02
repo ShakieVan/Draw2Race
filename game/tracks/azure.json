@@ -588,383 +588,46 @@
  ],
  "props": [
   {
-   "type": "lagoon",
-   "x": -7,
-   "z": -1,
-   "w": 22,
-   "d": 14
+   "type": "floodlight",
+   "x": -37,
+   "z": -22,
+   "reach": 28.0
   },
   {
-   "type": "walkway",
-   "x": -9.3,
-   "z": 3.9,
-   "w": 12,
-   "d": 1.8
+   "type": "floodlight",
+   "x": 37,
+   "z": -22,
+   "reach": 28.0
   },
   {
-   "type": "pavilion",
-   "x": 11,
-   "z": -2,
-   "w": 11,
-   "d": 5,
-   "text": "AZURE MOTOR CLUB"
+   "type": "floodlight",
+   "x": -37,
+   "z": 22,
+   "reach": 28.0
   },
   {
-   "type": "label",
+   "type": "floodlight",
+   "x": 37,
+   "z": 22,
+   "reach": 28.0
+  },
+  {
+   "type": "floodlight",
+   "x": -10,
+   "z": 36,
+   "reach": 26.0
+  },
+  {
+   "type": "floodlight",
+   "x": 10,
+   "z": 36,
+   "reach": 26.0
+  },
+  {
+   "type": "floodlight",
    "x": 0,
-   "z": 8,
-   "text": "DRAW  /  DRIVE  /  REPEAT",
-   "flat": true
-  },
-  {
-   "type": "tower",
-   "x": -5,
-   "z": 21,
-   "text": "02  /  AZURE"
-  },
-  {
-   "type": "boathouse",
-   "x": 40,
-   "z": 18
-  },
-  {
-   "type": "floodlight",
-   "x": -24,
-   "z": -21,
-   "reach": 13.0
-  },
-  {
-   "type": "floodlight",
-   "x": 24,
-   "z": -21,
-   "reach": 13.0
-  },
-  {
-   "type": "floodlight",
-   "x": -26,
-   "z": 21,
-   "reach": 13.0
-  },
-  {
-   "type": "floodlight",
-   "x": 26,
-   "z": 21,
-   "reach": 13.0
-  },
-  {
-   "type": "stand",
-   "x": -12.0,
-   "z": -23.5,
-   "w": 10,
-   "d": 3.5
-  },
-  {
-   "type": "stand",
-   "x": 0.0,
-   "z": -23.5,
-   "w": 10,
-   "d": 3.5
-  },
-  {
-   "type": "stand",
-   "x": 12.0,
-   "z": -23.5,
-   "w": 10,
-   "d": 3.5
-  },
-  {
-   "type": "palm",
-   "x": -33,
-   "z": -12,
-   "h": 4.1
-  },
-  {
-   "type": "palm",
-   "x": -36,
-   "z": -5,
-   "h": 3.1
-  },
-  {
-   "type": "palm",
-   "x": -34,
-   "z": 8,
-   "h": 3.1
-  },
-  {
-   "type": "palm",
-   "x": 33,
-   "z": -10,
-   "h": 4.1
-  },
-  {
-   "type": "palm",
-   "x": 35,
-   "z": 2,
-   "h": 4.1
-  },
-  {
-   "type": "palm",
-   "x": 32,
-   "z": 13,
-   "h": 3.1
-  },
-  {
-   "type": "palm",
-   "x": -22,
-   "z": 19,
-   "h": 3.1
-  },
-  {
-   "type": "palm",
-   "x": 20,
-   "z": 20,
-   "h": 3.1
-  },
-  {
-   "type": "palm",
-   "x": -16,
-   "z": -4,
-   "h": 3.1
-  },
-  {
-   "type": "palm",
-   "x": 17,
-   "z": 4,
-   "h": 4.1
-  },
-  {
-   "type": "parasol",
-   "x": -20.0,
-   "z": 23,
-   "color": "cream"
-  },
-  {
-   "type": "parasol",
-   "x": -13.6,
-   "z": 23,
-   "color": "coral"
-  },
-  {
-   "type": "parasol",
-   "x": -7.2,
-   "z": 23,
-   "color": "cream"
-  },
-  {
-   "type": "parasol",
-   "x": -0.8,
-   "z": 23,
-   "color": "coral"
-  },
-  {
-   "type": "parasol",
-   "x": 5.6,
-   "z": 23,
-   "color": "cream"
-  },
-  {
-   "type": "parasol",
-   "x": 12.0,
-   "z": 23,
-   "color": "coral"
-  },
-  {
-   "type": "parasol",
-   "x": 18.4,
-   "z": 23,
-   "color": "cream"
-  },
-  {
-   "type": "planter",
-   "x": 25.94,
-   "z": 14.77,
-   "rot": -37.95,
-   "w": 2.0,
-   "d": 0.6
-  },
-  {
-   "type": "planter",
-   "x": 32.18,
-   "z": 5.48,
-   "rot": -73.39,
-   "w": 2.0,
-   "d": 0.6
-  },
-  {
-   "type": "planter",
-   "x": 32.12,
-   "z": -5.71,
-   "rot": -108.83,
-   "w": 2.0,
-   "d": 0.6
-  },
-  {
-   "type": "planter",
-   "x": 26.12,
-   "z": -14.62,
-   "rot": -139.83,
-   "w": 2.0,
-   "d": 0.6
-  },
-  {
-   "type": "planter",
-   "x": -26.12,
-   "z": -14.62,
-   "rot": 139.83,
-   "w": 2.0,
-   "d": 0.6
-  },
-  {
-   "type": "planter",
-   "x": -32.12,
-   "z": -5.71,
-   "rot": 108.83,
-   "w": 2.0,
-   "d": 0.6
-  },
-  {
-   "type": "planter",
-   "x": -32.18,
-   "z": 5.48,
-   "rot": 73.39,
-   "w": 2.0,
-   "d": 0.6
-  },
-  {
-   "type": "planter",
-   "x": -25.94,
-   "z": 14.77,
-   "rot": 37.95,
-   "w": 2.0,
-   "d": 0.6
-  },
-  {
-   "type": "flower",
-   "x": 2.75,
-   "z": 7.5,
-   "w": 0.6,
-   "d": 0.6,
-   "color": "gold"
-  },
-  {
-   "type": "flower",
-   "x": 6.75,
-   "z": 7.5,
-   "w": 0.6,
-   "d": 0.6,
-   "color": "coral"
-  },
-  {
-   "type": "flower",
-   "x": 10.74,
-   "z": 7.5,
-   "w": 0.6,
-   "d": 0.6,
-   "color": "gold"
-  },
-  {
-   "type": "flower",
-   "x": 14.49,
-   "z": 7.48,
-   "w": 0.6,
-   "d": 0.6,
-   "color": "coral"
-  },
-  {
-   "type": "flower",
-   "x": 16.71,
-   "z": 6.98,
-   "w": 0.6,
-   "d": 0.6,
-   "color": "gold"
-  },
-  {
-   "type": "flower",
-   "x": 18.69,
-   "z": 5.84,
-   "w": 0.6,
-   "d": 0.6,
-   "color": "coral"
-  },
-  {
-   "type": "flower",
-   "x": 20.23,
-   "z": 4.16,
-   "w": 0.6,
-   "d": 0.6,
-   "color": "gold"
-  },
-  {
-   "type": "flower",
-   "x": 21.19,
-   "z": 2.09,
-   "w": 0.6,
-   "d": 0.6,
-   "color": "coral"
-  },
-  {
-   "type": "flower",
-   "x": 21.49,
-   "z": -0.17,
-   "w": 0.6,
-   "d": 0.6,
-   "color": "gold"
-  },
-  {
-   "type": "flower",
-   "x": 21.09,
-   "z": -2.41,
-   "w": 0.6,
-   "d": 0.6,
-   "color": "coral"
-  },
-  {
-   "type": "flower",
-   "x": 20.04,
-   "z": -4.44,
-   "w": 0.6,
-   "d": 0.6,
-   "color": "gold"
-  },
-  {
-   "type": "flower",
-   "x": 18.42,
-   "z": -6.05,
-   "w": 0.6,
-   "d": 0.6,
-   "color": "coral"
-  },
-  {
-   "type": "flower",
-   "x": 16.4,
-   "z": -7.1,
-   "w": 0.6,
-   "d": 0.6,
-   "color": "gold"
-  },
-  {
-   "type": "flower",
-   "x": 14.11,
-   "z": -7.49,
-   "w": 0.6,
-   "d": 0.6,
-   "color": "coral"
-  },
-  {
-   "type": "flower",
-   "x": 10.19,
-   "z": -7.5,
-   "w": 0.6,
-   "d": 0.6,
-   "color": "gold"
-  },
-  {
-   "type": "flower",
-   "x": 6.19,
-   "z": -7.5,
-   "w": 0.6,
-   "d": 0.6,
-   "color": "coral"
+   "z": -31.8,
+   "reach": 26.0
   }
  ]
 }

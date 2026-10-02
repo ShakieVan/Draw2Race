@@ -111,5 +111,7 @@ void fragment() {
 	EMISSION += vec3(0.55, 0.62, 0.7) * rings * 0.35;
 	// Laternenlicht (vorberechnet, mit weichen Gebäudeschatten) als beleuchtete Albedo.
 	// Diffus (Farbe x Licht) plus Glanzanteil: Asphalt – vor allem nasser – wirft Laternenlicht auch als Schimmer zurück.
-	EMISSION += lamp_at(world_xz) * (ALBEDO * mix(2.6, 0.9, snow) + vec3(0.07 + 0.16 * wetness + 0.25 * puddle));
+	// Der diffuse Teil ist höchstens Tageslicht (lamp_day, lamp_light.gdshaderinc): unter dicht stehenden Flutlichtern wurde der Asphalt sonst heller als am Tag.
+	vec3 lamp = lamp_at(world_xz);
+	EMISSION += ALBEDO * lamp_day(lamp * mix(2.6, 0.9, snow)) + lamp * vec3(0.07 + 0.16 * wetness + 0.25 * puddle);
 }

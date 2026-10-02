@@ -1,0 +1,2132 @@
+{
+"houses": [
+{
+"kind": "buero",
+"style": "buero",
+"w": 17.83,
+"d": 25.383,
+"floors": 4,
+"roof": "flat",
+"front": "wohn",
+"seed": 478910143,
+"max_h": 60.0,
+"at": [
+-46.0,
+124.0
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "riegel",
+"style": "riegel",
+"w": 30.304,
+"d": 13.188,
+"floors": 7,
+"roof": "flat",
+"front": "wohn",
+"seed": 396391110,
+"max_h": 60.0,
+"at": [
+26.0,
+110.0
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "buero",
+"style": "buero",
+"w": 19.768,
+"d": 20.22,
+"floors": 7,
+"roof": "flat",
+"front": "wohn",
+"seed": 3256250,
+"max_h": 60.0,
+"at": [
+-104.0,
+100.0
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "riegel",
+"style": "riegel",
+"w": 35.934,
+"d": 11.676,
+"floors": 5,
+"roof": "flat",
+"front": "wohn",
+"seed": 415371697,
+"max_h": 60.0,
+"at": [
+88.0,
+104.0
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "buero",
+"style": "buero",
+"w": 16.569,
+"d": 18.218,
+"floors": 7,
+"roof": "flat",
+"front": "wohn",
+"seed": 1043278195,
+"max_h": 60.0,
+"at": [
+62.0,
+132.0
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "putz",
+"w": 12.596,
+"d": 12.213,
+"floors": 3,
+"roof": "hip",
+"front": "wohn",
+"seed": 37557579,
+"max_h": 60.0,
+"at": [
+-106.145,
+77.134
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "putz",
+"w": 9.17,
+"d": 10.666,
+"floors": 3,
+"roof": "flat",
+"front": "wohn",
+"seed": 499766375,
+"max_h": 60.0,
+"at": [
+-82.479,
+77.23
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "putz",
+"w": 8.015,
+"d": 11.821,
+"floors": 3,
+"roof": "gable",
+"front": "wohn",
+"seed": 150913816,
+"max_h": 60.0,
+"at": [
+-55.501,
+77.514
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "putz",
+"w": 13.259,
+"d": 15.828,
+"floors": 3,
+"roof": "hip",
+"front": "wohn",
+"seed": 473671507,
+"max_h": 60.0,
+"at": [
+-40.832,
+79.44
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "putz",
+"w": 11.399,
+"d": 10.744,
+"floors": 3,
+"roof": "hip",
+"front": "wohn",
+"seed": 319871248,
+"max_h": 60.0,
+"at": [
+-22.169,
+79.253
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "altbau",
+"w": 6.192,
+"d": 12.145,
+"floors": 2,
+"roof": "gable",
+"front": "wohn",
+"seed": 327127012,
+"max_h": 60.0,
+"at": [
+-7.658,
+77.432
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "altbau",
+"w": 12.204,
+"d": 13.443,
+"floors": 3,
+"roof": "hip",
+"front": "wohn",
+"seed": 349572197,
+"max_h": 60.0,
+"at": [
+14.235,
+78.482
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "putz",
+"w": 10.01,
+"d": 10.16,
+"floors": 3,
+"roof": "flat",
+"front": "wohn",
+"seed": 474628399,
+"max_h": 60.0,
+"at": [
+30.18,
+78.732
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "putz",
+"w": 10.243,
+"d": 15.929,
+"floors": 3,
+"roof": "flat",
+"front": "wohn",
+"seed": 601200121,
+"max_h": 60.0,
+"at": [
+57.553,
+77.164
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "altbau",
+"w": 7.037,
+"d": 10.908,
+"floors": 3,
+"roof": "gable",
+"front": "wohn",
+"seed": 347125757,
+"max_h": 60.0,
+"at": [
+86.188,
+77.231
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "putz",
+"w": 13.523,
+"d": 12.596,
+"floors": 3,
+"roof": "flat",
+"front": "wohn",
+"seed": 334785116,
+"max_h": 60.0,
+"at": [
+115.392,
+77.099
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "putz",
+"w": 8.756,
+"d": 11.769,
+"floors": 3,
+"roof": "gable",
+"front": "wohn",
+"seed": 407455974,
+"max_h": 60.0,
+"at": [
+-82.005,
+99.242
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "putz",
+"w": 11.237,
+"d": 11.355,
+"floors": 4,
+"roof": "flat",
+"front": "wohn",
+"seed": 764062074,
+"max_h": 60.0,
+"at": [
+-67.519,
+99.118
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "putz",
+"w": 6.999,
+"d": 9.119,
+"floors": 2,
+"roof": "gable",
+"front": "wohn",
+"seed": 1070648309,
+"max_h": 60.0,
+"at": [
+-42.397,
+97.817
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "putz",
+"w": 7.078,
+"d": 11.612,
+"floors": 3,
+"roof": "gable",
+"front": "wohn",
+"seed": 625000084,
+"max_h": 60.0,
+"at": [
+-14.006,
+98.092
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "altbau",
+"w": 7.339,
+"d": 11.086,
+"floors": 2,
+"roof": "gable",
+"front": "wohn",
+"seed": 402924220,
+"max_h": 60.0,
+"at": [
+-2.808,
+98.083
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "altbau",
+"w": 11.678,
+"d": 11.952,
+"floors": 5,
+"roof": "flat",
+"front": "wohn",
+"seed": 78569548,
+"max_h": 60.0,
+"at": [
+-73.88,
+118.163
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "altbau",
+"w": 6.097,
+"d": 9.666,
+"floors": 2,
+"roof": "gable",
+"front": "wohn",
+"seed": 1073070210,
+"max_h": 60.0,
+"at": [
+-23.564,
+117.588
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "putz",
+"w": 12.196,
+"d": 10.657,
+"floors": 4,
+"roof": "flat",
+"front": "wohn",
+"seed": 184098254,
+"max_h": 60.0,
+"at": [
+-8.839,
+118.149
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "altbau",
+"w": 11.086,
+"d": 11.011,
+"floors": 4,
+"roof": "flat",
+"front": "wohn",
+"seed": 311225821,
+"max_h": 60.0,
+"at": [
+111.098,
+119.263
+],
+"u": [
+1.0,
+0.0
+],
+"f": [
+0.0,
+-1.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "putz",
+"w": 6.349,
+"d": 9.542,
+"floors": 3,
+"roof": "gable",
+"front": "wohn",
+"seed": 977698757,
+"max_h": 60.0,
+"at": [
+97.817,
+-0.354
+],
+"u": [
+-0.0,
+-1.0
+],
+"f": [
+-1.0,
+0.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "putz",
+"w": 6.531,
+"d": 10.025,
+"floors": 2,
+"roof": "gable",
+"front": "wohn",
+"seed": 494833536,
+"max_h": 60.0,
+"at": [
+97.902,
+14.055
+],
+"u": [
+-0.0,
+-1.0
+],
+"f": [
+-1.0,
+0.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "putz",
+"w": 12.691,
+"d": 15.561,
+"floors": 3,
+"roof": "flat",
+"front": "wohn",
+"seed": 668237949,
+"max_h": 60.0,
+"at": [
+96.78,
+29.444
+],
+"u": [
+-0.0,
+-1.0
+],
+"f": [
+-1.0,
+0.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "putz",
+"w": 9.841,
+"d": 14.575,
+"floors": 3,
+"roof": "hip",
+"front": "wohn",
+"seed": 479487422,
+"max_h": 60.0,
+"at": [
+96.514,
+46.015
+],
+"u": [
+-0.0,
+-1.0
+],
+"f": [
+-1.0,
+0.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "altbau",
+"w": 7.817,
+"d": 11.957,
+"floors": 3,
+"roof": "gable",
+"front": "wohn",
+"seed": 580635175,
+"max_h": 60.0,
+"at": [
+97.253,
+62.033
+],
+"u": [
+-0.0,
+-1.0
+],
+"f": [
+-1.0,
+0.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "putz",
+"w": 7.621,
+"d": 12.816,
+"floors": 2,
+"roof": "gable",
+"front": "wohn",
+"seed": 307701700,
+"max_h": 60.0,
+"at": [
+114.954,
+0.545
+],
+"u": [
+-0.0,
+-1.0
+],
+"f": [
+-1.0,
+0.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "putz",
+"w": 6.161,
+"d": 11.766,
+"floors": 3,
+"roof": "gable",
+"front": "wohn",
+"seed": 157786348,
+"max_h": 60.0,
+"at": [
+114.128,
+12.406
+],
+"u": [
+-0.0,
+-1.0
+],
+"f": [
+-1.0,
+0.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "altbau",
+"w": 6.157,
+"d": 10.728,
+"floors": 2,
+"roof": "gable",
+"front": "wohn",
+"seed": 303354248,
+"max_h": 60.0,
+"at": [
+112.855,
+43.717
+],
+"u": [
+-0.0,
+-1.0
+],
+"f": [
+-1.0,
+0.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "putz",
+"w": 8.119,
+"d": 10.546,
+"floors": 3,
+"roof": "gable",
+"front": "wohn",
+"seed": 515924217,
+"max_h": 60.0,
+"at": [
+115.283,
+61.794
+],
+"u": [
+-0.0,
+-1.0
+],
+"f": [
+-1.0,
+0.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "putz",
+"w": 12.162,
+"d": 13.069,
+"floors": 3,
+"roof": "flat",
+"front": "wohn",
+"seed": 620857236,
+"max_h": 60.0,
+"at": [
+130.829,
+15.231
+],
+"u": [
+-0.0,
+-1.0
+],
+"f": [
+-1.0,
+0.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "putz",
+"w": 7.228,
+"d": 11.098,
+"floors": 3,
+"roof": "gable",
+"front": "wohn",
+"seed": 846443296,
+"max_h": 60.0,
+"at": [
+-97.787,
+0.549
+],
+"u": [
+-0.0,
+1.0
+],
+"f": [
+1.0,
+0.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "putz",
+"w": 6.699,
+"d": 12.814,
+"floors": 2,
+"roof": "gable",
+"front": "wohn",
+"seed": 830666853,
+"max_h": 60.0,
+"at": [
+-98.856,
+12.707
+],
+"u": [
+-0.0,
+1.0
+],
+"f": [
+1.0,
+0.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "altbau",
+"w": 9.635,
+"d": 10.771,
+"floors": 3,
+"roof": "flat",
+"front": "wohn",
+"seed": 234796555,
+"max_h": 60.0,
+"at": [
+-97.834,
+25.595
+],
+"u": [
+-0.0,
+1.0
+],
+"f": [
+1.0,
+0.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "putz",
+"w": 9.221,
+"d": 13.757,
+"floors": 3,
+"roof": "hip",
+"front": "wohn",
+"seed": 322931735,
+"max_h": 60.0,
+"at": [
+-98.602,
+40.257
+],
+"u": [
+-0.0,
+1.0
+],
+"f": [
+1.0,
+0.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "putz",
+"w": 6.848,
+"d": 10.615,
+"floors": 2,
+"roof": "gable",
+"front": "wohn",
+"seed": 265813824,
+"max_h": 60.0,
+"at": [
+-97.384,
+53.207
+],
+"u": [
+-0.0,
+1.0
+],
+"f": [
+1.0,
+0.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "putz",
+"w": 10.17,
+"d": 10.024,
+"floors": 3,
+"roof": "flat",
+"front": "wohn",
+"seed": 531526886,
+"max_h": 60.0,
+"at": [
+-114.551,
+56.751
+],
+"u": [
+-0.0,
+1.0
+],
+"f": [
+1.0,
+0.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "altbau",
+"w": 8.147,
+"d": 9.008,
+"floors": 3,
+"roof": "gable",
+"front": "wohn",
+"seed": 638732688,
+"max_h": 60.0,
+"at": [
+-130.648,
+-0.292
+],
+"u": [
+-0.0,
+1.0
+],
+"f": [
+1.0,
+0.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "putz",
+"w": 6.247,
+"d": 11.004,
+"floors": 3,
+"roof": "gable",
+"front": "wohn",
+"seed": 56474134,
+"max_h": 60.0,
+"at": [
+-131.432,
+20.822
+],
+"u": [
+-0.0,
+1.0
+],
+"f": [
+1.0,
+0.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "putz",
+"w": 7.672,
+"d": 11.644,
+"floors": 2,
+"roof": "gable",
+"front": "wohn",
+"seed": 54234092,
+"max_h": 60.0,
+"at": [
+-129.536,
+33.909
+],
+"u": [
+-0.0,
+1.0
+],
+"f": [
+1.0,
+0.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "putz",
+"w": 10.402,
+"d": 10.432,
+"floors": 5,
+"roof": "hip",
+"front": "wohn",
+"seed": 1028841313,
+"max_h": 60.0,
+"at": [
+-129.319,
+57.28
+],
+"u": [
+-0.0,
+1.0
+],
+"f": [
+1.0,
+0.0
+]
+},
+{
+"kind": "stadthaus",
+"style": "putz",
+"w": 10.966,
+"d": 15.907,
+"floors": 4,
+"roof": "hip",
+"front": "wohn",
+"seed": 927762146,
+"max_h": 60.0,
+"at": [
+-130.451,
+74.165
+],
+"u": [
+-0.0,
+1.0
+],
+"f": [
+1.0,
+0.0
+]
+},
+{
+"kind": "reihenhaus",
+"style": "altbau",
+"w": 7.84,
+"d": 10.577,
+"floors": 2,
+"roof": "gable",
+"front": "wohn",
+"seed": 28272381,
+"max_h": 60.0,
+"at": [
+-129.979,
+87.004
+],
+"u": [
+-0.0,
+1.0
+],
+"f": [
+1.0,
+0.0
+]
+}
+],
+"trees": [
+{
+"model": "kueste_pflanzkuebel_lo",
+"at": [
+-15.134,
+0.887
+],
+"yaw": 1.8708,
+"height": 0.9
+},
+{
+"model": "kueste_pflanzkuebel_lo",
+"at": [
+-17.335,
+2.925
+],
+"yaw": 2.918,
+"height": 0.9
+},
+{
+"model": "kueste_pflanzkuebel_lo",
+"at": [
+-20.201,
+2.039
+],
+"yaw": 3.9652,
+"height": 0.9
+},
+{
+"model": "kueste_pflanzkuebel_lo",
+"at": [
+-20.866,
+-0.887
+],
+"yaw": 5.0124,
+"height": 0.9
+},
+{
+"model": "kueste_pflanzkuebel_lo",
+"at": [
+-18.665,
+-2.925
+],
+"yaw": 6.0596,
+"height": 0.9
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-18.0,
+0.0
+],
+"yaw": 0.0,
+"height": 4.6
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-18.9,
+0.9
+],
+"yaw": 0.0,
+"height": 3.8
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-17.2,
+-0.9
+],
+"yaw": 0.0,
+"height": 4.1
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+19.3,
+-2.8
+],
+"yaw": 0.0,
+"height": 4.4
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+20.2,
+-3.4
+],
+"yaw": 0.0,
+"height": 3.8
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+10.0,
+33.5
+],
+"yaw": 3.5858,
+"height": 4.25
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+20.401,
+32.873
+],
+"yaw": 2.2782,
+"height": 5.31
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+30.053,
+29.393
+],
+"yaw": 1.6588,
+"height": 4.88
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+38.202,
+23.149
+],
+"yaw": 4.6766,
+"height": 4.53
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+44.086,
+14.713
+],
+"yaw": 2.9849,
+"height": 5.18
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+47.13,
+4.906
+],
+"yaw": 2.4003,
+"height": 5.07
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+47.061,
+-5.352
+],
+"yaw": 5.2494,
+"height": 4.95
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-45.289,
+-11.964
+],
+"yaw": 0.3729,
+"height": 4.81
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-47.444,
+-1.928
+],
+"yaw": 0.9374,
+"height": 5.19
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-46.456,
+8.298
+],
+"yaw": 4.0463,
+"height": 4.76
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-42.415,
+17.742
+],
+"yaw": 2.1638,
+"height": 5.09
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-35.712,
+25.51
+],
+"yaw": 1.7686,
+"height": 4.62
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-26.955,
+30.89
+],
+"yaw": 3.1136,
+"height": 4.64
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-16.993,
+33.363
+],
+"yaw": 1.4254,
+"height": 4.54
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-6.661,
+33.5
+],
+"yaw": 1.9663,
+"height": 4.82
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+35.887,
+-18.398
+],
+"yaw": 5.0571,
+"height": 5.32
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+30.204,
+-23.558
+],
+"yaw": 3.0146,
+"height": 4.89
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+23.35,
+-27.02
+],
+"yaw": 2.7761,
+"height": 4.57
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+15.857,
+-28.532
+],
+"yaw": 3.4057,
+"height": 4.56
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+8.331,
+-28.6
+],
+"yaw": 3.8549,
+"height": 5.06
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+0.331,
+-28.6
+],
+"yaw": 0.8564,
+"height": 4.67
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-7.169,
+-28.6
+],
+"yaw": 5.9219,
+"height": 5.14
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-15.521,
+-28.556
+],
+"yaw": 0.7693,
+"height": 4.76
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-23.015,
+-27.132
+],
+"yaw": 1.0312,
+"height": 5.03
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-29.912,
+-23.762
+],
+"yaw": 4.1102,
+"height": 4.57
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-35.655,
+-18.668
+],
+"yaw": 5.2755,
+"height": 5.23
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-39.851,
+-12.232
+],
+"yaw": 2.3265,
+"height": 4.44
+},
+{
+"model": "kueste_sonnenschirm_lo",
+"at": [
+-30.534,
+-36.948
+],
+"yaw": 5.0169,
+"height": 2.5
+},
+{
+"model": "kueste_sonnenschirm_lo",
+"at": [
+-24.689,
+-36.813
+],
+"yaw": 3.4755,
+"height": 2.5
+},
+{
+"model": "kueste_sonnenschirm_lo",
+"at": [
+5.108,
+-37.442
+],
+"yaw": 2.2581,
+"height": 2.5
+},
+{
+"model": "kueste_sonnenschirm_lo",
+"at": [
+12.099,
+-37.787
+],
+"yaw": 1.0503,
+"height": 2.5
+},
+{
+"model": "kueste_sonnenschirm_lo",
+"at": [
+17.264,
+-37.204
+],
+"yaw": 3.2836,
+"height": 2.5
+},
+{
+"model": "kueste_felsen",
+"at": [
+-58.0,
+-38.0
+],
+"yaw": 4.1466,
+"height": 1.5
+},
+{
+"model": "kueste_felsen",
+"at": [
+-54.0,
+-41.5
+],
+"yaw": 2.6578,
+"height": 1.0
+},
+{
+"model": "kueste_felsen",
+"at": [
+-49.0,
+-43.5
+],
+"yaw": 3.9196,
+"height": 0.8
+},
+{
+"model": "kueste_felsen",
+"at": [
+51.0,
+-42.5
+],
+"yaw": 0.8927,
+"height": 1.3
+},
+{
+"model": "kueste_felsen",
+"at": [
+56.0,
+-39.0
+],
+"yaw": 1.3836,
+"height": 1.6
+},
+{
+"model": "kueste_felsen",
+"at": [
+47.0,
+-44.0
+],
+"yaw": 0.373,
+"height": 0.9
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+47.1,
+-15.5
+],
+"yaw": 5.5035,
+"height": 4.63
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+47.1,
+-9.0
+],
+"yaw": 2.4413,
+"height": 4.92
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+47.1,
+9.0
+],
+"yaw": 4.1136,
+"height": 5.04
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+47.1,
+15.5
+],
+"yaw": 5.998,
+"height": 4.89
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-47.1,
+-15.5
+],
+"yaw": 4.6318,
+"height": 4.61
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-47.1,
+-9.0
+],
+"yaw": 3.6636,
+"height": 5.14
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-47.1,
+9.0
+],
+"yaw": 0.9584,
+"height": 4.59
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-47.1,
+15.5
+],
+"yaw": 3.2892,
+"height": 4.77
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-10.4,
+36.0
+],
+"yaw": 3.9598,
+"height": 5.37
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-10.4,
+43.0
+],
+"yaw": 3.6438,
+"height": 5.23
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-10.4,
+51.0
+],
+"yaw": 3.9871,
+"height": 4.62
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+10.4,
+36.0
+],
+"yaw": 1.1049,
+"height": 5.04
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+10.4,
+43.0
+],
+"yaw": 5.4468,
+"height": 4.43
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+10.4,
+51.0
+],
+"yaw": 4.1646,
+"height": 4.45
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+49.416,
+-22.078
+],
+"yaw": 6.0139,
+"height": 4.14
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+52.265,
+-21.078
+],
+"yaw": 3.6355,
+"height": 4.37
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+50.679,
+-25.702
+],
+"yaw": 1.9122,
+"height": 4.98
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+54.464,
+-22.741
+],
+"yaw": 6.0122,
+"height": 5.05
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+41.406,
+-27.446
+],
+"yaw": 4.1456,
+"height": 4.61
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+39.493,
+-29.271
+],
+"yaw": 2.3095,
+"height": 4.94
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+50.952,
+-28.276
+],
+"yaw": 1.9824,
+"height": 4.1
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-50.041,
+-24.37
+],
+"yaw": 2.2441,
+"height": 5.33
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-52.683,
+-23.664
+],
+"yaw": 1.0614,
+"height": 4.15
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-42.07,
+-27.558
+],
+"yaw": 3.7961,
+"height": 5.36
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-54.134,
+-28.133
+],
+"yaw": 2.592,
+"height": 4.73
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-45.547,
+-26.302
+],
+"yaw": 6.2597,
+"height": 5.05
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-53.063,
+-18.455
+],
+"yaw": 2.5289,
+"height": 4.06
+},
+{
+"model": "kueste_palme_lo",
+"at": [
+-53.591,
+-20.127
+],
+"yaw": 4.1541,
+"height": 4.49
+}
+],
+"event": {
+"portal": {
+"at": [
+0.0,
+13.0
+],
+"dir": [
+1.0,
+0.0
+]
+},
+"zones": [
+{
+"side": 1,
+"s": [
+-26.0,
+26.0
+]
+},
+{
+"side": -1,
+"s": [
+-26.0,
+26.0
+]
+}
+]
+},
+"lamps": [
+{
+"at": [
+-14.0,
+-8.0
+],
+"toward": [
+-14.0,
+-3.5
+]
+},
+{
+"at": [
+-5.0,
+-8.0
+],
+"toward": [
+-5.0,
+-3.5
+]
+},
+{
+"at": [
+5.0,
+-8.0
+],
+"toward": [
+5.0,
+-3.5
+]
+},
+{
+"at": [
+14.0,
+-8.0
+],
+"toward": [
+14.0,
+-3.5
+]
+},
+{
+"at": [
+29.604,
+-26.894
+],
+"toward": [
+28.801,
+-25.51
+]
+},
+{
+"at": [
+11.331,
+-31.1
+],
+"toward": [
+11.331,
+-29.5
+]
+},
+{
+"at": [
+-7.169,
+-31.1
+],
+"toward": [
+-7.169,
+-29.5
+]
+},
+{
+"at": [
+-26.028,
+-28.67
+],
+"toward": [
+-25.409,
+-27.194
+]
+},
+{
+"at": [
+-40.382,
+-16.451
+],
+"toward": [
+-39.024,
+-15.604
+]
+},
+{
+"at": [
+15.25,
+31.366
+],
+"toward": [
+14.989,
+24.971
+]
+},
+{
+"at": [
+30.098,
+26.956
+],
+"toward": [
+26.817,
+21.461
+]
+},
+{
+"at": [
+41.052,
+15.925
+],
+"toward": [
+35.536,
+12.679
+]
+},
+{
+"at": [
+45.379,
+1.011
+],
+"toward": [
+38.982,
+0.804
+]
+},
+{
+"at": [
+-43.328,
+-11.214
+],
+"toward": [
+-37.35,
+-8.928
+]
+},
+{
+"at": [
+-45.106,
+4.217
+],
+"toward": [
+-38.764,
+3.358
+]
+},
+{
+"at": [
+-39.278,
+18.625
+],
+"toward": [
+-34.126,
+14.829
+]
+},
+{
+"at": [
+-27.237,
+28.462
+],
+"toward": [
+-24.54,
+22.659
+]
+},
+{
+"at": [
+-12.661,
+31.4
+],
+"toward": [
+-12.661,
+25.0
+]
+},
+{
+"at": [
+54.8,
+-12.0
+],
+"toward": [
+57.8,
+-12.0
+]
+},
+{
+"at": [
+54.8,
+0.0
+],
+"toward": [
+57.8,
+0.0
+]
+},
+{
+"at": [
+54.8,
+12.0
+],
+"toward": [
+57.8,
+12.0
+]
+},
+{
+"at": [
+-54.8,
+-12.0
+],
+"toward": [
+-57.8,
+-12.0
+]
+},
+{
+"at": [
+-54.8,
+0.0
+],
+"toward": [
+-57.8,
+0.0
+]
+},
+{
+"at": [
+-54.8,
+12.0
+],
+"toward": [
+-57.8,
+12.0
+]
+},
+{
+"at": [
+-26.0,
+48.5
+],
+"toward": [
+-26.0,
+44.0
+]
+},
+{
+"at": [
+-14.0,
+48.5
+],
+"toward": [
+-14.0,
+44.0
+]
+},
+{
+"at": [
+14.0,
+48.5
+],
+"toward": [
+14.0,
+44.0
+]
+},
+{
+"at": [
+26.0,
+48.5
+],
+"toward": [
+26.0,
+44.0
+]
+},
+{
+"at": [
+-60.0,
+55.7
+],
+"toward": [
+-60.0,
+59.0
+]
+},
+{
+"at": [
+-30.0,
+55.7
+],
+"toward": [
+-30.0,
+59.0
+]
+},
+{
+"at": [
+0.0,
+55.7
+],
+"toward": [
+0.0,
+59.0
+]
+},
+{
+"at": [
+30.0,
+55.7
+],
+"toward": [
+30.0,
+59.0
+]
+},
+{
+"at": [
+60.0,
+55.7
+],
+"toward": [
+60.0,
+59.0
+]
+}
+],
+"track": "azure.json"
+}

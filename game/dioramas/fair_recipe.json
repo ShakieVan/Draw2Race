@@ -1,0 +1,509 @@
+{
+"houses": [],
+"trees": [
+{
+"model": "stadt_baum_kastanie",
+"at": [
+-98.148,
+-59.38
+],
+"yaw": 1.169,
+"height": 10.53
+},
+{
+"model": "stadt_baum_linde",
+"at": [
+-98.647,
+58.891
+],
+"yaw": 2.0977,
+"height": 11.31
+},
+{
+"model": "stadt_baum_kastanie",
+"at": [
+-80.2,
+-58.315
+],
+"yaw": 4.4179,
+"height": 9.86
+},
+{
+"model": "stadt_baum_kastanie",
+"at": [
+-80.1,
+57.971
+],
+"yaw": 0.3224,
+"height": 8.9
+},
+{
+"model": "stadt_baum_linde",
+"at": [
+-62.513,
+-57.527
+],
+"yaw": 4.862,
+"height": 9.65
+},
+{
+"model": "stadt_baum_ahorn",
+"at": [
+-63.016,
+57.805
+],
+"yaw": 1.2871,
+"height": 9.17
+},
+{
+"model": "stadt_baum_ahorn",
+"at": [
+-45.828,
+-57.831
+],
+"yaw": 5.7235,
+"height": 9.69
+},
+{
+"model": "stadt_baum_linde",
+"at": [
+-47.633,
+57.63
+],
+"yaw": 5.5225,
+"height": 8.66
+},
+{
+"model": "stadt_baum_linde",
+"at": [
+-30.485,
+-59.025
+],
+"yaw": 1.4867,
+"height": 10.71
+},
+{
+"model": "stadt_baum_linde",
+"at": [
+-28.597,
+60.392
+],
+"yaw": 0.7613,
+"height": 10.24
+},
+{
+"model": "stadt_baum_linde",
+"at": [
+-11.419,
+-59.891
+],
+"yaw": 5.6047,
+"height": 8.9
+},
+{
+"model": "stadt_baum_platane",
+"at": [
+-11.329,
+59.002
+],
+"yaw": 3.3761,
+"height": 9.09
+},
+{
+"model": "stadt_baum_linde",
+"at": [
+2.275,
+-59.924
+],
+"yaw": 4.4013,
+"height": 8.94
+},
+{
+"model": "stadt_baum_linde",
+"at": [
+5.759,
+59.659
+],
+"yaw": 0.3402,
+"height": 10.17
+},
+{
+"model": "stadt_baum_ahorn",
+"at": [
+21.426,
+-60.052
+],
+"yaw": 4.6276,
+"height": 10.23
+},
+{
+"model": "stadt_baum_platane",
+"at": [
+19.137,
+60.106
+],
+"yaw": 5.9718,
+"height": 9.21
+},
+{
+"model": "stadt_baum_ahorn",
+"at": [
+38.445,
+-60.371
+],
+"yaw": 5.3108,
+"height": 10.07
+},
+{
+"model": "stadt_baum_ahorn",
+"at": [
+38.261,
+59.563
+],
+"yaw": 0.6906,
+"height": 11.15
+},
+{
+"model": "stadt_baum_kastanie",
+"at": [
+54.462,
+-59.87
+],
+"yaw": 6.1925,
+"height": 10.22
+},
+{
+"model": "stadt_baum_ahorn",
+"at": [
+53.073,
+59.898
+],
+"yaw": 0.0039,
+"height": 8.84
+},
+{
+"model": "stadt_baum_linde",
+"at": [
+70.887,
+-59.691
+],
+"yaw": 1.9289,
+"height": 9.35
+},
+{
+"model": "stadt_baum_platane",
+"at": [
+72.07,
+57.665
+],
+"yaw": 4.9029,
+"height": 10.92
+},
+{
+"model": "stadt_baum_kastanie",
+"at": [
+-103.011,
+-49.372
+],
+"yaw": 3.5546,
+"height": 8.7
+},
+{
+"model": "stadt_baum_platane",
+"at": [
+91.591,
+-51.213
+],
+"yaw": 3.202,
+"height": 11.37
+},
+{
+"model": "stadt_baum_ahorn",
+"at": [
+-102.758,
+-34.083
+],
+"yaw": 1.0743,
+"height": 11.03
+},
+{
+"model": "stadt_baum_kastanie",
+"at": [
+90.036,
+-34.348
+],
+"yaw": 1.6514,
+"height": 8.99
+},
+{
+"model": "stadt_baum_linde",
+"at": [
+-104.519,
+-17.055
+],
+"yaw": 0.3825,
+"height": 9.13
+},
+{
+"model": "stadt_baum_ahorn",
+"at": [
+90.556,
+-15.665
+],
+"yaw": 1.7899,
+"height": 9.94
+},
+{
+"model": "stadt_baum_ahorn",
+"at": [
+-103.889,
+2.385
+],
+"yaw": 4.3708,
+"height": 8.7
+},
+{
+"model": "stadt_baum_kastanie",
+"at": [
+-101.943,
+17.649
+],
+"yaw": 4.1648,
+"height": 9.32
+},
+{
+"model": "stadt_baum_ahorn",
+"at": [
+91.389,
+18.325
+],
+"yaw": 0.6231,
+"height": 8.65
+},
+{
+"model": "stadt_baum_linde",
+"at": [
+-102.885,
+34.02
+],
+"yaw": 1.0188,
+"height": 10.87
+},
+{
+"model": "stadt_baum_platane",
+"at": [
+92.436,
+34.109
+],
+"yaw": 2.8681,
+"height": 10.18
+},
+{
+"model": "stadt_baum_platane",
+"at": [
+-98.0,
+-4.0
+],
+"yaw": 0.5225,
+"height": 9.1
+},
+{
+"model": "stadt_baum_ahorn",
+"at": [
+-98.0,
+6.0
+],
+"yaw": 3.3625,
+"height": 9.88
+},
+{
+"model": "stadt_baum_linde",
+"at": [
+-62.0,
+40.0
+],
+"yaw": 3.6488,
+"height": 9.17
+},
+{
+"model": "stadt_baum_platane",
+"at": [
+-62.0,
+-42.0
+],
+"yaw": 3.4185,
+"height": 9.05
+},
+{
+"model": "stadt_baum_linde",
+"at": [
+28.0,
+-44.0
+],
+"yaw": 5.5102,
+"height": 9.15
+},
+{
+"model": "stadt_baum_ahorn",
+"at": [
+-30.0,
+44.0
+],
+"yaw": 0.4039,
+"height": 8.45
+}
+],
+"lamps": [
+{
+"at": [
+65.434,
+25.434
+],
+"toward": [
+70.0,
+30.0
+]
+},
+{
+"at": [
+79.2,
+26.0
+],
+"toward": [
+76.0,
+30.0
+]
+},
+{
+"at": [
+66.566,
+45.566
+],
+"toward": [
+70.0,
+42.0
+]
+},
+{
+"at": [
+66.0,
+-25.2
+],
+"toward": [
+70.0,
+-30.0
+]
+},
+{
+"at": [
+80.566,
+-25.434
+],
+"toward": [
+76.0,
+-30.0
+]
+},
+{
+"at": [
+66.0,
+-45.8
+],
+"toward": [
+70.0,
+-42.0
+]
+},
+{
+"at": [
+62.5,
+-12.5
+],
+"toward": [
+66.0,
+-12.5
+]
+},
+{
+"at": [
+62.5,
+12.5
+],
+"toward": [
+66.0,
+12.5
+]
+},
+{
+"at": [
+77.0,
+-13.0
+],
+"toward": [
+77.0,
+-9.0
+]
+},
+{
+"at": [
+77.0,
+13.0
+],
+"toward": [
+77.0,
+9.0
+]
+},
+{
+"at": [
+-82.0,
+-22.0
+],
+"toward": [
+-86.0,
+-22.0
+]
+},
+{
+"at": [
+-82.0,
+22.0
+],
+"toward": [
+-86.0,
+22.0
+]
+},
+{
+"at": [
+-91.0,
+0.0
+],
+"toward": [
+-86.0,
+0.0
+]
+},
+{
+"at": [
+-82.0,
+-42.0
+],
+"toward": [
+-88.0,
+-42.0
+]
+},
+{
+"at": [
+-82.0,
+42.0
+],
+"toward": [
+-88.0,
+42.0
+]
+}
+],
+"track": "fair.json"
+}

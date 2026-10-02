@@ -9,7 +9,8 @@ Kurbelwinkel-Skalierung -> Abgasanlage als Kammfilter-Kette (Reflexionen im Rohr
 (Ansaug-/Auspuffresonanzen) -> dazu Ansaug-/Verbrennungsrauschen im Takt der Zündungen, Ventilticken und beim Diesel Nageln.
 Die Kennwerte der Fahrzeuge stehen in PROFILES.
 
-Aufruf:  python tools/make_engine_sounds.py [ausgabeordner] [--car id ...] [--sweeps ordner]
+Aufruf:  python tools/make_engine_sounds.py [ausgabeordner] [--car id ...] [--sweeps ordner] [--effects]
+         --effects: nur Turbo, Schubumluftventil, Fehlzündungen (Motorschichten seit 0.2.27 aus tools/record_engines.py)
 Benötigt numpy. Ergebnis: <ausgabe>/engines.json und WAV-Dateien (22,05 kHz, mono, 16 Bit).
 """
 import json
@@ -241,24 +242,48 @@ def blow_off(kind, dur=0.8):
     return y
 
 
-def pop(seed, dur=0.35):
-    n = int(dur * FS)
-    t = np.arange(n) / FS
+FS_FX = 32000
+
+
+def pop(seed, dur=0.45):
+    """Fehlzündung im Auspuff: Stoßwelle (steiler N-förmiger Druckstoß, knallt breitbandig), danach klingt das Rohr in seinen
+    Eigenschwingungen nach, dazu kurzes Zischen und ein tiefer Nachdruck; Bodenreflexion nach wenigen Millisekunden.
+    Varianten 0/1: einzelner Knall, 2/3: kurzes Knattern aus mehreren kleinen Stößen."""
+    fs = FS_FX
+    n = int(dur * fs)
+    t = np.arange(n) / fs
     rng = np.random.default_rng(300 + seed)
-    f = np.fft.rfftfreq(n, 1.0 / FS)
-    body = np.fft.irfft(np.fft.rfft(rng.standard_normal(n)) * highpass(f, 120.0, 2) * lowpass(f, 1500.0 + 300 * seed, 2), n)
-    y = body * np.exp(-t / (0.030 + 0.01 * seed)) + 0.5 * np.sin(2 * np.pi * (70 + 12 * seed) * t) * np.exp(-t / 0.05)
-    y *= (1 - np.exp(-t / 0.0008))
-    y *= 0.7 / (np.max(np.abs(y)) + 1e-9)
+    f = np.fft.rfftfreq(n, 1.0 / fs)
+    shots = [(0.0, 1.0)] if seed < 2 else [(0.0, 1.0)] + [(rng.uniform(0.018, 0.035) * k, rng.uniform(0.35, 0.7)) for k in range(1, 3 + seed - 2)]
+    y = np.zeros(n)
+    pipe = rng.uniform(0.9, 1.4)                         # Rohrlänge (m): Eigenfrequenzen c / 4L ungeradzahlig
+    for t0, a in shots:
+        tt = t - t0
+        on = tt >= 0
+        tw = np.where(on, tt, 0.0)
+        w = 0.00045 * rng.uniform(0.8, 1.3)
+        n_wave = np.where(on, (1 - tw / w) * np.exp(-tw / (0.6 * w)), 0.0)          # Druckstoß mit Unterdruck danach
+        ring = np.zeros(n)
+        for m in (1, 3, 5):
+            f0 = m * 343.0 / (4 * pipe)
+            ring += np.where(on, np.sin(2 * np.pi * f0 * tw) * np.exp(-tw / (0.06 / m)), 0.0) / m
+        hiss = np.fft.irfft(np.fft.rfft(rng.standard_normal(n)) * highpass(f, 1800.0, 2) * lowpass(f, 9000.0, 2), n)
+        hiss = np.where(on, hiss * np.exp(-tw / 0.012), 0.0)
+        boom = np.where(on, np.sin(2 * np.pi * rng.uniform(55, 75) * tw) * np.exp(-tw / 0.09) * (1 - np.exp(-tw / 0.004)), 0.0)
+        y += a * (1.0 * n_wave / (np.abs(n_wave).max() + 1e-9) + 0.45 * ring + 0.18 * hiss / (np.abs(hiss).max() + 1e-9) + 0.55 * boom)
+    d = int(rng.uniform(0.003, 0.006) * fs)              # Bodenreflexion
+    y[d:] += 0.35 * y[:-d]
+    y *= np.minimum(1.0, (n - np.arange(n)) / (0.05 * fs))
+    y *= 0.85 / (np.max(np.abs(y)) + 1e-9)
     return y
 
 
-def write_wav(path, samples):
+def write_wav(path, samples, rate=FS):
     data = (np.clip(samples, -1, 1) * 32000).astype("<i2")
     with wave.open(path, "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
-        wf.setframerate(FS)
+        wf.setframerate(rate)
         wf.writeframes(data.tobytes())
 
 
@@ -282,6 +307,15 @@ def build(car, p, out_dir):
 
 def main():
     os.makedirs(OUT, exist_ok=True)
+    if "--effects" in ARGS:
+        # Nur Turbo, Schubumluftventil und Fehlzündungen; die Motorschichten kommen aus tools/record_engines.py
+        for kind in sorted({p["turbo"] for p in PROFILES.values()}):
+            write_wav(os.path.join(OUT, f"turbo_{kind}.wav"), turbo_loop(kind))
+            write_wav(os.path.join(OUT, f"bov_{kind}.wav"), blow_off(kind))
+        for k in range(4):
+            write_wav(os.path.join(OUT, f"pop_{k}.wav"), pop(k), FS_FX)
+        print("MOTOR Effekte ->", OUT)
+        return
     manifest = {"rate": FS, "cars": {}}
     for car, p in PROFILES.items():
         if ONLY and car not in ONLY:
@@ -293,7 +327,7 @@ def main():
         write_wav(os.path.join(OUT, f"turbo_{kind}.wav"), turbo_loop(kind))
         write_wav(os.path.join(OUT, f"bov_{kind}.wav"), blow_off(kind))
     for k in range(4):
-        write_wav(os.path.join(OUT, f"pop_{k}.wav"), pop(k))
+        write_wav(os.path.join(OUT, f"pop_{k}.wav"), pop(k), FS_FX)
     manifest["turbo_kinds"] = kinds
     manifest["pops"] = 4
     path = os.path.join(OUT, "engines.json")

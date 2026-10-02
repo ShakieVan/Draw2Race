@@ -178,32 +178,16 @@ def save(data):
 
 
 def azure():
+    """Azure Coast Speedway: Küstenstadion. Das Diorama (tools/dio_themes/coast.py) enthält Mauer, Tribünen, Boxengebäude, Transporter,
+    Palmen, Promenade, Strand und Parkplätze samt Hindernissen; in der Streckendatei bleiben nur die Flutlichtmasten (Laufzeit-Bausteine:
+    sie liefern das Licht der Nacht). Ohne Diorama (einfache Grafik) zeigt das Spiel die Hindernisse der Begleitdatei als Klötze."""
     pts = stadium()
     dense, total = resample(pts, 1.0)
-    props = [
-        {"type": "lagoon", "x": -7, "z": -1, "w": 22, "d": 14},
-        {"type": "walkway", "x": -9.3, "z": 3.9, "w": 12, "d": 1.8},
-        {"type": "pavilion", "x": 11, "z": -2, "w": 11, "d": 5, "text": "AZURE MOTOR CLUB"},
-        {"type": "label", "x": 0, "z": 8, "text": "DRAW  /  DRIVE  /  REPEAT", "flat": True},
-        {"type": "tower", "x": -5, "z": 21, "text": "02  /  AZURE"},
-        {"type": "boathouse", "x": 40, "z": 18},
-    ]
-    for fx, fz in [(-24, -21), (24, -21), (-26, 21), (26, 21)]:
-        props.append({"type": "floodlight", "x": fx, "z": fz, "reach": 13.0})
-    for x in (-12.0, 0.0, 12.0):
-        props.append({"type": "stand", "x": x, "z": -23.5, "w": 10, "d": 3.5})
-    for p in [(-33, -12), (-36, -5), (-34, 8), (33, -10), (35, 2), (32, 13), (-22, 19), (20, 20),
-              (-18, -8), (19, -7), (-19, 7), (20, 7), (-16, -4), (17, 4)]:
-        props.append({"type": "palm", "x": p[0], "z": p[1], "h": 3.1 + (p[0] % 2.0)})
-    for i in range(7):
-        props.append({"type": "parasol", "x": -20 + i * 6.4, "z": 23, "color": "coral" if i % 2 else "cream"})
-    for i in range(18):
-        p, rot = at(dense, total, i / 18.0, 6.0)
-        if abs(p[1]) < 18:
-            props.append({"type": "planter", "x": p[0], "z": p[1], "rot": rot, "w": 2.0, "d": 0.6})
-    for i in range(16):
-        p, _ = at(dense, total, 0.02 + i * 0.029, -5.5)
-        props.append({"type": "flower", "x": p[0], "z": p[1], "w": 0.6, "d": 0.6, "color": "coral" if i % 2 else "gold"})
+    props = []
+    # Vier Masten an den Ecken hinter den Tribünen, je einer hinter der Hauptseite (Dach) und der Seeseite (Strandkante); Reichweite groß, damit
+    # das Oval gleichmäßig beleuchtet wird (das Laternenlicht des Spiels ist eine Lichtkarte, keine Einzelstrahler).
+    for fx, fz, reach in [(-37, -22, 28.0), (37, -22, 28.0), (-37, 22, 28.0), (37, 22, 28.0), (-10, 36, 26.0), (10, 36, 26.0), (0, -31.8, 26.0)]:
+        props.append({"type": "floodlight", "x": fx, "z": fz, "reach": reach})
     save({"format": 1, "id": "azure", "name": "Azure Coast", "subtitle": "Salzluft. Heiße Reifen. Deine Ideallinie.",
           "theme": "coast", "half_width": HALF_WIDTH, "points": pts,
           "conditions": [{"time": "day", "weather": "dry", "fog": 0}, {"time": "dusk", "weather": "dry", "fog": 0},

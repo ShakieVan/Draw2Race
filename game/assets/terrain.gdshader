@@ -53,5 +53,6 @@ void fragment() {
 	ROUGHNESS = mix(0.92, 0.55, wet);
 	SPECULAR = 0.35;
 	// Laternenlicht (vorberechnet, mit weichen Gebäudeschatten) als beleuchtete Albedo.
-	EMISSION += ALBEDO * lamp_at(world_xz) * 2.6;
+	// Laternen-/Flutlicht: Albedo x Licht, entsättigt und mit weicher Helligkeitsgrenze (lamp_light.gdshaderinc), kein Neon-Rasen.
+	EMISSION += lamp_lit(ALBEDO, lamp_at(world_xz), 2.3, 0.72, 0.28, 0.6);
 }

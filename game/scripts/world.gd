@@ -16,6 +16,8 @@ var open_material: StandardMaterial3D
 var skid_mesh: MeshInstance3D
 var tyre_tracks := TyreTracks.new()
 var atmosphere: Atmosphere
+var main_road_color := Color("394950")    # Farbe der Hauptfahrbahn (Thema "road" oder Standard je Belag); Abkürzungen gleichen Belags übernehmen sie
+var shape_dy := 0.0     # Höhenversatz für Klötzchen-Ersatz eines Laufzeit-Bauteils (build_prop: Bodenhöhe des Dioramas, siehe diorama_ground_y)
 
 func material(color: Color) -> StandardMaterial3D:
 	var key := color.to_html()
@@ -48,7 +50,7 @@ func shape(kind: String, p: Vector3, size: Vector3, color: Color, turn := 0.0, p
 			mesh.radial_segments = 32 if kind == "disc" else 9
 		mesh.material = material(color)
 		batches[key] = {"mesh": mesh, "transforms": []}
-	var transform := Transform3D(Basis(Vector3.UP, turn).scaled_local(size), p)
+	var transform := Transform3D(Basis(Vector3.UP, turn).scaled_local(size), p + Vector3(0.0, shape_dy, 0.0))
 	if parent != null:
 		var instance := MeshInstance3D.new()
 		instance.mesh = mesh
@@ -61,11 +63,71 @@ func shape(kind: String, p: Vector3, size: Vector3, color: Color, turn := 0.0, p
 func shape_transform(kind: String, transform: Transform3D, color: Color) -> void:
 	# Wie shape(), aber mit beliebiger Transformation (z. B. gekippte Objekte).
 	shape(kind, Vector3.ZERO, Vector3.ONE, color)
-	batches[kind + color.to_html()].transforms[-1] = transform
+	batches[kind + color.to_html()].transforms[-1] = Transform3D(transform.basis, transform.origin + Vector3(0.0, shape_dy, 0.0))
 
 const WATER_SHADER := preload("res://assets/water.gdshader")
 const WATER_COLORS := ["39959c", "4aa6a5", "53b3ac", "3f7f80", "2f6f7a", "2d7fa1"]
 var water_material: ShaderMaterial
+
+var ground_blend_material: ShaderMaterial
+var diorama_water_y := -1000.0
+# Bodentexturen der Mischung (Begleitdatei "ground_set": Dateinamen ohne Endung, Normalkarte = Name + "_n"); ohne Angabe diese:
+const GROUND_SET := {"grass": "res://assets/ground/gras", "sand": "res://assets/ground/sand", "dirt": "res://assets/ground/erde"}
+var diorama_ground := {}      # Begleitdatei: ground_set, ground_tints (Farbe je Boden), ground_scales (Kachelgröße je Boden in m)
+var diorama_water := {}       # Begleitdatei: water (Farben lagoon/open/foam), water_nodes (Namenspräfixe der Flachwasser-Objekte)
+
+func color_from(rgb: Array) -> Color:
+	return Color(float(rgb[0]), float(rgb[1]), float(rgb[2]))
+
+func ground_texture(stem: String) -> Texture2D:
+	for ext in ["jpg", "png"]:
+		if ResourceLoader.exists("%s.%s" % [stem, ext]):
+			return load("%s.%s" % [stem, ext])
+	return null
+
+func ground_blend(ao: Texture2D) -> ShaderMaterial:
+	if ground_blend_material == null:
+		var m := ShaderMaterial.new()
+		m.shader = preload("res://assets/ground_blend.gdshader")
+		var stems: Dictionary = GROUND_SET.duplicate()
+		stems.merge(diorama_ground.get("ground_set", {}), true)
+		var tints: Dictionary = diorama_ground.get("ground_tints", {})
+		var scales: Dictionary = diorama_ground.get("ground_scales", {})
+		for key in ["grass", "sand", "dirt"]:
+			m.set_shader_parameter(key + "_tex", ground_texture(str(stems[key])))
+			m.set_shader_parameter(key + "_n", ground_texture(str(stems[key]) + "_n"))
+			if tints.has(key):
+				m.set_shader_parameter(key + "_tint", color_from(tints[key]))
+			if scales.has(key):
+				m.set_shader_parameter(key + "_scale", float(scales[key]))
+		if ao != null:
+			m.set_shader_parameter("ao_tex", ao)
+			m.set_shader_parameter("use_ao", true)
+		m.set_shader_parameter("water_y", diorama_water_y)
+		ground_blend_material = m
+		atmosphere.terrain_shader = m
+	return ground_blend_material
+
+var shore_water_material: ShaderMaterial
+
+func shore_water() -> ShaderMaterial:
+	# Meer, See oder Lagune eines Dioramas: Wassertiefe in der Vertexfarbe (türkis im Flachen, Brandung an der Wasserlinie).
+	# Begleitdatei: water = {lagoon, open, foam} (RGB) überschreibt die Farben des Shaders.
+	if shore_water_material == null:
+		shore_water_material = premium_water().duplicate() as ShaderMaterial
+		shore_water_material.set_shader_parameter("use_depth", true)
+		var colors: Dictionary = diorama_water.get("water", {})
+		for pair in [["lagoon", "lagoon_col"], ["open", "open_col"], ["foam", "foam_col"]]:
+			if colors.has(pair[0]):
+				shore_water_material.set_shader_parameter(pair[1], color_from(colors[pair[0]]))
+	return shore_water_material
+
+func is_shore_water(node_name: String) -> bool:
+	# Wasserflächen, deren Vertexfarbe die Tiefe trägt: Objekte mit einem der Präfixe aus "water_nodes" (Standard "Meer").
+	for prefix in diorama_water.get("water_nodes", ["Meer"]):
+		if node_name.begins_with(str(prefix)):
+			return true
+	return false
 
 func premium_water() -> ShaderMaterial:
 	if water_material == null:
@@ -123,6 +185,7 @@ func build(circuit: Circuit) -> void:
 	add_child(atmosphere)
 	atmosphere.setup(self, Color(theme.sky), track.bounds)
 	atmosphere.premium = premium_rendering()
+	main_road_color = Color(theme.get("road", "8b6f4e" if track.road == "gravel" else "394950"))
 	var c := track.bounds.get_center()
 	var half := track.bounds.size*0.5 + Vector2(Circuit.HALF_WIDTH+9.0, Circuit.HALF_WIDTH+9.0)
 	shape("box", Vector3(c.x,-2.5,c.y), Vector3(half.x*2+160,0.4,half.y*2+160), Color(theme.sea))
@@ -131,6 +194,9 @@ func build(circuit: Circuit) -> void:
 	if diorama:
 		# Gebackenes Diorama (Blender, tools/diorama.py): Boden, Straße, Häuser, Bäume, Umgebungsverdeckung.
 		build_diorama()
+		if diorama_runtime_terrain and not track.terrain.is_empty():
+			# Begleitdatei "runtime_terrain": das Geländerelief der Strecke (Berg, Steilküste) kommt weiter aus dem Höhenraster.
+			build_terrain(theme, fancy_ground)
 	elif not track.terrain.is_empty():
 		# Gelände mit Höhenrelief (Berg, Steilküste): Netz aus dem Höhenraster der Strecke.
 		build_terrain(theme, fancy_ground)
@@ -192,8 +258,8 @@ func build(circuit: Circuit) -> void:
 		var sides: Array = [[4.05,4.9]] if zone.side=="outer" else ([[-4.9,-4.05]] if zone.side=="inner" else [[4.05,4.9],[-4.9,-4.05]])
 		for band in sides:
 			road_strip(band[0],band[1],0.13,Color(theme.mud),float(zone.from),float(zone.to))
-	if diorama:
-		pass
+	if diorama and not diorama_runtime_road:
+		pass      # Fahrbahn, Randsteine und Linien stecken im Diorama (Begleitdatei "runtime_road": das Spiel baut sie wie ohne Diorama)
 	elif track.road == "gravel":
 		build_gravel_road()
 	else:
@@ -224,15 +290,20 @@ func build(circuit: Circuit) -> void:
 	build_shortcuts()
 	var layout_world := not diorama and track.obstacle_source == "layout"
 	for prop in track.props:
-		if diorama and (str(prop.get("type", "")) in DIORAMA_BAKED or diorama_blocks(prop)):
+		if diorama and (track.is_baked(prop) or diorama_blocks(prop)):
 			continue   # im Diorama enthalten bzw. läge auf einer Diorama-Straße
-		if layout_world and (str(prop.get("type", "")) in DIORAMA_BAKED or Circuit.on_layout_road(prop, track_layout_blocked())):
+		if layout_world and (track.is_baked(prop) or Circuit.on_layout_road(prop, track_layout_blocked())):
 			continue   # einfache Grafik: Häuser und Bäume stehen dort, wo das Diorama (und damit die Physik) sie hat
 		build_prop(prop)
 	if layout_world:
 		build_obstacle_blocks()
 	for lamp in diorama_lamps:
-		build_prop({"type": "lamp", "x": lamp.x, "z": lamp.z, "toward": lamp.toward})
+		var lamp_prop := {"type": "lamp", "x": lamp.x, "z": lamp.z, "toward": lamp.toward}
+		if lamp.has("model"):
+			lamp_prop["model"] = str(lamp.model)      # Laternenmodell des Eintrags (z. B. hafen_laterne), sonst die Vorgabe des Spiels
+		build_prop(lamp_prop)
+	for light in diorama_lights:
+		add_diorama_light(light)
 	flush_ai_props()
 	flush_cards()
 	# Laternenlicht über die ganze Stadt (im Diorama reichen Straßen weit über die Rennstrecke hinaus).
@@ -243,7 +314,7 @@ func build(circuit: Circuit) -> void:
 	bake()
 	for key in ["ground","stripe","shoulder","rim2"]:
 		atmosphere.register_tint(material(Color(theme[key])))
-	var road_color := Color(theme.get("road", "8b6f4e" if track.road == "gravel" else "394950"))
+	var road_color := main_road_color
 	atmosphere.road_material = material(road_color)
 	atmosphere.road_color = road_color
 	if premium_rendering() and road_mesh != null:
@@ -271,7 +342,7 @@ func build(circuit: Circuit) -> void:
 		flat.layers = LAYER_FLAT
 
 func build_asphalt_road() -> void:
-	road_mesh = road_strip(-3.5, 3.5, 0.17, Color("394950"), 0.0, 1.0, true)
+	road_mesh = road_strip(-3.5, 3.5, 0.17, Color("394950"), 0.0, 1.0, true, false, false)
 	road_strip(-3.37, -3.29, 0.185, Color("e8dfc8"), 0.0, 1.0, true, true)
 	road_strip(3.29, 3.37, 0.185, Color("e8dfc8"), 0.0, 1.0, true, true)
 	# Randsteine als durchgehendes Band je Seite: Segmentgrenzen quer zur Strecke, daher innen kürzer und außen
@@ -352,6 +423,20 @@ func build_terrain(theme: Dictionary, fancy: bool) -> void:
 		rocks.material_override = rock
 		add_child(rocks)
 
+func shortcut_material(surface: String) -> Material:
+	# Belag einer Abkürzung: wie die Hauptstraße der Strecke (gleiche Farbe, gleicher Fahrbahn-Shader mit Nässe, Pfützen, Schnee,
+	# Spiegelung und Laternenlicht). Ein anderer Belag als der der Hauptstraße bekommt die Standardfarbe seiner Art.
+	var gravel := surface == "gravel"
+	var color := main_road_color if surface == track.road else Color("8b6f4e" if gravel else "394950")
+	if not premium_rendering():
+		var mat := material(color)
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED      # wie road_strip: gleiche Farbe = gleiches (geteiltes) Material
+		return mat
+	var shader := premium_road(color)
+	shader.set_shader_parameter("grain_strength", 0.5 if gravel else 0.35)
+	atmosphere.road_shaders_extra.append(shader)           # Regen, Schnee, Spiegelung wirken wie auf der Hauptstraße
+	return shader
+
 func build_shortcuts() -> void:
 	# Fahrbahn der Abkürzungen (schmaler, eigener Belag) entlang ihres Pfads.
 	for sc in track.shortcuts:
@@ -362,7 +447,10 @@ func build_shortcuts() -> void:
 		for i in range(trail.size() - 1):
 			var a: Vector2 = trail[i]
 			var b: Vector2 = trail[i + 1]
-			var nrm := (b - a).normalized().orthogonal() * half
+			# Querrichtung wie Circuit.at (-t.y, t.x), nicht Vector2.orthogonal() (t.y, -t.x): sonst läuft die Umlaufrichtung der Dreiecke
+			# gegen die der Hauptstraße, die Fläche blickt nach unten und der Fahrbahn-Shader (cull_disabled) beleuchtet sie als Rückseite (schwarz).
+			var dir := (b - a).normalized()
+			var nrm := Vector2(-dir.y, dir.x) * half
 			var ya := 0.165 + track.terrain_height(a)
 			var yb := 0.165 + track.terrain_height(b)
 			var q := [Vector3(a.x - nrm.x, ya, a.y - nrm.y), Vector3(a.x + nrm.x, ya, a.y + nrm.y), Vector3(b.x + nrm.x, yb, b.y + nrm.y), Vector3(b.x - nrm.x, yb, b.y - nrm.y)]
@@ -371,8 +459,7 @@ func build_shortcuts() -> void:
 				st.add_vertex(q[j])
 		var node := MeshInstance3D.new()
 		node.mesh = st.commit()
-		var color := Color("8b6f4e") if str(sc.surface) == "gravel" else Color("3f4c52")
-		node.material_override = premium_road(color) if premium_rendering() else material(color)
+		node.material_override = shortcut_material(str(sc.surface))
 		add_child(node)
 
 func build_stunts() -> void:
@@ -415,8 +502,10 @@ func build_stunts() -> void:
 				var p1 := track.at(sb, side)
 				var base := track.base_height(sa) + 0.18
 				var quad := [Vector3(p0.x, base, p0.y), Vector3(p1.x, base, p1.y), Vector3(p1.x, hb, p1.y), Vector3(p0.x, ha, p0.y)]
+				# Normale nach außen (quer zur Fahrtrichtung), damit das Zusatzlicht die Wange von der richtigen Seite anstrahlt.
+				var outward := p0 - track.at(sa)
 				for j in [0, 1, 2, 0, 2, 3]:
-					st.set_normal(Vector3(0, 0, 1))
+					st.set_normal(Vector3(outward.x, 0.0, outward.y).normalized())
 					st.add_vertex(quad[j])
 		# Stirnseite an der Absprungkante
 		var se := s0 + len_m / track.length
@@ -425,14 +514,17 @@ func build_stunts() -> void:
 		var top := track.base_height(se) + height + 0.2
 		var low := track.base_height(se) + 0.18
 		var face := [Vector3(e0.x, low, e0.y), Vector3(e1.x, low, e1.y), Vector3(e1.x, top, e1.y), Vector3(e0.x, top, e0.y)]
+		var ahead := track.tangent(se)
 		for j in [0, 1, 2, 0, 2, 3]:
-			st.set_normal(Vector3(0, 0, 1))
+			st.set_normal(Vector3(ahead.x, 0.0, ahead.y))
 			st.add_vertex(face[j])
 		var node := MeshInstance3D.new()
 		node.mesh = st.commit()
 		var mat := material(wood)
 		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		node.material_override = mat
+		# Laternen-/Flutlicht wie bei Randsteinen und Fahrbahn: ohne Zusatzlicht wäre die Schanze nachts fast schwarz.
+		add_overlay(node, runtime_overlay(wood, 1.0, true))
 		add_child(node)
 		# Bohlenfugen quer über die Schanze
 		for k in range(1, n):
@@ -486,6 +578,10 @@ func build_loop(s: float, radius: float) -> void:
 	mat.roughness = 0.35
 	band_node.material_override = mat
 	band_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	# Nachtlicht: Lichtkarte unabhängig von der Normale (omni; das Band liegt über der beleuchteten Fahrbahn), beidseitig (die Oberseite des Rings ist aus der
+	# Draufsicht die Rückseite) und Grundhelligkeit der Nacht; vorher war das Band nachts fast schwarz. Schwache Verstärkung: Vorder- und Rückseite des
+	# halbtransparenten Bands liegen übereinander und addieren sich, die Fahrbahn scheint durch. Deshalb auch nur die halbe Grundhelligkeit je Seite.
+	add_overlay(band_node, runtime_overlay(Color(mat.albedo_color.r, mat.albedo_color.g, mat.albedo_color.b), 0.5, true, 1.2, RUNTIME_FLOOR * 0.5))
 	add_child(band_node)
 	var rail_node := MeshInstance3D.new()
 	rail_node.mesh = rails.commit()
@@ -495,6 +591,7 @@ func build_loop(s: float, radius: float) -> void:
 	rail_mat.metallic = 0.0 if toy else 0.6
 	rail_mat.roughness = 0.4
 	rail_node.material_override = rail_mat
+	add_overlay(rail_node, runtime_overlay(rail_mat.albedo_color, 1.0, true, 0.8))
 	add_child(rail_node)
 	# Stützen: je eine schlanke Säule außen an der vorderen und hinteren Ringseite (Höhe = Radius).
 	for th in [PI * 0.5, PI * 1.5]:
@@ -555,13 +652,16 @@ func curb_band(inner: float, outer: float) -> void:
 
 func build_gravel_road() -> void:
 	# Schotterpiste: braune Fahrbahn mit Körnung, keine Randlinien; Holzpfosten und Feldsteine statt Randsteinen.
-	road_mesh = road_strip(-3.5, 3.5, 0.17, Color("8b6f4e"), 0.0, 1.0, true)
+	road_mesh = road_strip(-3.5, 3.5, 0.17, Color("8b6f4e"), 0.0, 1.0, true, false, false)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 23
 	for i in range(int(track.length*7.0)):
 		var s := rng.randf()
 		var p := track.at(s, rng.randf_range(-3.3,3.3))
 		if track.other_branch_distance(p, s) < Circuit.HALF_WIDTH + 0.2:
+			continue
+		# Über Lücken (Graben, Sprungstrecke) liegt keine Fahrbahn: dort auch keine Erdflecken.
+		if track.in_gap(s):
 			continue
 		var tone := Color("a88c65") if rng.randf() < 0.6 else Color("6e5639")
 		shape("box", Vector3(p.x,0.176+s*0.004,p.y), Vector3(rng.randf_range(0.08,0.2),0.012,rng.randf_range(0.08,0.2)), tone, rng.randf()*TAU)
@@ -578,8 +678,19 @@ func build_gravel_road() -> void:
 				shape("box", Vector3(p.x,0.55,p.y), Vector3(0.16,1.0,0.16), Color("6b4a32"))
 				shape("box", Vector3(p.x,0.98,p.y), Vector3(0.2,0.06,0.2), Color("f1dfb7"))
 
-func light_pool(head: Vector3, reach: float, color: Color) -> void:
+func light_pool(head: Vector3, reach: float, color: Color, kind := "") -> void:
 	# Lichtkegel am Boden (nur abends/nachts sichtbar) plus leuchtender Kopf; ohne echte Lichtquelle, mobil-tauglich.
+	# kind: Bausteintyp; die Begleitdatei ("prop_light") kann die Lichtstärke dieses Typs in der Lichtkarte skalieren (Leuchtkopf und Lichtscheibe bleiben).
+	# Eintrag: Zahl (Stärke) oder {"energy": Stärke, "reach": Faktor auf die Reichweite}; die Reichweite gilt nur für die Lichtkarte.
+	var energy := 1.0
+	var reach_scale := 1.0
+	var scale = diorama_prop_light.get(kind, 1.0) if diorama else 1.0
+	if scale is Dictionary:
+		energy = float(scale.get("energy", 1.0))
+		reach_scale = float(scale.get("reach", 1.0))
+	else:
+		energy = float(scale)
+	head.y += shape_dy       # steht das Bauteil auf Diorama-Relief (prop_y), sitzt auch der Lichtkopf höher
 	var node := Node3D.new()
 	add_child(node)
 	var pool := MeshInstance3D.new()
@@ -605,7 +716,7 @@ func light_pool(head: Vector3, reach: float, color: Color) -> void:
 	node.add_child(glow)
 	node.visible = false
 	atmosphere.night_lights.append(node)
-	atmosphere.lamps.append([head, reach, Color(color.r, color.g, color.b)])
+	atmosphere.lamps.append([head, reach * reach_scale, Color(color.r * energy, color.g * energy, color.b * energy)])
 
 func build_puddles() -> void:
 	# Glänzende Pfützen auf Asphalt, nur bei Regen sichtbar.
@@ -729,7 +840,7 @@ func place_ai(name: String, x: float, z: float, yaw: float, height: float, footp
 	var anchor := Vector3(box.get_center().x, box.position.y, box.get_center().z)
 	if POLE_MODELS.has(name):
 		anchor = Vector3.ZERO        # Mast im Ursprung des Modells: er steht genau auf (x, z), der Ausleger ragt hinaus
-	var origin := Vector3(x, base_y + track.terrain_height(Vector2(x, z)), z) - basis * anchor
+	var origin := Vector3(x, base_y + track.terrain_height(Vector2(x, z)) + diorama_ground_y(x, z), z) - basis * anchor
 	if not ai_prop_batches.has(name):
 		ai_prop_batches[name] = []
 	ai_prop_batches[name].append(Transform3D(basis, origin))
@@ -823,7 +934,7 @@ func place_card(name: String, x: float, z: float, height: float) -> bool:
 	var flip := -1.0 if fposmod(x * 3.7 + z * 1.3, 2.0) < 1.0 else 1.0
 	if not card_batches.has(name):
 		card_batches[name] = []
-	card_batches[name].append(Transform3D(Basis.from_scale(Vector3(size * flip, size, size)), Vector3(x, 0.1 + track.terrain_height(Vector2(x, z)), z)))
+	card_batches[name].append(Transform3D(Basis.from_scale(Vector3(size * flip, size, size)), Vector3(x, 0.1 + track.terrain_height(Vector2(x, z)) + diorama_ground_y(x, z), z)))
 	return true
 
 func flush_cards() -> void:
@@ -866,19 +977,29 @@ func flush_ai_props() -> void:
 		# Einzelne Bauten und Blickfänge bleiben immer voll – vereinfacht zerfallen ihre Formen sichtbar.
 		var mass: bool = ai_prop_batches[name].size() >= MASS_COUNT and not name in ALWAYS_FULL
 		var lo: Mesh = ai_prop_mesh(name + "_lo") if mass else null
+		var wall := is_wall_prop(name)
 		for key in chunks:
 			var node := multimesh_node(hi, chunks[key], "KI_%s_%d_%d" % [name, key.x, key.y])
-			add_overlay(node, lit_overlay(hi))
+			var hi_light := lit_overlay(hi)
+			if wall:
+				hi_light.set_shader_parameter("ambient_floor", RUNTIME_FLOOR)
+			add_overlay(node, hi_light)
 			if lo != null:
 				node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 				var simple := multimesh_node(lo, chunks[key], "KI_%s_lo_%d_%d" % [name, key.x, key.y])
 				simple.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
-				add_overlay(simple, lit_overlay(lo))
+				var lo_light := lit_overlay(lo)
+				if wall:
+					lo_light.set_shader_parameter("ambient_floor", RUNTIME_FLOOR)
+				add_overlay(simple, lo_light)
 				detail_hi.append(node)
 				detail_lo.append(simple)
 	ai_prop_batches.clear()
 
 const LIT_OVERLAY := preload("res://assets/lit_overlay.gdshader")
+const LIT_OVERLAY_TWO_SIDED := preload("res://assets/lit_overlay_two_sided.gdshader")   # beidseitig: offene Bänder, Looping (Rückseite aus der Draufsicht)
+const GRASS_MATERIALS := ["D_Gras", "D_Wiese"]   # Rasen im Zusatzlicht: Eigenfarbe unter Kunstlicht abgeschwächt (kein Neongrün)
+const GRASS_LIGHT_SAT := 0.72                    # gleicher Wert wie im Bodenshader (ground_blend.gdshader, terrain.gdshader)
 
 func lit_overlay(mesh: Mesh) -> ShaderMaterial:
 	# Laternenlicht direkt + indirekt als Zusatzdurchgang; nutzt die Farbtextur des Modells.
@@ -890,16 +1011,45 @@ func lit_overlay(mesh: Mesh) -> ShaderMaterial:
 			mat.set_shader_parameter("albedo_tex", base.albedo_texture)
 		mat.set_shader_parameter("tint", base.albedo_color)
 		mat.set_shader_parameter("use_vertex_color", base.vertex_color_use_as_albedo)
+		if GRASS_MATERIALS.has(String(base.resource_name)):
+			mat.set_shader_parameter("light_sat", GRASS_LIGHT_SAT)
 	return mat
 
-func lit_overlay_color(color: Color) -> ShaderMaterial:
-	# Wie lit_overlay, aber für einfarbige Bauteile (Randsteine, Markierungen, Klötzchen-Deko).
+func lit_overlay_color(color: Color, gain := 1.0) -> ShaderMaterial:
+	# Wie lit_overlay, aber für einfarbige Bauteile (Randsteine, Markierungen, Klötzchen-Deko, Schanzen, Looping).
 	if not premium_rendering():
 		return null
 	var mat := ShaderMaterial.new()
 	mat.shader = LIT_OVERLAY
 	mat.set_shader_parameter("tint", color)
+	if gain != 1.0:
+		mat.set_shader_parameter("light_gain", gain)
 	return mat
+
+# Laufzeit-Bauteile ohne Diorama-Gegenstück (Seitenstreifen, Schlammbänder, Randlinien, Schanzen, Looping, Leitplanken- und Wandmodelle) waren nachts neben
+# beleuchteter Fahrbahn fast schwarz (Befund 02.10.2026): flache Streifen bekamen gar kein Zusatzlicht, senkrechte Flächen nur von zugewandten Lampen, die Oberseite des
+# Loopings (Rückseite aus der Draufsicht) keins. Sie lesen jetzt die Lichtkarte wie Boden und Fahrbahn und bekommen die Grundhelligkeit der Nacht (lamp_floor).
+const STRIP_LIGHT_GAIN := 3.0        # flache Streifen: 0,75 (Oberseite im Zusatzlicht) x 3 = 2,25, wie der Boden daneben (ground_blend/terrain: 2,3)
+const RUNTIME_FLOOR := 1.0           # Grundhelligkeit der Nacht (ambient_floor im Zusatzlicht): Mond- und Himmelslicht wie auf dem Boden
+const WALL_PROPS := ["leitplanke", "betonblock", "reifenwand", "mauer", "absperr"]   # KI-Modelle als Leitplanke/Wand: bekommen ebenfalls die Grundhelligkeit
+
+func runtime_overlay(color: Color, gain := 1.0, two_sided := false, omni := 0.0, floor_amount := RUNTIME_FLOOR) -> ShaderMaterial:
+	if not premium_rendering():
+		return null
+	var mat := ShaderMaterial.new()
+	mat.shader = LIT_OVERLAY_TWO_SIDED if two_sided else LIT_OVERLAY
+	mat.set_shader_parameter("tint", color)
+	mat.set_shader_parameter("light_gain", gain)
+	mat.set_shader_parameter("ambient_floor", floor_amount)
+	if omni > 0.0:
+		mat.set_shader_parameter("omni", omni)
+	return mat
+
+func is_wall_prop(name: String) -> bool:
+	for key in WALL_PROPS:
+		if name.contains(key):
+			return true
+	return false
 
 func generic_prop(prop: Dictionary) -> bool:
 	# Streckenformat-Typen, die in beiden Grafikstufen gelten: "water" und "ai" (KI-Modell mit Klötzchen-Ersatz).
@@ -1026,12 +1176,43 @@ const DIORAMA_BAKED := ["building", "street_tree", "fountain"]
 const DIORAMA_TINT := {"D_Asphalt": Color(0.62, 0.63, 0.64), "D_Randstein": Color(0.8, 0.8, 0.78),
 	"D_Gehweg": Color(0.70, 0.69, 0.65), "D_Pflaster": Color(0.86, 0.84, 0.8), "D_Gras": Color(0.9, 0.95, 0.85),
 	"D_Stein": Color(0.9, 0.88, 0.84), "D_Weite": Color(0.62, 0.62, 0.6), "D_Beton": Color(0.75, 0.75, 0.73),
-	"D_Asphalt_Strasse": Color(0.9, 0.9, 0.88)}
+	"D_Asphalt_Strasse": Color(0.9, 0.9, 0.88), "D_Sand": Color(0.96, 0.94, 0.9), "D_Erde": Color(0.85, 0.8, 0.74)}
 # Der Fahrbahn-Shader nimmt diese Töne als Multiplikator der Fototextur.
 var diorama := false
+var diorama_runtime_road := false     # Begleitdatei "runtime_road": Fahrbahn, Randsteine, Rampen, Schleifen, Abkürzungen baut das Spiel selbst
+var diorama_runtime_terrain := false  # Begleitdatei "runtime_terrain": das Geländerelief der Strecke baut das Spiel selbst
+var diorama_tints: Dictionary = DIORAMA_TINT   # Farbtöne der D_*-Materialien; die Begleitdatei ("tints") ergänzt/überschreibt sie
 var diorama_blocked: Array = []   # Straßenflächen des Dioramas: [ox, oz, ux, uz, vx, vz, a0, a1, b0, b1] (Begleitdatei)
 var diorama_lamps: Array = []     # zusätzliche Laternen für Kreuzungen/Nebenstraßen: {x, z, toward}
 var diorama_extent := Rect2()      # Fläche des Dioramas (Laternenlicht, Niederschlag und Nebel gelten für die ganze Stadt)
+var diorama_lights: Array = []    # Punktlichter ohne Laterne (Begleitdatei "lights"): {x, z, y, color, energy, range, omni, glow}
+var diorama_prop_light := {}       # Begleitdatei "prop_light": Faktor auf die Lichtstärke (Lichtkarte) der Laufzeit-Lichter je Bausteintyp ("floodlight", "lamp", "lantern")
+var diorama_prop_y := {}          # Begleitdatei "prop_y": Bodenhöhe des Dioramas an Standorten von Laufzeit-Bauteilen (Zelle 5 cm -> Vector3(x, Höhe, z))
+var omni_count := 0               # echte Punktlichter (OmniLight3D) aus der Begleitdatei, höchstens MAX_OMNI
+const MAX_OMNI := 6
+const OMNI_GAIN := 0.35           # Stärke des echten Lichts im Verhältnis zur "energy" des Eintrags (die Lichtkarte trägt den Hauptanteil)
+
+func diorama_ground_y(x: float, z: float) -> float:
+	# Bodenhöhe des Dioramas an einem Standort (Begleitdatei "prop_y"); ohne Eintrag 0 (ebener Boden wie bisher).
+	if diorama_prop_y.is_empty():
+		return 0.0
+	var kx := roundi(x * 20.0)
+	var kz := roundi(z * 20.0)
+	var best := 0.0
+	var best_d := 0.0036            # 6 cm Toleranz (die Begleitdatei rundet auf Millimeter)
+	for dx in range(-1, 2):
+		for dz in range(-1, 2):
+			var e: Variant = diorama_prop_y.get(Vector2i(kx + dx, kz + dz))
+			if e != null:
+				var spot: Vector3 = e
+				var d := (spot.x - x) * (spot.x - x) + (spot.z - z) * (spot.z - z)
+				if d < best_d:
+					best_d = d
+					best = spot.y
+	return best
+
+func set_prop_height(x: float, z: float, y: float) -> void:
+	diorama_prop_y[Vector2i(roundi(x * 20.0), roundi(z * 20.0))] = Vector3(x, y, z)
 
 func track_layout_blocked() -> Array:
 	var path := (DIORAMA_PATH % track.id).replace(".glb", "_layout.json")
@@ -1044,6 +1225,8 @@ func build_obstacle_blocks() -> void:
 	var palette := [Color("e8d9b5"), Color("d98c6a"), Color("9fb7b5"), Color("c9b48f"), Color("b8a0a8")]
 	var k := 0
 	for o in track.obstacles:
+		if not bool(o.get("v", true)):
+			continue            # unsichtbarer Begrenzer (Begleitdatei "v": false): kein Klotz, die Fahrphysik kennt ihn trotzdem
 		var c: Vector2 = o.c
 		var height := float(o.y)
 		match str(o.k):
@@ -1142,7 +1325,17 @@ func kit_material(key: String) -> StandardMaterial3D:
 	return mat
 
 const EVENT_PATH := "res://assets/event/%s.png"
+const CROWD_SHADER := preload("res://assets/crowd.gdshader")
 var event_materials := {}
+static var crowd_soft: Shader = null
+
+static func crowd_soft_shader() -> Shader:
+	# Weichteil-Durchgang der Zuschauer: dieselbe Datei wie der Hauptdurchgang mit CROWD_SOFT (gleiche Bewegung, gleiche Farbe und gleiches
+	# Licht, nur halbtransparent und ohne die Innenflächen); einmal je Programmlauf übersetzt.
+	if crowd_soft == null:
+		crowd_soft = Shader.new()
+		crowd_soft.code = CROWD_SHADER.code.replace("shader_type spatial;", "shader_type spatial;\n#define CROWD_SOFT")
+	return crowd_soft
 
 func event_material(key: String) -> Material:
 	# Rennausstattung (tools/diorama.py, Platzhalter E_*): Zuschauer, Werbebanner, Startportal, Schachbrett und wehende Fahnen.
@@ -1154,9 +1347,18 @@ func event_material(key: String) -> Material:
 		flag.shader = preload("res://assets/flag.gdshader")
 		result = flag
 	elif key == "menge":
+		# Zuschauer in zwei Durchgängen (crowd.gdshader): undurchsichtige Menschen mit Ausschnitt (schreiben Tiefe, das Zusatzlicht der
+		# Tribünenstufen darunter kann sie nicht mehr aufhellen) und als next_pass die weichen Teile (Schlagschatten, Umriss, Kanten)
+		# halbtransparent nach dem Zusatzlicht (render_priority 1). Vorher wirkte die Menge nachts blass und durchsichtig.
+		var tex := load(EVENT_PATH % key)
 		var crowd := ShaderMaterial.new()
-		crowd.shader = preload("res://assets/crowd.gdshader")
-		crowd.set_shader_parameter("albedo_tex", load(EVENT_PATH % key))
+		crowd.shader = CROWD_SHADER
+		crowd.set_shader_parameter("albedo_tex", tex)
+		var soft := ShaderMaterial.new()
+		soft.shader = crowd_soft_shader()
+		soft.set_shader_parameter("albedo_tex", tex)
+		soft.render_priority = 1
+		crowd.next_pass = soft
 		result = crowd
 	else:
 		var mat := StandardMaterial3D.new()
@@ -1191,17 +1393,51 @@ func build_diorama() -> void:
 	scene.name = "Diorama"
 	var layout_path: String = (DIORAMA_PATH % track.id).replace(".glb", "_layout.json")
 	diorama_blocked = []
+	diorama_prop_light = {}
 	if FileAccess.file_exists(layout_path):
 		var layout = JSON.parse_string(FileAccess.get_file_as_string(layout_path))
 		if layout is Dictionary:
 			diorama_blocked = layout.get("blocked", [])
 			diorama_lamps = layout.get("lamps", [])
+			diorama_runtime_road = bool(layout.get("runtime_road", false))
+			diorama_runtime_terrain = bool(layout.get("runtime_terrain", false))
+			diorama_ground = {"ground_set": layout.get("ground_set", {}), "ground_tints": layout.get("ground_tints", {}),
+				"ground_scales": layout.get("ground_scales", {})}
+			diorama_water = {"water": layout.get("water", {}), "water_nodes": layout.get("water_nodes", ["Meer"])}
+			if layout.get("tints") is Dictionary:
+				diorama_tints = DIORAMA_TINT.duplicate()
+				for tint_name in layout.tints:
+					diorama_tints[tint_name] = color_from(layout.tints[tint_name])
+			if layout.get("water_y") != null:
+				diorama_water_y = float(layout.water_y)
 			var ext: Array = layout.get("extent", [])
 			if ext.size() == 4:
 				diorama_extent = Rect2(Vector2(float(ext[0]), float(ext[1])), Vector2(float(ext[2]) - float(ext[0]), float(ext[3]) - float(ext[1])))
 			# Häuser werfen Laternenschatten (Lichtkarte, Atmosphere.bake_rain_lights).
 			for o in layout.get("occluders", []):
 				atmosphere.occluders.append([Vector2(float(o[0]), float(o[1])), Vector2(float(o[2]), float(o[3])), float(o[4])])
+			# Beliebige Lichtblocker (gekrümmte Tribünen, Mauern): [[[x, z], ...], Höhe]; blockieren Strahlen unterhalb ihrer Oberkante.
+			for pol in layout.get("occluder_polys", []):
+				if pol is Array and pol.size() >= 2 and pol[0] is Array and pol[0].size() >= 3:
+					var pts := PackedVector2Array()
+					for q in pol[0]:
+						pts.append(Vector2(float(q[0]), float(q[1])))
+					atmosphere.occluder_polys.append([pts, float(pol[1])])
+			# Punktlichter ohne Laterne (siehe add_diorama_light) und Bodenhöhen für Laufzeit-Bauteile ([[x, z, y], ...] oder {Index: y}).
+			diorama_lights = layout.get("lights", [])
+			# Lichtstärke der Laufzeit-Lichter je Bausteintyp (z. B. {"floodlight": 0.35}): das Thema dimmt so die Flutlichter der Streckendatei, ohne sie zu ändern.
+			var scale = layout.get("prop_light", {})
+			diorama_prop_light = scale if scale is Dictionary else {}
+			var heights = layout.get("prop_y", [])
+			if heights is Array:
+				for e in heights:
+					if e is Array and e.size() >= 3:
+						set_prop_height(float(e[0]), float(e[1]), float(e[2]))
+			elif heights is Dictionary:
+				for k in heights:
+					var idx := int(k)
+					if idx >= 0 and idx < track.props.size():
+						set_prop_height(float(track.props[idx].get("x", 0.0)), float(track.props[idx].get("z", 0.0)), float(heights[k]))
 	add_child(scene)
 	var ao_path: String = (DIORAMA_PATH % track.id).replace(".glb", "_ao.jpg")
 	var ao: Texture2D = load(ao_path) if ResourceLoader.exists(ao_path) else null
@@ -1228,7 +1464,7 @@ func build_diorama() -> void:
 			if mname == "D_Asphalt" or mname == "D_Asphalt_Strasse":
 				# Fahrbahn: Nässe, Pfützen, Spiegelung und Laternenlicht kommen aus dem Fahrbahn-Shader.
 				if not road_shaders.has(mname):
-					var tint: Color = DIORAMA_TINT.get(mname, Color.WHITE)
+					var tint: Color = diorama_tints.get(mname, Color.WHITE)
 					var sm := premium_road(tint)
 					sm.set_shader_parameter("albedo_tex", mat.albedo_texture)
 					sm.set_shader_parameter("use_albedo", true)
@@ -1246,12 +1482,24 @@ func build_diorama() -> void:
 				mi.set_surface_override_material(i, road_shaders[mname])
 				lit = false
 				continue
+			if mname == "D_Gelaende":
+				# Boden mit weichen Übergängen (Rasen, Sand, Erde je Punkt aus der Vertexfarbe), Laternenlicht und Schnee im Shader.
+				mi.set_surface_override_material(i, ground_blend(ao))
+				lit = false
+				continue
 			if mname == "D_Wasser":
-				mi.set_surface_override_material(i, premium_water())
+				mi.set_surface_override_material(i, shore_water() if is_shore_water(node_name) else premium_water())
+				# Kein Laternen-Zusatzlicht (lit_overlay) auf Wasser: es multiplizierte die Vertexfarbe (Tiefe im Rotkanal) und färbte Wasser unter
+				# Lampen rot bis magenta. Das Wasser nimmt das Lampenlicht selbst auf (water.gdshader); Schnee liegt nicht auf Wasser.
+				lit = false
 				continue
 			if mname.begins_with("E_"):
 				mi.set_surface_override_material(i, event_material(mname.substr(2)))
 				lit = false         # Menge, Fahnen, Banner: weder Laternen-Zusatzlicht noch Schneedecke
+				if mname == "E_menge" and mi.mesh.get_surface_count() == 1:
+					# Die Menge liegt 4 mm über den Stufen; als undurchsichtiger Ausschnitt würfe sie einen unsichtbaren Schatten, der auf dem
+					# Handy nur Zeit im Schattendurchgang kostet (als halbtransparente Auflage warf sie nie einen).
+					mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 				continue
 			if mname.begins_with("K_"):
 				var kit := kit_material(mname.substr(2))
@@ -1259,8 +1507,8 @@ func build_diorama() -> void:
 				kit_albedo = kit.albedo_texture
 				continue
 			if mname.begins_with("D_"):
-				if DIORAMA_TINT.has(mname):
-					mat.albedo_color = DIORAMA_TINT[mname]
+				if diorama_tints.has(mname):
+					mat.albedo_color = diorama_tints[mname]
 				# Gebackene Umgebungsverdeckung (zweite UV-Ebene); dunkelt auch direktes Licht ab (Kontaktschatten).
 				if ao != null and mi.mesh.surface_get_format(i) & Mesh.ARRAY_FORMAT_TEX_UV2:
 					mat.ao_enabled = true
@@ -1286,6 +1534,41 @@ func build_diorama() -> void:
 		elif lit:
 			add_overlay(mi, lit_overlay(mi.mesh), snow_layer)
 	merge_props(scene)
+
+func add_diorama_light(light: Dictionary) -> void:
+	# Punktlicht aus der Begleitdatei ("lights": Nachttischlampe, Budenbirne, Bildschirmschein, Flutlichtkopf ...). Wie eine Straßenlaterne
+	# geht es in die Lichtkarte (Atmosphere.bake_rain_lights: Farbe x Stärke, Gebäude und Lichtblocker werfen Schatten) und wirkt dadurch
+	# auf Boden, Fahrbahn, Häuser, Autos und Nebel; am Tag ist es aus (lamp_strength, night_lights). Dazu auf Wunsch ein leuchtender Fleck ("glow")
+	# und ein echtes OmniLight3D ohne Schatten (nur Premium, höchstens MAX_OMNI; "omni": false schaltet es aus).
+	var rgb: Array = light.get("color", [1.0, 0.82, 0.5])
+	var energy := float(light.get("energy", 1.0))
+	var reach := maxf(float(light.get("range", 7.0)), 0.5)
+	var head := Vector3(float(light.x), float(light.get("y", 3.0)), float(light.z))
+	var color := Color(float(rgb[0]), float(rgb[1]), float(rgb[2]))
+	atmosphere.lamps.append([head, reach / Atmosphere.LAMP_REACH, Color(color.r * energy, color.g * energy, color.b * energy)])
+	var node := Node3D.new()
+	node.position = head
+	add_child(node)
+	if float(light.get("glow", 0.0)) > 0.0:
+		var glow := MeshInstance3D.new()
+		var quad := QuadMesh.new()
+		quad.size = Vector2(float(light.glow), float(light.glow))
+		glow.mesh = quad
+		var glow_material := Atmosphere.soft_material(Color(color.r, color.g, color.b, 0.6), true)
+		glow_material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		glow.material_override = glow_material
+		node.add_child(glow)
+	if bool(light.get("omni", true)) and omni_count < MAX_OMNI and premium_rendering():
+		var omni := OmniLight3D.new()
+		omni.light_color = color
+		omni.light_energy = OMNI_GAIN * energy
+		omni.omni_range = reach
+		omni.omni_attenuation = 1.6
+		omni.shadow_enabled = false
+		node.add_child(omni)
+		omni_count += 1
+	node.visible = false
+	atmosphere.night_lights.append(node)
 
 func merge_props(scene: Node3D) -> void:
 	# Bäume derselben Sorte (gleiches Netz) und Spiegelebene werden zu einem MultiMesh: spart Zeichenaufrufe (Hauptbild und Schatten).
@@ -1396,22 +1679,28 @@ func premium_prop(prop: Dictionary) -> bool:
 					reach = LAMP_HEAD[model].x * lamp_scale
 					head_y = LAMP_HEAD[model].y * lamp_scale
 				var head := here + to_road.normalized() * reach
-				light_pool(Vector3(head.x,head_y,head.y), 4.0, Color(1.0,0.82,0.5,0.5))
+				light_pool(Vector3(head.x,head_y,head.y), 4.0, Color(1.0,0.82,0.5,0.5), "lamp")
 				return true
 			return false
 		"floodlight":
 			if place_ai("kueste_flutlicht", x, z, rot, 9.0):
-				light_pool(Vector3(x,8.6,z), float(prop.get("reach",11.0)), Color(0.95,0.95,1.0,0.42))
+				light_pool(Vector3(x,8.6,z), float(prop.get("reach",11.0)), Color(0.95,0.95,1.0,0.42), "floodlight")
 				return true
 			return false
 		"lantern":
 			if place_ai("wald_laterne", x, z, spin, 1.7):
-				light_pool(Vector3(x,1.55,z), 3.2, Color(1.0,0.75,0.4,0.55))
+				light_pool(Vector3(x,1.55,z), 3.2, Color(1.0,0.75,0.4,0.55), "lantern")
 				return true
 			return false
 	return false
 
 func build_prop(prop: Dictionary) -> void:
+	# Bodenhöhe des Dioramas am Standort (Begleitdatei "prop_y") gilt auch für den Klötzchen-Ersatz (shape_dy) und die Lichtköpfe.
+	shape_dy = diorama_ground_y(float(prop.get("x", 0.0)), float(prop.get("z", 0.0)))
+	build_prop_at(prop)
+	shape_dy = 0.0
+
+func build_prop_at(prop: Dictionary) -> void:
 	if generic_prop(prop) or premium_prop(prop):
 		return
 	var x := float(prop.get("x",0.0))
@@ -1485,15 +1774,15 @@ func build_prop(prop: Dictionary) -> void:
 		"lamp":
 			shape("cylinder", Vector3(x,1.6,z), Vector3(0.12,3.2,0.12), DARK)
 			shape("box", Vector3(x,3.25,z), Vector3(0.5,0.18,0.5), Color("fff1b6"))
-			light_pool(Vector3(x,3.25,z), 4.0, Color(1.0,0.82,0.5,0.5))
+			light_pool(Vector3(x,3.25,z), 4.0, Color(1.0,0.82,0.5,0.5), "lamp")
 		"floodlight":
 			shape("cylinder", Vector3(x,4.0,z), Vector3(0.22,8.0,0.22), DARK)
 			shape("box", Vector3(x,8.1,z), Vector3(1.6,0.5,0.5), Color("fff1b6"), rot)
-			light_pool(Vector3(x,8.1,z), float(prop.get("reach",11.0)), Color(0.95,0.95,1.0,0.42))
+			light_pool(Vector3(x,8.1,z), float(prop.get("reach",11.0)), Color(0.95,0.95,1.0,0.42), "floodlight")
 		"lantern":
 			shape("cylinder", Vector3(x,0.9,z), Vector3(0.12,1.8,0.12), Color("6b4a32"))
 			shape("box", Vector3(x,1.9,z), Vector3(0.3,0.35,0.3), Color("ffcf7a"))
-			light_pool(Vector3(x,1.9,z), 3.2, Color(1.0,0.75,0.4,0.55))
+			light_pool(Vector3(x,1.9,z), 3.2, Color(1.0,0.75,0.4,0.55), "lantern")
 		"street_tree":
 			shape("cylinder", Vector3(x,0.9,z), Vector3(0.22,1.8,0.22), Color("7a5c40"))
 			shape("disc", Vector3(x,2.3,z), Vector3(2.0,1.6,2.0), Color("5f9a5f"))
@@ -1506,7 +1795,7 @@ func build_prop(prop: Dictionary) -> void:
 			label.font_size = 70
 			label.pixel_size = 0.013
 			label.modulate = CREAM
-			label.position = Vector3(x,3.6,z) + Vector3(0,0,0.2).rotated(Vector3.UP, rot)
+			label.position = Vector3(x,3.6 + shape_dy,z) + Vector3(0,0,0.2).rotated(Vector3.UP, rot)
 			label.rotation.y = rot
 			add_child(label)
 		"fountain":
@@ -1546,12 +1835,13 @@ func label3d(text: String, pos: Vector3, font_size: int, color: Color, flat := f
 	label.modulate = color
 	label.outline_size = 0
 	label.no_depth_test = false
-	label.position = pos
+	label.position = pos + Vector3(0.0, shape_dy, 0.0)
 	if flat:
 		label.rotation_degrees.x = -90
 	add_child(label)
 
-func road_strip(inner: float, outer: float, y: float, color: Color, start_s := 0.0, end_s := 1.0, stagger := false, skip_crossing := false) -> MeshInstance3D:
+func road_strip(inner: float, outer: float, y: float, color: Color, start_s := 0.0, end_s := 1.0, stagger := false, skip_crossing := false, lit := true) -> MeshInstance3D:
+	# lit = false für die Fahrbahn selbst: Sie bekommt in der Premium-Stufe den Fahrbahn-Shader, der das Laternenlicht schon enthält.
 	var surface := SurfaceTool.new()
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var count := maxi(1,ceili(track.length/0.5*(end_s-start_s)))
@@ -1578,6 +1868,9 @@ func road_strip(inner: float, outer: float, y: float, color: Color, start_s := 0
 	var mat := material(color)
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	mesh.material_override = mat
+	if lit:
+		# Seitenstreifen, Schlammbänder, Randlinien: Lichtkarte wie der Boden daneben (sonst nachts schwarze Bänder neben beleuchteter Fahrbahn).
+		add_overlay(mesh, runtime_overlay(color, STRIP_LIGHT_GAIN, true))
 	add_child(mesh)
 	return mesh
 

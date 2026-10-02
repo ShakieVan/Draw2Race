@@ -1,49 +1,388 @@
 {
- "rate": 22050,
+ "rate": 24000,
  "cars": {
   "sprint": {
    "id": "sprint",
-   "cyl": 4,
-   "idle": 1000,
-   "redline": 7200,
+   "engine": "Audi-Reihenfünfzylinder 2.3",
+   "idle": 973,
+   "redline": 6450,
    "layers": [
     {
+     "rpm": 960.0,
+     "frames": 18000,
      "load": "sprint_load_0.wav",
-     "rpm": 1000.0,
-     "frames": 47628,
-     "coast": "sprint_coast_0.wav"
+     "coast_frames": 17752,
+     "coast_rpm": 973.4,
+     "coast": "sprint_coast_0.wav",
+     "cycles": 6,
+     "coast_cycles": 6
     },
     {
+     "rpm": 1011.0,
+     "frames": 17092,
      "load": "sprint_load_1.wav",
-     "rpm": 1475.1,
-     "frames": 32288,
-     "coast": "sprint_coast_1.wav"
+     "coast_frames": 17092,
+     "coast_rpm": 1011.0,
+     "coast": "sprint_coast_1.wav",
+     "cycles": 6,
+     "coast_cycles": 6
     },
     {
+     "rpm": 1065.0,
+     "frames": 16225,
      "load": "sprint_load_2.wav",
-     "rpm": 2175.9,
-     "frames": 32833,
-     "coast": "sprint_coast_2.wav"
+     "coast_frames": 16225,
+     "coast_rpm": 1065.0,
+     "coast": "sprint_coast_2.wav",
+     "cycles": 6,
+     "coast_cycles": 6
     },
     {
+     "rpm": 1122.0,
+     "frames": 17968,
      "load": "sprint_load_3.wav",
-     "rpm": 3209.7,
-     "frames": 26380,
-     "coast": "sprint_coast_3.wav"
+     "coast_frames": 17968,
+     "coast_rpm": 1122.0,
+     "coast": "sprint_coast_3.wav",
+     "cycles": 7,
+     "coast_cycles": 7
     },
     {
+     "rpm": 1182.0,
+     "frames": 17056,
      "load": "sprint_load_4.wav",
-     "rpm": 4734.5,
-     "frames": 26267,
-     "coast": "sprint_coast_4.wav"
+     "coast_frames": 17056,
+     "coast_rpm": 1182.0,
+     "coast": "sprint_coast_4.wav",
+     "cycles": 7,
+     "coast_cycles": 7
     },
     {
+     "rpm": 1246.0,
+     "frames": 16180,
      "load": "sprint_load_5.wav",
-     "rpm": 6983.9,
-     "frames": 26521,
-     "coast": "sprint_coast_5.wav"
+     "coast_frames": 16180,
+     "coast_rpm": 1246.0,
+     "coast": "sprint_coast_5.wav",
+     "cycles": 7,
+     "coast_cycles": 7
+    },
+    {
+     "rpm": 1312.0,
+     "frames": 17561,
+     "load": "sprint_load_6.wav",
+     "coast_frames": 17561,
+     "coast_rpm": 1312.0,
+     "coast": "sprint_coast_6.wav",
+     "cycles": 8,
+     "coast_cycles": 8
+    },
+    {
+     "rpm": 1382.0,
+     "frames": 16671,
+     "load": "sprint_load_7.wav",
+     "coast_frames": 16671,
+     "coast_rpm": 1382.0,
+     "coast": "sprint_coast_7.wav",
+     "cycles": 8,
+     "coast_cycles": 8
+    },
+    {
+     "rpm": 1456.0,
+     "frames": 15824,
+     "load": "sprint_load_8.wav",
+     "coast_frames": 15824,
+     "coast_rpm": 1456.0,
+     "coast": "sprint_coast_8.wav",
+     "cycles": 8,
+     "coast_cycles": 8
+    },
+    {
+     "rpm": 1534.0,
+     "frames": 16897,
+     "load": "sprint_load_9.wav",
+     "coast_frames": 16897,
+     "coast_rpm": 1534.0,
+     "coast": "sprint_coast_9.wav",
+     "cycles": 9,
+     "coast_cycles": 9
+    },
+    {
+     "rpm": 1616.0,
+     "frames": 16040,
+     "load": "sprint_load_10.wav",
+     "coast_frames": 16040,
+     "coast_rpm": 1616.0,
+     "coast": "sprint_coast_10.wav",
+     "cycles": 9,
+     "coast_cycles": 9
+    },
+    {
+     "rpm": 1702.0,
+     "frames": 16921,
+     "load": "sprint_load_11.wav",
+     "coast_frames": 16921,
+     "coast_rpm": 1702.0,
+     "coast": "sprint_coast_11.wav",
+     "cycles": 10,
+     "coast_cycles": 10
+    },
+    {
+     "rpm": 1793.0,
+     "frames": 16062,
+     "load": "sprint_load_12.wav",
+     "coast_frames": 16062,
+     "coast_rpm": 1793.0,
+     "coast": "sprint_coast_12.wav",
+     "cycles": 10,
+     "coast_cycles": 10
+    },
+    {
+     "rpm": 1889.0,
+     "frames": 16771,
+     "load": "sprint_load_13.wav",
+     "coast_frames": 16771,
+     "coast_rpm": 1889.0,
+     "coast": "sprint_coast_13.wav",
+     "cycles": 11,
+     "coast_cycles": 11
+    },
+    {
+     "rpm": 1990.0,
+     "frames": 17367,
+     "load": "sprint_load_14.wav",
+     "coast_frames": 17367,
+     "coast_rpm": 1990.0,
+     "coast": "sprint_coast_14.wav",
+     "cycles": 12,
+     "coast_cycles": 12
+    },
+    {
+     "rpm": 2096.0,
+     "frames": 16489,
+     "load": "sprint_load_15.wav",
+     "coast_frames": 16489,
+     "coast_rpm": 2096.0,
+     "coast": "sprint_coast_15.wav",
+     "cycles": 12,
+     "coast_cycles": 12
+    },
+    {
+     "rpm": 2208.0,
+     "frames": 16957,
+     "load": "sprint_load_16.wav",
+     "coast_frames": 16957,
+     "coast_rpm": 2208.0,
+     "coast": "sprint_coast_16.wav",
+     "cycles": 13,
+     "coast_cycles": 13
+    },
+    {
+     "rpm": 2326.0,
+     "frames": 17334,
+     "load": "sprint_load_17.wav",
+     "coast_frames": 17334,
+     "coast_rpm": 2326.0,
+     "coast": "sprint_coast_17.wav",
+     "cycles": 14,
+     "coast_cycles": 14
+    },
+    {
+     "rpm": 2451.0,
+     "frames": 16450,
+     "load": "sprint_load_18.wav",
+     "coast_frames": 16450,
+     "coast_rpm": 2451.0,
+     "coast": "sprint_coast_18.wav",
+     "cycles": 14,
+     "coast_cycles": 14
+    },
+    {
+     "rpm": 2582.0,
+     "frames": 16731,
+     "load": "sprint_load_19.wav",
+     "coast_frames": 16731,
+     "coast_rpm": 2582.0,
+     "coast": "sprint_coast_19.wav",
+     "cycles": 15,
+     "coast_cycles": 15
+    },
+    {
+     "rpm": 2720.0,
+     "frames": 16941,
+     "load": "sprint_load_20.wav",
+     "coast_frames": 16941,
+     "coast_rpm": 2720.0,
+     "coast": "sprint_coast_20.wav",
+     "cycles": 16,
+     "coast_cycles": 16
+    },
+    {
+     "rpm": 2865.0,
+     "frames": 17089,
+     "load": "sprint_load_21.wav",
+     "coast_frames": 17089,
+     "coast_rpm": 2865.0,
+     "coast": "sprint_coast_21.wav",
+     "cycles": 17,
+     "coast_cycles": 17
+    },
+    {
+     "rpm": 3018.0,
+     "frames": 17177,
+     "load": "sprint_load_22.wav",
+     "coast_frames": 17177,
+     "coast_rpm": 3018.0,
+     "coast": "sprint_coast_22.wav",
+     "cycles": 18,
+     "coast_cycles": 18
+    },
+    {
+     "rpm": 3180.0,
+     "frames": 17208,
+     "load": "sprint_load_23.wav",
+     "coast_frames": 17208,
+     "coast_rpm": 3180.0,
+     "coast": "sprint_coast_23.wav",
+     "cycles": 19,
+     "coast_cycles": 19
+    },
+    {
+     "rpm": 3350.0,
+     "frames": 17194,
+     "load": "sprint_load_24.wav",
+     "coast_frames": 17194,
+     "coast_rpm": 3350.0,
+     "coast": "sprint_coast_24.wav",
+     "cycles": 20,
+     "coast_cycles": 20
+    },
+    {
+     "rpm": 3528.0,
+     "frames": 17143,
+     "load": "sprint_load_25.wav",
+     "coast_frames": 17143,
+     "coast_rpm": 3528.0,
+     "coast": "sprint_coast_25.wav",
+     "cycles": 21,
+     "coast_cycles": 21
+    },
+    {
+     "rpm": 3717.0,
+     "frames": 17046,
+     "load": "sprint_load_26.wav",
+     "coast_frames": 17046,
+     "coast_rpm": 3717.0,
+     "coast": "sprint_coast_26.wav",
+     "cycles": 22,
+     "coast_cycles": 22
+    },
+    {
+     "rpm": 3916.0,
+     "frames": 16915,
+     "load": "sprint_load_27.wav",
+     "coast_frames": 16915,
+     "coast_rpm": 3916.0,
+     "coast": "sprint_coast_27.wav",
+     "cycles": 23,
+     "coast_cycles": 23
+    },
+    {
+     "rpm": 4125.0,
+     "frames": 16756,
+     "load": "sprint_load_28.wav",
+     "coast_frames": 16756,
+     "coast_rpm": 4125.0,
+     "coast": "sprint_coast_28.wav",
+     "cycles": 24,
+     "coast_cycles": 24
+    },
+    {
+     "rpm": 4346.0,
+     "frames": 16567,
+     "load": "sprint_load_29.wav",
+     "coast_frames": 16567,
+     "coast_rpm": 4346.0,
+     "coast": "sprint_coast_29.wav",
+     "cycles": 25,
+     "coast_cycles": 25
+    },
+    {
+     "rpm": 4578.0,
+     "frames": 16986,
+     "load": "sprint_load_30.wav",
+     "coast_frames": 16986,
+     "coast_rpm": 4578.0,
+     "coast": "sprint_coast_30.wav",
+     "cycles": 27,
+     "coast_cycles": 27
+    },
+    {
+     "rpm": 4822.0,
+     "frames": 16723,
+     "load": "sprint_load_31.wav",
+     "coast_frames": 16723,
+     "coast_rpm": 4822.0,
+     "coast": "sprint_coast_31.wav",
+     "cycles": 28,
+     "coast_cycles": 28
+    },
+    {
+     "rpm": 5080.0,
+     "frames": 17008,
+     "load": "sprint_load_32.wav",
+     "coast_frames": 17008,
+     "coast_rpm": 5080.0,
+     "coast": "sprint_coast_32.wav",
+     "cycles": 30,
+     "coast_cycles": 30
+    },
+    {
+     "rpm": 5352.0,
+     "frames": 16682,
+     "load": "sprint_load_33.wav",
+     "coast_frames": 16682,
+     "coast_rpm": 5352.0,
+     "coast": "sprint_coast_33.wav",
+     "cycles": 31,
+     "coast_cycles": 31
+    },
+    {
+     "rpm": 5638.0,
+     "frames": 16857,
+     "load": "sprint_load_34.wav",
+     "coast_frames": 16857,
+     "coast_rpm": 5638.0,
+     "coast": "sprint_coast_34.wav",
+     "cycles": 33,
+     "coast_cycles": 33
+    },
+    {
+     "rpm": 5939.0,
+     "frames": 16973,
+     "load": "sprint_load_35.wav",
+     "coast_frames": 16973,
+     "coast_rpm": 5939.0,
+     "coast": "sprint_coast_35.wav",
+     "cycles": 35,
+     "coast_cycles": 35
+    },
+    {
+     "rpm": 6256.0,
+     "frames": 16573,
+     "load": "sprint_load_36.wav",
+     "coast_frames": 16573,
+     "coast_rpm": 6256.0,
+     "coast": "sprint_coast_36.wav",
+     "cycles": 36,
+     "coast_cycles": 36
     }
    ],
+   "limiter": "sprint_limiter.wav",
+   "limiter_frames": 39456,
+   "limiter_rpm": 6216,
+   "limiter_period": 0.1827,
+   "dynamics": "baked",
    "gain_db": 0.0,
    "gears": 1.0,
    "turbo": "mid",
@@ -51,47 +390,356 @@
   },
   "grip": {
    "id": "grip",
-   "cyl": 3,
-   "idle": 1050,
-   "redline": 7000,
+   "engine": "Dreizylinder 1.0 (aus Honda B18C abgeleitet)",
+   "idle": 1127,
+   "redline": 6750,
    "layers": [
     {
+     "rpm": 1120.0,
+     "frames": 18000,
      "load": "grip_load_0.wav",
-     "rpm": 1050.0,
-     "frames": 47880,
-     "coast": "grip_coast_0.wav"
+     "coast_frames": 17887,
+     "coast_rpm": 1127.1,
+     "coast": "grip_coast_0.wav",
+     "cycles": 7,
+     "coast_cycles": 7
     },
     {
+     "rpm": 1182.0,
+     "frames": 17056,
      "load": "grip_load_1.wav",
-     "rpm": 1525.2,
-     "frames": 32962,
-     "coast": "grip_coast_1.wav"
+     "coast_frames": 17056,
+     "coast_rpm": 1182.0,
+     "coast": "grip_coast_1.wav",
+     "cycles": 7,
+     "coast_cycles": 7
     },
     {
+     "rpm": 1246.0,
+     "frames": 16180,
      "load": "grip_load_2.wav",
-     "rpm": 2215.4,
-     "frames": 33442,
-     "coast": "grip_coast_2.wav"
+     "coast_frames": 16180,
+     "coast_rpm": 1246.0,
+     "coast": "grip_coast_2.wav",
+     "cycles": 7,
+     "coast_cycles": 7
     },
     {
+     "rpm": 1315.0,
+     "frames": 17521,
      "load": "grip_load_3.wav",
-     "rpm": 3218.1,
-     "frames": 26311,
-     "coast": "grip_coast_3.wav"
+     "coast_frames": 17521,
+     "coast_rpm": 1315.0,
+     "coast": "grip_coast_3.wav",
+     "cycles": 8,
+     "coast_cycles": 8
     },
     {
+     "rpm": 1387.0,
+     "frames": 16611,
      "load": "grip_load_4.wav",
-     "rpm": 4674.6,
-     "frames": 26604,
-     "coast": "grip_coast_4.wav"
+     "coast_frames": 16611,
+     "coast_rpm": 1387.0,
+     "coast": "grip_coast_4.wav",
+     "cycles": 8,
+     "coast_cycles": 8
     },
     {
+     "rpm": 1464.0,
+     "frames": 17705,
      "load": "grip_load_5.wav",
-     "rpm": 6790.0,
-     "frames": 26499,
-     "coast": "grip_coast_5.wav"
+     "coast_frames": 17705,
+     "coast_rpm": 1464.0,
+     "coast": "grip_coast_5.wav",
+     "cycles": 9,
+     "coast_cycles": 9
+    },
+    {
+     "rpm": 1544.0,
+     "frames": 16788,
+     "load": "grip_load_6.wav",
+     "coast_frames": 16788,
+     "coast_rpm": 1544.0,
+     "coast": "grip_coast_6.wav",
+     "cycles": 9,
+     "coast_cycles": 9
+    },
+    {
+     "rpm": 1629.0,
+     "frames": 17680,
+     "load": "grip_load_7.wav",
+     "coast_frames": 17680,
+     "coast_rpm": 1629.0,
+     "coast": "grip_coast_7.wav",
+     "cycles": 10,
+     "coast_cycles": 10
+    },
+    {
+     "rpm": 1718.0,
+     "frames": 16764,
+     "load": "grip_load_8.wav",
+     "coast_frames": 16764,
+     "coast_rpm": 1718.0,
+     "coast": "grip_coast_8.wav",
+     "cycles": 10,
+     "coast_cycles": 10
+    },
+    {
+     "rpm": 1813.0,
+     "frames": 17474,
+     "load": "grip_load_9.wav",
+     "coast_frames": 17474,
+     "coast_rpm": 1813.0,
+     "coast": "grip_coast_9.wav",
+     "cycles": 11,
+     "coast_cycles": 11
+    },
+    {
+     "rpm": 1912.0,
+     "frames": 16569,
+     "load": "grip_load_10.wav",
+     "coast_frames": 16569,
+     "coast_rpm": 1912.0,
+     "coast": "grip_coast_10.wav",
+     "cycles": 11,
+     "coast_cycles": 11
+    },
+    {
+     "rpm": 2018.0,
+     "frames": 17126,
+     "load": "grip_load_11.wav",
+     "coast_frames": 17126,
+     "coast_rpm": 2018.0,
+     "coast": "grip_coast_11.wav",
+     "cycles": 12,
+     "coast_cycles": 12
+    },
+    {
+     "rpm": 2128.0,
+     "frames": 16241,
+     "load": "grip_load_12.wav",
+     "coast_frames": 16241,
+     "coast_rpm": 2128.0,
+     "coast": "grip_coast_12.wav",
+     "cycles": 12,
+     "coast_cycles": 12
+    },
+    {
+     "rpm": 2246.0,
+     "frames": 16670,
+     "load": "grip_load_13.wav",
+     "coast_frames": 16670,
+     "coast_rpm": 2246.0,
+     "coast": "grip_coast_13.wav",
+     "cycles": 13,
+     "coast_cycles": 13
+    },
+    {
+     "rpm": 2369.0,
+     "frames": 17020,
+     "load": "grip_load_14.wav",
+     "coast_frames": 17020,
+     "coast_rpm": 2369.0,
+     "coast": "grip_coast_14.wav",
+     "cycles": 14,
+     "coast_cycles": 14
+    },
+    {
+     "rpm": 2499.0,
+     "frames": 17287,
+     "load": "grip_load_15.wav",
+     "coast_frames": 17287,
+     "coast_rpm": 2499.0,
+     "coast": "grip_coast_15.wav",
+     "cycles": 15,
+     "coast_cycles": 15
+    },
+    {
+     "rpm": 2636.0,
+     "frames": 16388,
+     "load": "grip_load_16.wav",
+     "coast_frames": 16388,
+     "coast_rpm": 2636.0,
+     "coast": "grip_coast_16.wav",
+     "cycles": 15,
+     "coast_cycles": 15
+    },
+    {
+     "rpm": 2781.0,
+     "frames": 16570,
+     "load": "grip_load_17.wav",
+     "coast_frames": 16570,
+     "coast_rpm": 2781.0,
+     "coast": "grip_coast_17.wav",
+     "cycles": 16,
+     "coast_cycles": 16
+    },
+    {
+     "rpm": 2934.0,
+     "frames": 16687,
+     "load": "grip_load_18.wav",
+     "coast_frames": 16687,
+     "coast_rpm": 2934.0,
+     "coast": "grip_coast_18.wav",
+     "cycles": 17,
+     "coast_cycles": 17
+    },
+    {
+     "rpm": 3096.0,
+     "frames": 16744,
+     "load": "grip_load_19.wav",
+     "coast_frames": 16744,
+     "coast_rpm": 3096.0,
+     "coast": "grip_coast_19.wav",
+     "cycles": 18,
+     "coast_cycles": 18
+    },
+    {
+     "rpm": 3266.0,
+     "frames": 16754,
+     "load": "grip_load_20.wav",
+     "coast_frames": 16754,
+     "coast_rpm": 3266.0,
+     "coast": "grip_coast_20.wav",
+     "cycles": 19,
+     "coast_cycles": 19
+    },
+    {
+     "rpm": 3445.0,
+     "frames": 16720,
+     "load": "grip_load_21.wav",
+     "coast_frames": 16720,
+     "coast_rpm": 3445.0,
+     "coast": "grip_coast_21.wav",
+     "cycles": 20,
+     "coast_cycles": 20
+    },
+    {
+     "rpm": 3635.0,
+     "frames": 16638,
+     "load": "grip_load_22.wav",
+     "coast_frames": 16638,
+     "coast_rpm": 3635.0,
+     "coast": "grip_coast_22.wav",
+     "cycles": 21,
+     "coast_cycles": 21
+    },
+    {
+     "rpm": 3834.0,
+     "frames": 16526,
+     "load": "grip_load_23.wav",
+     "coast_frames": 16526,
+     "coast_rpm": 3834.0,
+     "coast": "grip_coast_23.wav",
+     "cycles": 22,
+     "coast_cycles": 22
+    },
+    {
+     "rpm": 4045.0,
+     "frames": 17088,
+     "load": "grip_load_24.wav",
+     "coast_frames": 17088,
+     "coast_rpm": 4045.0,
+     "coast": "grip_coast_24.wav",
+     "cycles": 24,
+     "coast_cycles": 24
+    },
+    {
+     "rpm": 4268.0,
+     "frames": 16870,
+     "load": "grip_load_25.wav",
+     "coast_frames": 16870,
+     "coast_rpm": 4268.0,
+     "coast": "grip_coast_25.wav",
+     "cycles": 25,
+     "coast_cycles": 25
+    },
+    {
+     "rpm": 4502.0,
+     "frames": 16633,
+     "load": "grip_load_26.wav",
+     "coast_frames": 16633,
+     "coast_rpm": 4502.0,
+     "coast": "grip_coast_26.wav",
+     "cycles": 26,
+     "coast_cycles": 26
+    },
+    {
+     "rpm": 4750.0,
+     "frames": 16977,
+     "load": "grip_load_27.wav",
+     "coast_frames": 16977,
+     "coast_rpm": 4750.0,
+     "coast": "grip_coast_27.wav",
+     "cycles": 28,
+     "coast_cycles": 28
+    },
+    {
+     "rpm": 5010.0,
+     "frames": 16671,
+     "load": "grip_load_28.wav",
+     "coast_frames": 16671,
+     "coast_rpm": 5010.0,
+     "coast": "grip_coast_28.wav",
+     "cycles": 29,
+     "coast_cycles": 29
+    },
+    {
+     "rpm": 5286.0,
+     "frames": 16890,
+     "load": "grip_load_29.wav",
+     "coast_frames": 16890,
+     "coast_rpm": 5286.0,
+     "coast": "grip_coast_29.wav",
+     "cycles": 31,
+     "coast_cycles": 31
+    },
+    {
+     "rpm": 5576.0,
+     "frames": 17044,
+     "load": "grip_load_30.wav",
+     "coast_frames": 17044,
+     "coast_rpm": 5576.0,
+     "coast": "grip_coast_30.wav",
+     "cycles": 33,
+     "coast_cycles": 33
+    },
+    {
+     "rpm": 5883.0,
+     "frames": 16645,
+     "load": "grip_load_31.wav",
+     "coast_frames": 16645,
+     "coast_rpm": 5883.0,
+     "coast": "grip_coast_31.wav",
+     "cycles": 34,
+     "coast_cycles": 34
+    },
+    {
+     "rpm": 6206.0,
+     "frames": 16706,
+     "load": "grip_load_32.wav",
+     "coast_frames": 16706,
+     "coast_rpm": 6206.0,
+     "coast": "grip_coast_32.wav",
+     "cycles": 36,
+     "coast_cycles": 36
+    },
+    {
+     "rpm": 6548.0,
+     "frames": 16714,
+     "load": "grip_load_33.wav",
+     "coast_frames": 16714,
+     "coast_rpm": 6548.0,
+     "coast": "grip_coast_33.wav",
+     "cycles": 38,
+     "coast_cycles": 38
     }
    ],
+   "limiter": "grip_limiter.wav",
+   "limiter_frames": 38912,
+   "limiter_rpm": 6677,
+   "limiter_period": 0.0853,
+   "dynamics": "baked",
    "gain_db": -1.5,
    "gears": 0.92,
    "turbo": "mid_soft",
@@ -99,47 +747,436 @@
   },
   "rally": {
    "id": "rally",
-   "cyl": 4,
-   "idle": 1000,
-   "redline": 7200,
+   "engine": "Subaru EJ25, ungleich lange Krümmer",
+   "idle": 768,
+   "redline": 6800,
    "layers": [
     {
+     "rpm": 765.0,
+     "frames": 15059,
      "load": "rally_load_0.wav",
-     "rpm": 1000.0,
-     "frames": 47628,
-     "coast": "rally_coast_0.wav"
+     "coast_frames": 14996,
+     "coast_rpm": 768.2,
+     "coast": "rally_coast_0.wav",
+     "cycles": 4,
+     "coast_cycles": 4
     },
     {
+     "rpm": 806.0,
+     "frames": 17866,
      "load": "rally_load_1.wav",
-     "rpm": 1475.1,
-     "frames": 32288,
-     "coast": "rally_coast_1.wav"
+     "coast_frames": 17866,
+     "coast_rpm": 806.0,
+     "coast": "rally_coast_1.wav",
+     "cycles": 5,
+     "coast_cycles": 5
     },
     {
+     "rpm": 850.0,
+     "frames": 16941,
      "load": "rally_load_2.wav",
-     "rpm": 2175.9,
-     "frames": 32833,
-     "coast": "rally_coast_2.wav"
+     "coast_frames": 16941,
+     "coast_rpm": 850.0,
+     "coast": "rally_coast_2.wav",
+     "cycles": 5,
+     "coast_cycles": 5
     },
     {
+     "rpm": 896.0,
+     "frames": 16071,
      "load": "rally_load_3.wav",
-     "rpm": 3209.7,
-     "frames": 26380,
-     "coast": "rally_coast_3.wav"
+     "coast_frames": 16071,
+     "coast_rpm": 896.0,
+     "coast": "rally_coast_3.wav",
+     "cycles": 5,
+     "coast_cycles": 5
     },
     {
+     "rpm": 944.0,
+     "frames": 18305,
      "load": "rally_load_4.wav",
-     "rpm": 4734.5,
-     "frames": 26267,
-     "coast": "rally_coast_4.wav"
+     "coast_frames": 18305,
+     "coast_rpm": 944.0,
+     "coast": "rally_coast_4.wav",
+     "cycles": 6,
+     "coast_cycles": 6
     },
     {
+     "rpm": 995.0,
+     "frames": 17367,
      "load": "rally_load_5.wav",
-     "rpm": 6983.9,
-     "frames": 26521,
-     "coast": "rally_coast_5.wav"
+     "coast_frames": 17367,
+     "coast_rpm": 995.0,
+     "coast": "rally_coast_5.wav",
+     "cycles": 6,
+     "coast_cycles": 6
+    },
+    {
+     "rpm": 1048.0,
+     "frames": 16489,
+     "load": "rally_load_6.wav",
+     "coast_frames": 16489,
+     "coast_rpm": 1048.0,
+     "coast": "rally_coast_6.wav",
+     "cycles": 6,
+     "coast_cycles": 6
+    },
+    {
+     "rpm": 1105.0,
+     "frames": 15638,
+     "load": "rally_load_7.wav",
+     "coast_frames": 15638,
+     "coast_rpm": 1105.0,
+     "coast": "rally_coast_7.wav",
+     "cycles": 6,
+     "coast_cycles": 6
+    },
+    {
+     "rpm": 1165.0,
+     "frames": 17305,
+     "load": "rally_load_8.wav",
+     "coast_frames": 17305,
+     "coast_rpm": 1165.0,
+     "coast": "rally_coast_8.wav",
+     "cycles": 7,
+     "coast_cycles": 7
+    },
+    {
+     "rpm": 1228.0,
+     "frames": 16417,
+     "load": "rally_load_9.wav",
+     "coast_frames": 16417,
+     "coast_rpm": 1228.0,
+     "coast": "rally_coast_9.wav",
+     "cycles": 7,
+     "coast_cycles": 7
+    },
+    {
+     "rpm": 1294.0,
+     "frames": 17805,
+     "load": "rally_load_10.wav",
+     "coast_frames": 17805,
+     "coast_rpm": 1294.0,
+     "coast": "rally_coast_10.wav",
+     "cycles": 8,
+     "coast_cycles": 8
+    },
+    {
+     "rpm": 1364.0,
+     "frames": 16891,
+     "load": "rally_load_11.wav",
+     "coast_frames": 16891,
+     "coast_rpm": 1364.0,
+     "coast": "rally_coast_11.wav",
+     "cycles": 8,
+     "coast_cycles": 8
+    },
+    {
+     "rpm": 1437.0,
+     "frames": 16033,
+     "load": "rally_load_12.wav",
+     "coast_frames": 16033,
+     "coast_rpm": 1437.0,
+     "coast": "rally_coast_12.wav",
+     "cycles": 8,
+     "coast_cycles": 8
+    },
+    {
+     "rpm": 1515.0,
+     "frames": 17109,
+     "load": "rally_load_13.wav",
+     "coast_frames": 17109,
+     "coast_rpm": 1515.0,
+     "coast": "rally_coast_13.wav",
+     "cycles": 9,
+     "coast_cycles": 9
+    },
+    {
+     "rpm": 1596.0,
+     "frames": 16241,
+     "load": "rally_load_14.wav",
+     "coast_frames": 16241,
+     "coast_rpm": 1596.0,
+     "coast": "rally_coast_14.wav",
+     "cycles": 9,
+     "coast_cycles": 9
+    },
+    {
+     "rpm": 1682.0,
+     "frames": 17122,
+     "load": "rally_load_15.wav",
+     "coast_frames": 17122,
+     "coast_rpm": 1682.0,
+     "coast": "rally_coast_15.wav",
+     "cycles": 10,
+     "coast_cycles": 10
+    },
+    {
+     "rpm": 1773.0,
+     "frames": 16244,
+     "load": "rally_load_16.wav",
+     "coast_frames": 16244,
+     "coast_rpm": 1773.0,
+     "coast": "rally_coast_16.wav",
+     "cycles": 10,
+     "coast_cycles": 10
+    },
+    {
+     "rpm": 1869.0,
+     "frames": 16950,
+     "load": "rally_load_17.wav",
+     "coast_frames": 16950,
+     "coast_rpm": 1869.0,
+     "coast": "rally_coast_17.wav",
+     "cycles": 11,
+     "coast_cycles": 11
+    },
+    {
+     "rpm": 1970.0,
+     "frames": 16081,
+     "load": "rally_load_18.wav",
+     "coast_frames": 16081,
+     "coast_rpm": 1970.0,
+     "coast": "rally_coast_18.wav",
+     "cycles": 11,
+     "coast_cycles": 11
+    },
+    {
+     "rpm": 2076.0,
+     "frames": 16647,
+     "load": "rally_load_19.wav",
+     "coast_frames": 16647,
+     "coast_rpm": 2076.0,
+     "coast": "rally_coast_19.wav",
+     "cycles": 12,
+     "coast_cycles": 12
+    },
+    {
+     "rpm": 2188.0,
+     "frames": 17112,
+     "load": "rally_load_20.wav",
+     "coast_frames": 17112,
+     "coast_rpm": 2188.0,
+     "coast": "rally_coast_20.wav",
+     "cycles": 13,
+     "coast_cycles": 13
+    },
+    {
+     "rpm": 2306.0,
+     "frames": 16236,
+     "load": "rally_load_21.wav",
+     "coast_frames": 16236,
+     "coast_rpm": 2306.0,
+     "coast": "rally_coast_21.wav",
+     "cycles": 13,
+     "coast_cycles": 13
+    },
+    {
+     "rpm": 2430.0,
+     "frames": 16593,
+     "load": "rally_load_22.wav",
+     "coast_frames": 16593,
+     "coast_rpm": 2430.0,
+     "coast": "rally_coast_22.wav",
+     "cycles": 14,
+     "coast_cycles": 14
+    },
+    {
+     "rpm": 2562.0,
+     "frames": 16862,
+     "load": "rally_load_23.wav",
+     "coast_frames": 16862,
+     "coast_rpm": 2562.0,
+     "coast": "rally_coast_23.wav",
+     "cycles": 15,
+     "coast_cycles": 15
+    },
+    {
+     "rpm": 2700.0,
+     "frames": 17067,
+     "load": "rally_load_24.wav",
+     "coast_frames": 17067,
+     "coast_rpm": 2700.0,
+     "coast": "rally_coast_24.wav",
+     "cycles": 16,
+     "coast_cycles": 16
+    },
+    {
+     "rpm": 2846.0,
+     "frames": 17203,
+     "load": "rally_load_25.wav",
+     "coast_frames": 17203,
+     "coast_rpm": 2846.0,
+     "coast": "rally_coast_25.wav",
+     "cycles": 17,
+     "coast_cycles": 17
+    },
+    {
+     "rpm": 2999.0,
+     "frames": 16325,
+     "load": "rally_load_26.wav",
+     "coast_frames": 16325,
+     "coast_rpm": 2999.0,
+     "coast": "rally_coast_26.wav",
+     "cycles": 17,
+     "coast_cycles": 17
+    },
+    {
+     "rpm": 3161.0,
+     "frames": 16400,
+     "load": "rally_load_27.wav",
+     "coast_frames": 16400,
+     "coast_rpm": 3161.0,
+     "coast": "rally_coast_27.wav",
+     "cycles": 18,
+     "coast_cycles": 18
+    },
+    {
+     "rpm": 3331.0,
+     "frames": 16427,
+     "load": "rally_load_28.wav",
+     "coast_frames": 16427,
+     "coast_rpm": 3331.0,
+     "coast": "rally_coast_28.wav",
+     "cycles": 19,
+     "coast_cycles": 19
+    },
+    {
+     "rpm": 3511.0,
+     "frames": 16406,
+     "load": "rally_load_29.wav",
+     "coast_frames": 16406,
+     "coast_rpm": 3511.0,
+     "coast": "rally_coast_29.wav",
+     "cycles": 20,
+     "coast_cycles": 20
+    },
+    {
+     "rpm": 3700.0,
+     "frames": 17124,
+     "load": "rally_load_30.wav",
+     "coast_frames": 17124,
+     "coast_rpm": 3700.0,
+     "coast": "rally_coast_30.wav",
+     "cycles": 22,
+     "coast_cycles": 22
+    },
+    {
+     "rpm": 3900.0,
+     "frames": 16985,
+     "load": "rally_load_31.wav",
+     "coast_frames": 16985,
+     "coast_rpm": 3900.0,
+     "coast": "rally_coast_31.wav",
+     "cycles": 23,
+     "coast_cycles": 23
+    },
+    {
+     "rpm": 4111.0,
+     "frames": 16813,
+     "load": "rally_load_32.wav",
+     "coast_frames": 16813,
+     "coast_rpm": 4111.0,
+     "coast": "rally_coast_32.wav",
+     "cycles": 24,
+     "coast_cycles": 24
+    },
+    {
+     "rpm": 4332.0,
+     "frames": 16620,
+     "load": "rally_load_33.wav",
+     "coast_frames": 16620,
+     "coast_rpm": 4332.0,
+     "coast": "rally_coast_33.wav",
+     "cycles": 25,
+     "coast_cycles": 25
+    },
+    {
+     "rpm": 4566.0,
+     "frames": 17030,
+     "load": "rally_load_34.wav",
+     "coast_frames": 17030,
+     "coast_rpm": 4566.0,
+     "coast": "rally_coast_34.wav",
+     "cycles": 27,
+     "coast_cycles": 27
+    },
+    {
+     "rpm": 4812.0,
+     "frames": 16758,
+     "load": "rally_load_35.wav",
+     "coast_frames": 16758,
+     "coast_rpm": 4812.0,
+     "coast": "rally_coast_35.wav",
+     "cycles": 28,
+     "coast_cycles": 28
+    },
+    {
+     "rpm": 5072.0,
+     "frames": 17035,
+     "load": "rally_load_36.wav",
+     "coast_frames": 17035,
+     "coast_rpm": 5072.0,
+     "coast": "rally_coast_36.wav",
+     "cycles": 30,
+     "coast_cycles": 30
+    },
+    {
+     "rpm": 5346.0,
+     "frames": 16700,
+     "load": "rally_load_37.wav",
+     "coast_frames": 16700,
+     "coast_rpm": 5346.0,
+     "coast": "rally_coast_37.wav",
+     "cycles": 31,
+     "coast_cycles": 31
+    },
+    {
+     "rpm": 5634.0,
+     "frames": 16869,
+     "load": "rally_load_38.wav",
+     "coast_frames": 16869,
+     "coast_rpm": 5634.0,
+     "coast": "rally_coast_38.wav",
+     "cycles": 33,
+     "coast_cycles": 33
+    },
+    {
+     "rpm": 5938.0,
+     "frames": 16975,
+     "load": "rally_load_39.wav",
+     "coast_frames": 16975,
+     "coast_rpm": 5938.0,
+     "coast": "rally_coast_39.wav",
+     "cycles": 35,
+     "coast_cycles": 35
+    },
+    {
+     "rpm": 6258.0,
+     "frames": 17028,
+     "load": "rally_load_40.wav",
+     "coast_frames": 17028,
+     "coast_rpm": 6258.0,
+     "coast": "rally_coast_40.wav",
+     "cycles": 37,
+     "coast_cycles": 37
+    },
+    {
+     "rpm": 6596.0,
+     "frames": 16592,
+     "load": "rally_load_41.wav",
+     "coast_frames": 16592,
+     "coast_rpm": 6596.0,
+     "coast": "rally_coast_41.wav",
+     "cycles": 38,
+     "coast_cycles": 38
     }
    ],
+   "limiter": "rally_limiter.wav",
+   "limiter_frames": 35904,
+   "limiter_rpm": 6664,
+   "limiter_period": 0.4987,
+   "dynamics": "baked",
    "gain_db": 0.5,
    "gears": 1.05,
    "turbo": "hi",
@@ -147,47 +1184,376 @@
   },
   "muscle": {
    "id": "muscle",
-   "cyl": 8,
-   "idle": 750,
-   "redline": 6200,
+   "engine": "Chevrolet 454 Big-Block V8",
+   "idle": 924,
+   "redline": 6150,
    "layers": [
     {
+     "rpm": 920.0,
+     "frames": 15652,
      "load": "muscle_load_0.wav",
-     "rpm": 750.0,
-     "frames": 49392,
-     "coast": "muscle_coast_0.wav"
+     "coast_frames": 15588,
+     "coast_rpm": 923.8,
+     "coast": "muscle_coast_0.wav",
+     "cycles": 5,
+     "coast_cycles": 5
     },
     {
+     "rpm": 970.0,
+     "frames": 17814,
      "load": "muscle_load_1.wav",
-     "rpm": 1137.3,
-     "frames": 32571,
-     "coast": "muscle_coast_1.wav"
+     "coast_frames": 17814,
+     "coast_rpm": 970.0,
+     "coast": "muscle_coast_1.wav",
+     "cycles": 6,
+     "coast_cycles": 6
     },
     {
+     "rpm": 1024.0,
+     "frames": 16875,
      "load": "muscle_load_2.wav",
-     "rpm": 1724.6,
-     "frames": 33753,
-     "coast": "muscle_coast_2.wav"
+     "coast_frames": 16875,
+     "coast_rpm": 1024.0,
+     "coast": "muscle_coast_2.wav",
+     "cycles": 6,
+     "coast_cycles": 6
     },
     {
+     "rpm": 1080.0,
+     "frames": 16000,
      "load": "muscle_load_3.wav",
-     "rpm": 2615.3,
-     "frames": 26305,
-     "coast": "muscle_coast_3.wav"
+     "coast_frames": 16000,
+     "coast_rpm": 1080.0,
+     "coast": "muscle_coast_3.wav",
+     "cycles": 6,
+     "coast_cycles": 6
     },
     {
+     "rpm": 1139.0,
+     "frames": 17700,
      "load": "muscle_load_4.wav",
-     "rpm": 3966.0,
-     "frames": 26687,
-     "coast": "muscle_coast_4.wav"
+     "coast_frames": 17700,
+     "coast_rpm": 1139.0,
+     "coast": "muscle_coast_4.wav",
+     "cycles": 7,
+     "coast_cycles": 7
     },
     {
+     "rpm": 1202.0,
+     "frames": 16772,
      "load": "muscle_load_5.wav",
-     "rpm": 6014.1,
-     "frames": 26398,
-     "coast": "muscle_coast_5.wav"
+     "coast_frames": 16772,
+     "coast_rpm": 1202.0,
+     "coast": "muscle_coast_5.wav",
+     "cycles": 7,
+     "coast_cycles": 7
+    },
+    {
+     "rpm": 1268.0,
+     "frames": 15899,
+     "load": "muscle_load_6.wav",
+     "coast_frames": 15899,
+     "coast_rpm": 1268.0,
+     "coast": "muscle_coast_6.wav",
+     "cycles": 7,
+     "coast_cycles": 7
+    },
+    {
+     "rpm": 1337.0,
+     "frames": 17233,
+     "load": "muscle_load_7.wav",
+     "coast_frames": 17233,
+     "coast_rpm": 1337.0,
+     "coast": "muscle_coast_7.wav",
+     "cycles": 8,
+     "coast_cycles": 8
+    },
+    {
+     "rpm": 1410.0,
+     "frames": 16340,
+     "load": "muscle_load_8.wav",
+     "coast_frames": 16340,
+     "coast_rpm": 1410.0,
+     "coast": "muscle_coast_8.wav",
+     "cycles": 8,
+     "coast_cycles": 8
+    },
+    {
+     "rpm": 1488.0,
+     "frames": 17419,
+     "load": "muscle_load_9.wav",
+     "coast_frames": 17419,
+     "coast_rpm": 1488.0,
+     "coast": "muscle_coast_9.wav",
+     "cycles": 9,
+     "coast_cycles": 9
+    },
+    {
+     "rpm": 1570.0,
+     "frames": 16510,
+     "load": "muscle_load_10.wav",
+     "coast_frames": 16510,
+     "coast_rpm": 1570.0,
+     "coast": "muscle_coast_10.wav",
+     "cycles": 9,
+     "coast_cycles": 9
+    },
+    {
+     "rpm": 1656.0,
+     "frames": 17391,
+     "load": "muscle_load_11.wav",
+     "coast_frames": 17391,
+     "coast_rpm": 1656.0,
+     "coast": "muscle_coast_11.wav",
+     "cycles": 10,
+     "coast_cycles": 10
+    },
+    {
+     "rpm": 1746.0,
+     "frames": 16495,
+     "load": "muscle_load_12.wav",
+     "coast_frames": 16495,
+     "coast_rpm": 1746.0,
+     "coast": "muscle_coast_12.wav",
+     "cycles": 10,
+     "coast_cycles": 10
+    },
+    {
+     "rpm": 1842.0,
+     "frames": 17199,
+     "load": "muscle_load_13.wav",
+     "coast_frames": 17199,
+     "coast_rpm": 1842.0,
+     "coast": "muscle_coast_13.wav",
+     "cycles": 11,
+     "coast_cycles": 11
+    },
+    {
+     "rpm": 1943.0,
+     "frames": 16305,
+     "load": "muscle_load_14.wav",
+     "coast_frames": 16305,
+     "coast_rpm": 1943.0,
+     "coast": "muscle_coast_14.wav",
+     "cycles": 11,
+     "coast_cycles": 11
+    },
+    {
+     "rpm": 2050.0,
+     "frames": 16859,
+     "load": "muscle_load_15.wav",
+     "coast_frames": 16859,
+     "coast_rpm": 2050.0,
+     "coast": "muscle_coast_15.wav",
+     "cycles": 12,
+     "coast_cycles": 12
+    },
+    {
+     "rpm": 2162.0,
+     "frames": 17317,
+     "load": "muscle_load_16.wav",
+     "coast_frames": 17317,
+     "coast_rpm": 2162.0,
+     "coast": "muscle_coast_16.wav",
+     "cycles": 13,
+     "coast_cycles": 13
+    },
+    {
+     "rpm": 2281.0,
+     "frames": 16414,
+     "load": "muscle_load_17.wav",
+     "coast_frames": 16414,
+     "coast_rpm": 2281.0,
+     "coast": "muscle_coast_17.wav",
+     "cycles": 13,
+     "coast_cycles": 13
+    },
+    {
+     "rpm": 2406.0,
+     "frames": 16758,
+     "load": "muscle_load_18.wav",
+     "coast_frames": 16758,
+     "coast_rpm": 2406.0,
+     "coast": "muscle_coast_18.wav",
+     "cycles": 14,
+     "coast_cycles": 14
+    },
+    {
+     "rpm": 2538.0,
+     "frames": 17021,
+     "load": "muscle_load_19.wav",
+     "coast_frames": 17021,
+     "coast_rpm": 2538.0,
+     "coast": "muscle_coast_19.wav",
+     "cycles": 15,
+     "coast_cycles": 15
+    },
+    {
+     "rpm": 2677.0,
+     "frames": 17213,
+     "load": "muscle_load_20.wav",
+     "coast_frames": 17213,
+     "coast_rpm": 2677.0,
+     "coast": "muscle_coast_20.wav",
+     "cycles": 16,
+     "coast_cycles": 16
+    },
+    {
+     "rpm": 2824.0,
+     "frames": 16317,
+     "load": "muscle_load_21.wav",
+     "coast_frames": 16317,
+     "coast_rpm": 2824.0,
+     "coast": "muscle_coast_21.wav",
+     "cycles": 16,
+     "coast_cycles": 16
+    },
+    {
+     "rpm": 2979.0,
+     "frames": 16435,
+     "load": "muscle_load_22.wav",
+     "coast_frames": 16435,
+     "coast_rpm": 2979.0,
+     "coast": "muscle_coast_22.wav",
+     "cycles": 17,
+     "coast_cycles": 17
+    },
+    {
+     "rpm": 3143.0,
+     "frames": 16494,
+     "load": "muscle_load_23.wav",
+     "coast_frames": 16494,
+     "coast_rpm": 3143.0,
+     "coast": "muscle_coast_23.wav",
+     "cycles": 18,
+     "coast_cycles": 18
+    },
+    {
+     "rpm": 3315.0,
+     "frames": 16507,
+     "load": "muscle_load_24.wav",
+     "coast_frames": 16507,
+     "coast_rpm": 3315.0,
+     "coast": "muscle_coast_24.wav",
+     "cycles": 19,
+     "coast_cycles": 19
+    },
+    {
+     "rpm": 3497.0,
+     "frames": 16471,
+     "load": "muscle_load_25.wav",
+     "coast_frames": 16471,
+     "coast_rpm": 3497.0,
+     "coast": "muscle_coast_25.wav",
+     "cycles": 20,
+     "coast_cycles": 20
+    },
+    {
+     "rpm": 3689.0,
+     "frames": 17175,
+     "load": "muscle_load_26.wav",
+     "coast_frames": 17175,
+     "coast_rpm": 3689.0,
+     "coast": "muscle_coast_26.wav",
+     "cycles": 22,
+     "coast_cycles": 22
+    },
+    {
+     "rpm": 3891.0,
+     "frames": 17024,
+     "load": "muscle_load_27.wav",
+     "coast_frames": 17024,
+     "coast_rpm": 3891.0,
+     "coast": "muscle_coast_27.wav",
+     "cycles": 23,
+     "coast_cycles": 23
+    },
+    {
+     "rpm": 4105.0,
+     "frames": 16838,
+     "load": "muscle_load_28.wav",
+     "coast_frames": 16838,
+     "coast_rpm": 4105.0,
+     "coast": "muscle_coast_28.wav",
+     "cycles": 24,
+     "coast_cycles": 24
+    },
+    {
+     "rpm": 4330.0,
+     "frames": 16628,
+     "load": "muscle_load_29.wav",
+     "coast_frames": 16628,
+     "coast_rpm": 4330.0,
+     "coast": "muscle_coast_29.wav",
+     "cycles": 25,
+     "coast_cycles": 25
+    },
+    {
+     "rpm": 4567.0,
+     "frames": 17026,
+     "load": "muscle_load_30.wav",
+     "coast_frames": 17026,
+     "coast_rpm": 4567.0,
+     "coast": "muscle_coast_30.wav",
+     "cycles": 27,
+     "coast_cycles": 27
+    },
+    {
+     "rpm": 4818.0,
+     "frames": 16737,
+     "load": "muscle_load_31.wav",
+     "coast_frames": 16737,
+     "coast_rpm": 4818.0,
+     "coast": "muscle_coast_31.wav",
+     "cycles": 28,
+     "coast_cycles": 28
+    },
+    {
+     "rpm": 5082.0,
+     "frames": 17001,
+     "load": "muscle_load_32.wav",
+     "coast_frames": 17001,
+     "coast_rpm": 5082.0,
+     "coast": "muscle_coast_32.wav",
+     "cycles": 30,
+     "coast_cycles": 30
+    },
+    {
+     "rpm": 5361.0,
+     "frames": 16654,
+     "load": "muscle_load_33.wav",
+     "coast_frames": 16654,
+     "coast_rpm": 5361.0,
+     "coast": "muscle_coast_33.wav",
+     "cycles": 31,
+     "coast_cycles": 31
+    },
+    {
+     "rpm": 5655.0,
+     "frames": 16806,
+     "load": "muscle_load_34.wav",
+     "coast_frames": 16806,
+     "coast_rpm": 5655.0,
+     "coast": "muscle_coast_34.wav",
+     "cycles": 33,
+     "coast_cycles": 33
+    },
+    {
+     "rpm": 5966.0,
+     "frames": 16896,
+     "load": "muscle_load_35.wav",
+     "coast_frames": 16896,
+     "coast_rpm": 5966.0,
+     "coast": "muscle_coast_35.wav",
+     "cycles": 35,
+     "coast_cycles": 35
     }
    ],
+   "limiter": "muscle_limiter.wav",
+   "limiter_frames": 40096,
+   "limiter_rpm": 5982,
+   "limiter_period": 0.2387,
+   "dynamics": "baked",
    "gain_db": 1.5,
    "gears": 1.12,
    "turbo": "blower",
@@ -195,47 +1561,406 @@
   },
   "gt": {
    "id": "gt",
-   "cyl": 12,
-   "idle": 1100,
-   "redline": 8600,
+   "engine": "V12 (Ferrari 412 T2, auf Straßendrehzahl begrenzt)",
+   "idle": 1174,
+   "redline": 8950,
    "layers": [
     {
+     "rpm": 1180.0,
+     "frames": 17085,
      "load": "gt_load_0.wav",
-     "rpm": 1100.0,
-     "frames": 48109,
-     "coast": "gt_coast_0.wav"
+     "coast_frames": 17168,
+     "coast_rpm": 1174.3,
+     "coast": "gt_coast_0.wav",
+     "cycles": 7,
+     "coast_cycles": 7
     },
     {
+     "rpm": 1244.0,
+     "frames": 16206,
      "load": "gt_load_1.wav",
-     "rpm": 1649.6,
-     "frames": 33685,
-     "coast": "gt_coast_1.wav"
+     "coast_frames": 16206,
+     "coast_rpm": 1244.0,
+     "coast": "gt_coast_1.wav",
+     "cycles": 7,
+     "coast_cycles": 7
     },
     {
+     "rpm": 1311.0,
+     "frames": 17574,
      "load": "gt_load_2.wav",
-     "rpm": 2473.7,
-     "frames": 33159,
-     "coast": "gt_coast_2.wav"
+     "coast_frames": 17574,
+     "coast_rpm": 1311.0,
+     "coast": "gt_coast_2.wav",
+     "cycles": 8,
+     "coast_cycles": 8
     },
     {
+     "rpm": 1381.0,
+     "frames": 16684,
      "load": "gt_load_3.wav",
-     "rpm": 3709.5,
-     "frames": 26392,
-     "coast": "gt_coast_3.wav"
+     "coast_frames": 16684,
+     "coast_rpm": 1381.0,
+     "coast": "gt_coast_3.wav",
+     "cycles": 8,
+     "coast_cycles": 8
     },
     {
+     "rpm": 1456.0,
+     "frames": 15824,
      "load": "gt_load_4.wav",
-     "rpm": 5562.8,
-     "frames": 26637,
-     "coast": "gt_coast_4.wav"
+     "coast_frames": 15824,
+     "coast_rpm": 1456.0,
+     "coast": "gt_coast_4.wav",
+     "cycles": 8,
+     "coast_cycles": 8
     },
     {
+     "rpm": 1534.0,
+     "frames": 16897,
      "load": "gt_load_5.wav",
-     "rpm": 8341.9,
-     "frames": 26327,
-     "coast": "gt_coast_5.wav"
+     "coast_frames": 16897,
+     "coast_rpm": 1534.0,
+     "coast": "gt_coast_5.wav",
+     "cycles": 9,
+     "coast_cycles": 9
+    },
+    {
+     "rpm": 1617.0,
+     "frames": 16030,
+     "load": "gt_load_6.wav",
+     "coast_frames": 16030,
+     "coast_rpm": 1617.0,
+     "coast": "gt_coast_6.wav",
+     "cycles": 9,
+     "coast_cycles": 9
+    },
+    {
+     "rpm": 1704.0,
+     "frames": 16901,
+     "load": "gt_load_7.wav",
+     "coast_frames": 16901,
+     "coast_rpm": 1704.0,
+     "coast": "gt_coast_7.wav",
+     "cycles": 10,
+     "coast_cycles": 10
+    },
+    {
+     "rpm": 1796.0,
+     "frames": 16036,
+     "load": "gt_load_8.wav",
+     "coast_frames": 16036,
+     "coast_rpm": 1796.0,
+     "coast": "gt_coast_8.wav",
+     "cycles": 10,
+     "coast_cycles": 10
+    },
+    {
+     "rpm": 1893.0,
+     "frames": 16735,
+     "load": "gt_load_9.wav",
+     "coast_frames": 16735,
+     "coast_rpm": 1893.0,
+     "coast": "gt_coast_9.wav",
+     "cycles": 11,
+     "coast_cycles": 11
+    },
+    {
+     "rpm": 1995.0,
+     "frames": 17323,
+     "load": "gt_load_10.wav",
+     "coast_frames": 17323,
+     "coast_rpm": 1995.0,
+     "coast": "gt_coast_10.wav",
+     "cycles": 12,
+     "coast_cycles": 12
+    },
+    {
+     "rpm": 2103.0,
+     "frames": 16434,
+     "load": "gt_load_11.wav",
+     "coast_frames": 16434,
+     "coast_rpm": 2103.0,
+     "coast": "gt_coast_11.wav",
+     "cycles": 12,
+     "coast_cycles": 12
+    },
+    {
+     "rpm": 2216.0,
+     "frames": 16895,
+     "load": "gt_load_12.wav",
+     "coast_frames": 16895,
+     "coast_rpm": 2216.0,
+     "coast": "gt_coast_12.wav",
+     "cycles": 13,
+     "coast_cycles": 13
+    },
+    {
+     "rpm": 2336.0,
+     "frames": 17260,
+     "load": "gt_load_13.wav",
+     "coast_frames": 17260,
+     "coast_rpm": 2336.0,
+     "coast": "gt_coast_13.wav",
+     "cycles": 14,
+     "coast_cycles": 14
+    },
+    {
+     "rpm": 2461.0,
+     "frames": 16384,
+     "load": "gt_load_14.wav",
+     "coast_frames": 16384,
+     "coast_rpm": 2461.0,
+     "coast": "gt_coast_14.wav",
+     "cycles": 14,
+     "coast_cycles": 14
+    },
+    {
+     "rpm": 2594.0,
+     "frames": 16654,
+     "load": "gt_load_15.wav",
+     "coast_frames": 16654,
+     "coast_rpm": 2594.0,
+     "coast": "gt_coast_15.wav",
+     "cycles": 15,
+     "coast_cycles": 15
+    },
+    {
+     "rpm": 2734.0,
+     "frames": 16854,
+     "load": "gt_load_16.wav",
+     "coast_frames": 16854,
+     "coast_rpm": 2734.0,
+     "coast": "gt_coast_16.wav",
+     "cycles": 16,
+     "coast_cycles": 16
+    },
+    {
+     "rpm": 2882.0,
+     "frames": 16988,
+     "load": "gt_load_17.wav",
+     "coast_frames": 16988,
+     "coast_rpm": 2882.0,
+     "coast": "gt_coast_17.wav",
+     "cycles": 17,
+     "coast_cycles": 17
+    },
+    {
+     "rpm": 3037.0,
+     "frames": 17069,
+     "load": "gt_load_18.wav",
+     "coast_frames": 17069,
+     "coast_rpm": 3037.0,
+     "coast": "gt_coast_18.wav",
+     "cycles": 18,
+     "coast_cycles": 18
+    },
+    {
+     "rpm": 3201.0,
+     "frames": 17095,
+     "load": "gt_load_19.wav",
+     "coast_frames": 17095,
+     "coast_rpm": 3201.0,
+     "coast": "gt_coast_19.wav",
+     "cycles": 19,
+     "coast_cycles": 19
+    },
+    {
+     "rpm": 3373.0,
+     "frames": 17077,
+     "load": "gt_load_20.wav",
+     "coast_frames": 17077,
+     "coast_rpm": 3373.0,
+     "coast": "gt_coast_20.wav",
+     "cycles": 20,
+     "coast_cycles": 20
+    },
+    {
+     "rpm": 3555.0,
+     "frames": 17013,
+     "load": "gt_load_21.wav",
+     "coast_frames": 17013,
+     "coast_rpm": 3555.0,
+     "coast": "gt_coast_21.wav",
+     "cycles": 21,
+     "coast_cycles": 21
+    },
+    {
+     "rpm": 3747.0,
+     "frames": 16910,
+     "load": "gt_load_22.wav",
+     "coast_frames": 16910,
+     "coast_rpm": 3747.0,
+     "coast": "gt_coast_22.wav",
+     "cycles": 22,
+     "coast_cycles": 22
+    },
+    {
+     "rpm": 3949.0,
+     "frames": 16774,
+     "load": "gt_load_23.wav",
+     "coast_frames": 16774,
+     "coast_rpm": 3949.0,
+     "coast": "gt_coast_23.wav",
+     "cycles": 23,
+     "coast_cycles": 23
+    },
+    {
+     "rpm": 4162.0,
+     "frames": 16607,
+     "load": "gt_load_24.wav",
+     "coast_frames": 16607,
+     "coast_rpm": 4162.0,
+     "coast": "gt_coast_24.wav",
+     "cycles": 24,
+     "coast_cycles": 24
+    },
+    {
+     "rpm": 4386.0,
+     "frames": 17073,
+     "load": "gt_load_25.wav",
+     "coast_frames": 17073,
+     "coast_rpm": 4386.0,
+     "coast": "gt_coast_25.wav",
+     "cycles": 26,
+     "coast_cycles": 26
+    },
+    {
+     "rpm": 4623.0,
+     "frames": 16820,
+     "load": "gt_load_26.wav",
+     "coast_frames": 16820,
+     "coast_rpm": 4623.0,
+     "coast": "gt_coast_26.wav",
+     "cycles": 27,
+     "coast_cycles": 27
+    },
+    {
+     "rpm": 4872.0,
+     "frames": 16552,
+     "load": "gt_load_27.wav",
+     "coast_frames": 16552,
+     "coast_rpm": 4872.0,
+     "coast": "gt_coast_27.wav",
+     "cycles": 28,
+     "coast_cycles": 28
+    },
+    {
+     "rpm": 5135.0,
+     "frames": 16826,
+     "load": "gt_load_28.wav",
+     "coast_frames": 16826,
+     "coast_rpm": 5135.0,
+     "coast": "gt_coast_28.wav",
+     "cycles": 30,
+     "coast_cycles": 30
+    },
+    {
+     "rpm": 5412.0,
+     "frames": 17029,
+     "load": "gt_load_29.wav",
+     "coast_frames": 17029,
+     "coast_rpm": 5412.0,
+     "coast": "gt_coast_29.wav",
+     "cycles": 32,
+     "coast_cycles": 32
+    },
+    {
+     "rpm": 5703.0,
+     "frames": 16665,
+     "load": "gt_load_30.wav",
+     "coast_frames": 16665,
+     "coast_rpm": 5703.0,
+     "coast": "gt_coast_30.wav",
+     "cycles": 33,
+     "coast_cycles": 33
+    },
+    {
+     "rpm": 6011.0,
+     "frames": 16769,
+     "load": "gt_load_31.wav",
+     "coast_frames": 16769,
+     "coast_rpm": 6011.0,
+     "coast": "gt_coast_31.wav",
+     "cycles": 35,
+     "coast_cycles": 35
+    },
+    {
+     "rpm": 6335.0,
+     "frames": 16821,
+     "load": "gt_load_32.wav",
+     "coast_frames": 16821,
+     "coast_rpm": 6335.0,
+     "coast": "gt_coast_32.wav",
+     "cycles": 37,
+     "coast_cycles": 37
+    },
+    {
+     "rpm": 6677.0,
+     "frames": 16822,
+     "load": "gt_load_33.wav",
+     "coast_frames": 16822,
+     "coast_rpm": 6677.0,
+     "coast": "gt_coast_33.wav",
+     "cycles": 39,
+     "coast_cycles": 39
+    },
+    {
+     "rpm": 7037.0,
+     "frames": 16780,
+     "load": "gt_load_34.wav",
+     "coast_frames": 16780,
+     "coast_rpm": 7037.0,
+     "coast": "gt_coast_34.wav",
+     "cycles": 41,
+     "coast_cycles": 41
+    },
+    {
+     "rpm": 7416.0,
+     "frames": 16699,
+     "load": "gt_load_35.wav",
+     "coast_frames": 16699,
+     "coast_rpm": 7416.0,
+     "coast": "gt_coast_35.wav",
+     "cycles": 43,
+     "coast_cycles": 43
+    },
+    {
+     "rpm": 7816.0,
+     "frames": 16950,
+     "load": "gt_load_36.wav",
+     "coast_frames": 16950,
+     "coast_rpm": 7816.0,
+     "coast": "gt_coast_36.wav",
+     "cycles": 46,
+     "coast_cycles": 46
+    },
+    {
+     "rpm": 8237.0,
+     "frames": 16783,
+     "load": "gt_load_37.wav",
+     "coast_frames": 16783,
+     "coast_rpm": 8237.0,
+     "coast": "gt_coast_37.wav",
+     "cycles": 48,
+     "coast_cycles": 48
+    },
+    {
+     "rpm": 8682.0,
+     "frames": 16918,
+     "load": "gt_load_38.wav",
+     "coast_frames": 16918,
+     "coast_rpm": 8682.0,
+     "coast": "gt_coast_38.wav",
+     "cycles": 51,
+     "coast_cycles": 51
     }
    ],
+   "limiter": "gt_limiter.wav",
+   "limiter_frames": 38400,
+   "limiter_rpm": 8764,
+   "limiter_period": 0.1333,
+   "dynamics": "baked",
    "gain_db": 0.0,
    "gears": 1.0,
    "turbo": "mid",
@@ -243,47 +1968,496 @@
   },
   "roadster": {
    "id": "roadster",
-   "cyl": 4,
-   "idle": 1300,
-   "redline": 8800,
+   "engine": "Honda B18C5 VTEC",
+   "idle": 768,
+   "redline": 9300,
    "layers": [
     {
+     "rpm": 760.0,
+     "frames": 15158,
      "load": "roadster_load_0.wav",
-     "rpm": 1300.0,
-     "frames": 48849,
-     "coast": "roadster_coast_0.wav"
+     "coast_frames": 15004,
+     "coast_rpm": 767.8,
+     "coast": "roadster_coast_0.wav",
+     "cycles": 4,
+     "coast_cycles": 4
     },
     {
+     "rpm": 801.0,
+     "frames": 17978,
      "load": "roadster_load_1.wav",
-     "rpm": 1894.1,
-     "frames": 33527,
-     "coast": "roadster_coast_1.wav"
+     "coast_frames": 17978,
+     "coast_rpm": 801.0,
+     "coast": "roadster_coast_1.wav",
+     "cycles": 5,
+     "coast_cycles": 5
     },
     {
+     "rpm": 844.0,
+     "frames": 17062,
      "load": "roadster_load_2.wav",
-     "rpm": 2759.7,
-     "frames": 32599,
-     "coast": "roadster_coast_2.wav"
+     "coast_frames": 17062,
+     "coast_rpm": 844.0,
+     "coast": "roadster_coast_2.wav",
+     "cycles": 5,
+     "coast_cycles": 5
     },
     {
+     "rpm": 890.0,
+     "frames": 16180,
      "load": "roadster_load_3.wav",
-     "rpm": 4021.0,
-     "frames": 26322,
-     "coast": "roadster_coast_3.wav"
+     "coast_frames": 16180,
+     "coast_rpm": 890.0,
+     "coast": "roadster_coast_3.wav",
+     "cycles": 5,
+     "coast_cycles": 5
     },
     {
+     "rpm": 938.0,
+     "frames": 15352,
      "load": "roadster_load_4.wav",
-     "rpm": 5858.6,
-     "frames": 26647,
-     "coast": "roadster_coast_4.wav"
+     "coast_frames": 15352,
+     "coast_rpm": 938.0,
+     "coast": "roadster_coast_4.wav",
+     "cycles": 5,
+     "coast_cycles": 5
     },
     {
+     "rpm": 989.0,
+     "frames": 17472,
      "load": "roadster_load_5.wav",
-     "rpm": 8536.1,
-     "frames": 26348,
-     "coast": "roadster_coast_5.wav"
+     "coast_frames": 17472,
+     "coast_rpm": 989.0,
+     "coast": "roadster_coast_5.wav",
+     "cycles": 6,
+     "coast_cycles": 6
+    },
+    {
+     "rpm": 1042.0,
+     "frames": 16583,
+     "load": "roadster_load_6.wav",
+     "coast_frames": 16583,
+     "coast_rpm": 1042.0,
+     "coast": "roadster_coast_6.wav",
+     "cycles": 6,
+     "coast_cycles": 6
+    },
+    {
+     "rpm": 1099.0,
+     "frames": 15723,
+     "load": "roadster_load_7.wav",
+     "coast_frames": 15723,
+     "coast_rpm": 1099.0,
+     "coast": "roadster_coast_7.wav",
+     "cycles": 6,
+     "coast_cycles": 6
+    },
+    {
+     "rpm": 1158.0,
+     "frames": 17409,
+     "load": "roadster_load_8.wav",
+     "coast_frames": 17409,
+     "coast_rpm": 1158.0,
+     "coast": "roadster_coast_8.wav",
+     "cycles": 7,
+     "coast_cycles": 7
+    },
+    {
+     "rpm": 1221.0,
+     "frames": 16511,
+     "load": "roadster_load_9.wav",
+     "coast_frames": 16511,
+     "coast_rpm": 1221.0,
+     "coast": "roadster_coast_9.wav",
+     "cycles": 7,
+     "coast_cycles": 7
+    },
+    {
+     "rpm": 1286.0,
+     "frames": 17916,
+     "load": "roadster_load_10.wav",
+     "coast_frames": 17916,
+     "coast_rpm": 1286.0,
+     "coast": "roadster_coast_10.wav",
+     "cycles": 8,
+     "coast_cycles": 8
+    },
+    {
+     "rpm": 1356.0,
+     "frames": 16991,
+     "load": "roadster_load_11.wav",
+     "coast_frames": 16991,
+     "coast_rpm": 1356.0,
+     "coast": "roadster_coast_11.wav",
+     "cycles": 8,
+     "coast_cycles": 8
+    },
+    {
+     "rpm": 1429.0,
+     "frames": 16123,
+     "load": "roadster_load_12.wav",
+     "coast_frames": 16123,
+     "coast_rpm": 1429.0,
+     "coast": "roadster_coast_12.wav",
+     "cycles": 8,
+     "coast_cycles": 8
+    },
+    {
+     "rpm": 1507.0,
+     "frames": 17200,
+     "load": "roadster_load_13.wav",
+     "coast_frames": 17200,
+     "coast_rpm": 1507.0,
+     "coast": "roadster_coast_13.wav",
+     "cycles": 9,
+     "coast_cycles": 9
+    },
+    {
+     "rpm": 1588.0,
+     "frames": 16322,
+     "load": "roadster_load_14.wav",
+     "coast_frames": 16322,
+     "coast_rpm": 1588.0,
+     "coast": "roadster_coast_14.wav",
+     "cycles": 9,
+     "coast_cycles": 9
+    },
+    {
+     "rpm": 1674.0,
+     "frames": 17204,
+     "load": "roadster_load_15.wav",
+     "coast_frames": 17204,
+     "coast_rpm": 1674.0,
+     "coast": "roadster_coast_15.wav",
+     "cycles": 10,
+     "coast_cycles": 10
+    },
+    {
+     "rpm": 1764.0,
+     "frames": 16327,
+     "load": "roadster_load_16.wav",
+     "coast_frames": 16327,
+     "coast_rpm": 1764.0,
+     "coast": "roadster_coast_16.wav",
+     "cycles": 10,
+     "coast_cycles": 10
+    },
+    {
+     "rpm": 1860.0,
+     "frames": 17032,
+     "load": "roadster_load_17.wav",
+     "coast_frames": 17032,
+     "coast_rpm": 1860.0,
+     "coast": "roadster_coast_17.wav",
+     "cycles": 11,
+     "coast_cycles": 11
+    },
+    {
+     "rpm": 1960.0,
+     "frames": 16163,
+     "load": "roadster_load_18.wav",
+     "coast_frames": 16163,
+     "coast_rpm": 1960.0,
+     "coast": "roadster_coast_18.wav",
+     "cycles": 11,
+     "coast_cycles": 11
+    },
+    {
+     "rpm": 2066.0,
+     "frames": 16728,
+     "load": "roadster_load_19.wav",
+     "coast_frames": 16728,
+     "coast_rpm": 2066.0,
+     "coast": "roadster_coast_19.wav",
+     "cycles": 12,
+     "coast_cycles": 12
+    },
+    {
+     "rpm": 2178.0,
+     "frames": 17190,
+     "load": "roadster_load_20.wav",
+     "coast_frames": 17190,
+     "coast_rpm": 2178.0,
+     "coast": "roadster_coast_20.wav",
+     "cycles": 13,
+     "coast_cycles": 13
+    },
+    {
+     "rpm": 2296.0,
+     "frames": 16307,
+     "load": "roadster_load_21.wav",
+     "coast_frames": 16307,
+     "coast_rpm": 2296.0,
+     "coast": "roadster_coast_21.wav",
+     "cycles": 13,
+     "coast_cycles": 13
+    },
+    {
+     "rpm": 2420.0,
+     "frames": 16661,
+     "load": "roadster_load_22.wav",
+     "coast_frames": 16661,
+     "coast_rpm": 2420.0,
+     "coast": "roadster_coast_22.wav",
+     "cycles": 14,
+     "coast_cycles": 14
+    },
+    {
+     "rpm": 2550.0,
+     "frames": 16941,
+     "load": "roadster_load_23.wav",
+     "coast_frames": 16941,
+     "coast_rpm": 2550.0,
+     "coast": "roadster_coast_23.wav",
+     "cycles": 15,
+     "coast_cycles": 15
+    },
+    {
+     "rpm": 2688.0,
+     "frames": 17143,
+     "load": "roadster_load_24.wav",
+     "coast_frames": 17143,
+     "coast_rpm": 2688.0,
+     "coast": "roadster_coast_24.wav",
+     "cycles": 16,
+     "coast_cycles": 16
+    },
+    {
+     "rpm": 2834.0,
+     "frames": 17276,
+     "load": "roadster_load_25.wav",
+     "coast_frames": 17276,
+     "coast_rpm": 2834.0,
+     "coast": "roadster_coast_25.wav",
+     "cycles": 17,
+     "coast_cycles": 17
+    },
+    {
+     "rpm": 2987.0,
+     "frames": 16391,
+     "load": "roadster_load_26.wav",
+     "coast_frames": 16391,
+     "coast_rpm": 2987.0,
+     "coast": "roadster_coast_26.wav",
+     "cycles": 17,
+     "coast_cycles": 17
+    },
+    {
+     "rpm": 3148.0,
+     "frames": 16468,
+     "load": "roadster_load_27.wav",
+     "coast_frames": 16468,
+     "coast_rpm": 3148.0,
+     "coast": "roadster_coast_27.wav",
+     "cycles": 18,
+     "coast_cycles": 18
+    },
+    {
+     "rpm": 3318.0,
+     "frames": 16492,
+     "load": "roadster_load_28.wav",
+     "coast_frames": 16492,
+     "coast_rpm": 3318.0,
+     "coast": "roadster_coast_28.wav",
+     "cycles": 19,
+     "coast_cycles": 19
+    },
+    {
+     "rpm": 3498.0,
+     "frames": 16467,
+     "load": "roadster_load_29.wav",
+     "coast_frames": 16467,
+     "coast_rpm": 3498.0,
+     "coast": "roadster_coast_29.wav",
+     "cycles": 20,
+     "coast_cycles": 20
+    },
+    {
+     "rpm": 3687.0,
+     "frames": 17185,
+     "load": "roadster_load_30.wav",
+     "coast_frames": 17185,
+     "coast_rpm": 3687.0,
+     "coast": "roadster_coast_30.wav",
+     "cycles": 22,
+     "coast_cycles": 22
+    },
+    {
+     "rpm": 3886.0,
+     "frames": 17046,
+     "load": "roadster_load_31.wav",
+     "coast_frames": 17046,
+     "coast_rpm": 3886.0,
+     "coast": "roadster_coast_31.wav",
+     "cycles": 23,
+     "coast_cycles": 23
+    },
+    {
+     "rpm": 4096.0,
+     "frames": 16875,
+     "load": "roadster_load_32.wav",
+     "coast_frames": 16875,
+     "coast_rpm": 4096.0,
+     "coast": "roadster_coast_32.wav",
+     "cycles": 24,
+     "coast_cycles": 24
+    },
+    {
+     "rpm": 4317.0,
+     "frames": 16678,
+     "load": "roadster_load_33.wav",
+     "coast_frames": 16678,
+     "coast_rpm": 4317.0,
+     "coast": "roadster_coast_33.wav",
+     "cycles": 25,
+     "coast_cycles": 25
+    },
+    {
+     "rpm": 4551.0,
+     "frames": 17086,
+     "load": "roadster_load_34.wav",
+     "coast_frames": 17086,
+     "coast_rpm": 4551.0,
+     "coast": "roadster_coast_34.wav",
+     "cycles": 27,
+     "coast_cycles": 27
+    },
+    {
+     "rpm": 4797.0,
+     "frames": 16811,
+     "load": "roadster_load_35.wav",
+     "coast_frames": 16811,
+     "coast_rpm": 4797.0,
+     "coast": "roadster_coast_35.wav",
+     "cycles": 28,
+     "coast_cycles": 28
+    },
+    {
+     "rpm": 5056.0,
+     "frames": 16519,
+     "load": "roadster_load_36.wav",
+     "coast_frames": 16519,
+     "coast_rpm": 5056.0,
+     "coast": "roadster_coast_36.wav",
+     "cycles": 29,
+     "coast_cycles": 29
+    },
+    {
+     "rpm": 5329.0,
+     "frames": 16754,
+     "load": "roadster_load_37.wav",
+     "coast_frames": 16754,
+     "coast_rpm": 5329.0,
+     "coast": "roadster_coast_37.wav",
+     "cycles": 31,
+     "coast_cycles": 31
+    },
+    {
+     "rpm": 5617.0,
+     "frames": 16920,
+     "load": "roadster_load_38.wav",
+     "coast_frames": 16920,
+     "coast_rpm": 5617.0,
+     "coast": "roadster_coast_38.wav",
+     "cycles": 33,
+     "coast_cycles": 33
+    },
+    {
+     "rpm": 5921.0,
+     "frames": 17024,
+     "load": "roadster_load_39.wav",
+     "coast_frames": 17024,
+     "coast_rpm": 5921.0,
+     "coast": "roadster_coast_39.wav",
+     "cycles": 35,
+     "coast_cycles": 35
+    },
+    {
+     "rpm": 6241.0,
+     "frames": 16613,
+     "load": "roadster_load_40.wav",
+     "coast_frames": 16613,
+     "coast_rpm": 6241.0,
+     "coast": "roadster_coast_40.wav",
+     "cycles": 36,
+     "coast_cycles": 36
+    },
+    {
+     "rpm": 6578.0,
+     "frames": 16637,
+     "load": "roadster_load_41.wav",
+     "coast_frames": 16637,
+     "coast_rpm": 6578.0,
+     "coast": "roadster_coast_41.wav",
+     "cycles": 38,
+     "coast_cycles": 38
+    },
+    {
+     "rpm": 6934.0,
+     "frames": 16614,
+     "load": "roadster_load_42.wav",
+     "coast_frames": 16614,
+     "coast_rpm": 6934.0,
+     "coast": "roadster_coast_42.wav",
+     "cycles": 40,
+     "coast_cycles": 40
+    },
+    {
+     "rpm": 7308.0,
+     "frames": 16946,
+     "load": "roadster_load_43.wav",
+     "coast_frames": 16946,
+     "coast_rpm": 7308.0,
+     "coast": "roadster_coast_43.wav",
+     "cycles": 43,
+     "coast_cycles": 43
+    },
+    {
+     "rpm": 7703.0,
+     "frames": 16825,
+     "load": "roadster_load_44.wav",
+     "coast_frames": 16825,
+     "coast_rpm": 7703.0,
+     "coast": "roadster_coast_44.wav",
+     "cycles": 45,
+     "coast_cycles": 45
+    },
+    {
+     "rpm": 8120.0,
+     "frames": 16670,
+     "load": "roadster_load_45.wav",
+     "coast_frames": 16670,
+     "coast_rpm": 8120.0,
+     "coast": "roadster_coast_45.wav",
+     "cycles": 47,
+     "coast_cycles": 47
+    },
+    {
+     "rpm": 8558.0,
+     "frames": 16826,
+     "load": "roadster_load_46.wav",
+     "coast_frames": 16826,
+     "coast_rpm": 8558.0,
+     "coast": "roadster_coast_46.wav",
+     "cycles": 50,
+     "coast_cycles": 50
+    },
+    {
+     "rpm": 9021.0,
+     "frames": 16921,
+     "load": "roadster_load_47.wav",
+     "coast_frames": 16921,
+     "coast_rpm": 9021.0,
+     "coast": "roadster_coast_47.wav",
+     "cycles": 53,
+     "coast_cycles": 53
     }
    ],
+   "limiter": "roadster_limiter.wav",
+   "limiter_frames": 39168,
+   "limiter_rpm": 9108,
+   "limiter_period": 0.096,
+   "dynamics": "baked",
    "gain_db": -0.5,
    "gears": 0.96,
    "turbo": "hi_soft",
@@ -291,47 +2465,356 @@
   },
   "pickup": {
    "id": "pickup",
-   "cyl": 6,
-   "idle": 700,
-   "redline": 4600,
+   "engine": "V6 mit ungleichem Zündabstand",
+   "idle": 940,
+   "redline": 5550,
    "layers": [
     {
+     "rpm": 930.0,
+     "frames": 15484,
      "load": "pickup_load_0.wav",
-     "rpm": 700.0,
-     "frames": 49140,
-     "coast": "pickup_coast_0.wav"
+     "coast_frames": 15322,
+     "coast_rpm": 939.8,
+     "coast": "pickup_coast_0.wav",
+     "cycles": 5,
+     "coast_cycles": 5
     },
     {
+     "rpm": 981.0,
+     "frames": 17615,
      "load": "pickup_load_1.wav",
-     "rpm": 1013.9,
-     "frames": 33927,
-     "coast": "pickup_coast_1.wav"
+     "coast_frames": 17615,
+     "coast_rpm": 981.0,
+     "coast": "pickup_coast_1.wav",
+     "cycles": 6,
+     "coast_cycles": 6
     },
     {
+     "rpm": 1034.0,
+     "frames": 16712,
      "load": "pickup_load_2.wav",
-     "rpm": 1468.5,
-     "frames": 32433,
-     "coast": "pickup_coast_2.wav"
+     "coast_frames": 16712,
+     "coast_rpm": 1034.0,
+     "coast": "pickup_coast_2.wav",
+     "cycles": 6,
+     "coast_cycles": 6
     },
     {
+     "rpm": 1091.0,
+     "frames": 15839,
      "load": "pickup_load_3.wav",
-     "rpm": 2126.9,
-     "frames": 26125,
-     "coast": "pickup_coast_3.wav"
+     "coast_frames": 15839,
+     "coast_rpm": 1091.0,
+     "coast": "pickup_coast_3.wav",
+     "cycles": 6,
+     "coast_cycles": 6
     },
     {
+     "rpm": 1151.0,
+     "frames": 17515,
      "load": "pickup_load_4.wav",
-     "rpm": 3080.7,
-     "frames": 26626,
-     "coast": "pickup_coast_4.wav"
+     "coast_frames": 17515,
+     "coast_rpm": 1151.0,
+     "coast": "pickup_coast_4.wav",
+     "cycles": 7,
+     "coast_cycles": 7
     },
     {
+     "rpm": 1214.0,
+     "frames": 16606,
      "load": "pickup_load_5.wav",
-     "rpm": 4462.1,
-     "frames": 26685,
-     "coast": "pickup_coast_5.wav"
+     "coast_frames": 16606,
+     "coast_rpm": 1214.0,
+     "coast": "pickup_coast_5.wav",
+     "cycles": 7,
+     "coast_cycles": 7
+    },
+    {
+     "rpm": 1280.0,
+     "frames": 15750,
+     "load": "pickup_load_6.wav",
+     "coast_frames": 15750,
+     "coast_rpm": 1280.0,
+     "coast": "pickup_coast_6.wav",
+     "cycles": 7,
+     "coast_cycles": 7
+    },
+    {
+     "rpm": 1350.0,
+     "frames": 17067,
+     "load": "pickup_load_7.wav",
+     "coast_frames": 17067,
+     "coast_rpm": 1350.0,
+     "coast": "pickup_coast_7.wav",
+     "cycles": 8,
+     "coast_cycles": 8
+    },
+    {
+     "rpm": 1424.0,
+     "frames": 16180,
+     "load": "pickup_load_8.wav",
+     "coast_frames": 16180,
+     "coast_rpm": 1424.0,
+     "coast": "pickup_coast_8.wav",
+     "cycles": 8,
+     "coast_cycles": 8
+    },
+    {
+     "rpm": 1501.0,
+     "frames": 17268,
+     "load": "pickup_load_9.wav",
+     "coast_frames": 17268,
+     "coast_rpm": 1501.0,
+     "coast": "pickup_coast_9.wav",
+     "cycles": 9,
+     "coast_cycles": 9
+    },
+    {
+     "rpm": 1583.0,
+     "frames": 16374,
+     "load": "pickup_load_10.wav",
+     "coast_frames": 16374,
+     "coast_rpm": 1583.0,
+     "coast": "pickup_coast_10.wav",
+     "cycles": 9,
+     "coast_cycles": 9
+    },
+    {
+     "rpm": 1670.0,
+     "frames": 17246,
+     "load": "pickup_load_11.wav",
+     "coast_frames": 17246,
+     "coast_rpm": 1670.0,
+     "coast": "pickup_coast_11.wav",
+     "cycles": 10,
+     "coast_cycles": 10
+    },
+    {
+     "rpm": 1761.0,
+     "frames": 16354,
+     "load": "pickup_load_12.wav",
+     "coast_frames": 16354,
+     "coast_rpm": 1761.0,
+     "coast": "pickup_coast_12.wav",
+     "cycles": 10,
+     "coast_cycles": 10
+    },
+    {
+     "rpm": 1857.0,
+     "frames": 17060,
+     "load": "pickup_load_13.wav",
+     "coast_frames": 17060,
+     "coast_rpm": 1857.0,
+     "coast": "pickup_coast_13.wav",
+     "cycles": 11,
+     "coast_cycles": 11
+    },
+    {
+     "rpm": 1959.0,
+     "frames": 16172,
+     "load": "pickup_load_14.wav",
+     "coast_frames": 16172,
+     "coast_rpm": 1959.0,
+     "coast": "pickup_coast_14.wav",
+     "cycles": 11,
+     "coast_cycles": 11
+    },
+    {
+     "rpm": 2066.0,
+     "frames": 16728,
+     "load": "pickup_load_15.wav",
+     "coast_frames": 16728,
+     "coast_rpm": 2066.0,
+     "coast": "pickup_coast_15.wav",
+     "cycles": 12,
+     "coast_cycles": 12
+    },
+    {
+     "rpm": 2179.0,
+     "frames": 17182,
+     "load": "pickup_load_16.wav",
+     "coast_frames": 17182,
+     "coast_rpm": 2179.0,
+     "coast": "pickup_coast_16.wav",
+     "cycles": 13,
+     "coast_cycles": 13
+    },
+    {
+     "rpm": 2298.0,
+     "frames": 16292,
+     "load": "pickup_load_17.wav",
+     "coast_frames": 16292,
+     "coast_rpm": 2298.0,
+     "coast": "pickup_coast_17.wav",
+     "cycles": 13,
+     "coast_cycles": 13
+    },
+    {
+     "rpm": 2424.0,
+     "frames": 16634,
+     "load": "pickup_load_18.wav",
+     "coast_frames": 16634,
+     "coast_rpm": 2424.0,
+     "coast": "pickup_coast_18.wav",
+     "cycles": 14,
+     "coast_cycles": 14
+    },
+    {
+     "rpm": 2556.0,
+     "frames": 16901,
+     "load": "pickup_load_19.wav",
+     "coast_frames": 16901,
+     "coast_rpm": 2556.0,
+     "coast": "pickup_coast_19.wav",
+     "cycles": 15,
+     "coast_cycles": 15
+    },
+    {
+     "rpm": 2696.0,
+     "frames": 17092,
+     "load": "pickup_load_20.wav",
+     "coast_frames": 17092,
+     "coast_rpm": 2696.0,
+     "coast": "pickup_coast_20.wav",
+     "cycles": 16,
+     "coast_cycles": 16
+    },
+    {
+     "rpm": 2843.0,
+     "frames": 17221,
+     "load": "pickup_load_21.wav",
+     "coast_frames": 17221,
+     "coast_rpm": 2843.0,
+     "coast": "pickup_coast_21.wav",
+     "cycles": 17,
+     "coast_cycles": 17
+    },
+    {
+     "rpm": 2998.0,
+     "frames": 16331,
+     "load": "pickup_load_22.wav",
+     "coast_frames": 16331,
+     "coast_rpm": 2998.0,
+     "coast": "pickup_coast_22.wav",
+     "cycles": 17,
+     "coast_cycles": 17
+    },
+    {
+     "rpm": 3162.0,
+     "frames": 16395,
+     "load": "pickup_load_23.wav",
+     "coast_frames": 16395,
+     "coast_rpm": 3162.0,
+     "coast": "pickup_coast_23.wav",
+     "cycles": 18,
+     "coast_cycles": 18
+    },
+    {
+     "rpm": 3335.0,
+     "frames": 16408,
+     "load": "pickup_load_24.wav",
+     "coast_frames": 16408,
+     "coast_rpm": 3335.0,
+     "coast": "pickup_coast_24.wav",
+     "cycles": 19,
+     "coast_cycles": 19
+    },
+    {
+     "rpm": 3517.0,
+     "frames": 17196,
+     "load": "pickup_load_25.wav",
+     "coast_frames": 17196,
+     "coast_rpm": 3517.0,
+     "coast": "pickup_coast_25.wav",
+     "cycles": 21,
+     "coast_cycles": 21
+    },
+    {
+     "rpm": 3709.0,
+     "frames": 17083,
+     "load": "pickup_load_26.wav",
+     "coast_frames": 17083,
+     "coast_rpm": 3709.0,
+     "coast": "pickup_coast_26.wav",
+     "cycles": 22,
+     "coast_cycles": 22
+    },
+    {
+     "rpm": 3912.0,
+     "frames": 16933,
+     "load": "pickup_load_27.wav",
+     "coast_frames": 16933,
+     "coast_rpm": 3912.0,
+     "coast": "pickup_coast_27.wav",
+     "cycles": 23,
+     "coast_cycles": 23
+    },
+    {
+     "rpm": 4126.0,
+     "frames": 16752,
+     "load": "pickup_load_28.wav",
+     "coast_frames": 16752,
+     "coast_rpm": 4126.0,
+     "coast": "pickup_coast_28.wav",
+     "cycles": 24,
+     "coast_cycles": 24
+    },
+    {
+     "rpm": 4351.0,
+     "frames": 16548,
+     "load": "pickup_load_29.wav",
+     "coast_frames": 16548,
+     "coast_rpm": 4351.0,
+     "coast": "pickup_coast_29.wav",
+     "cycles": 25,
+     "coast_cycles": 25
+    },
+    {
+     "rpm": 4589.0,
+     "frames": 16945,
+     "load": "pickup_load_30.wav",
+     "coast_frames": 16945,
+     "coast_rpm": 4589.0,
+     "coast": "pickup_coast_30.wav",
+     "cycles": 27,
+     "coast_cycles": 27
+    },
+    {
+     "rpm": 4840.0,
+     "frames": 16661,
+     "load": "pickup_load_31.wav",
+     "coast_frames": 16661,
+     "coast_rpm": 4840.0,
+     "coast": "pickup_coast_31.wav",
+     "cycles": 28,
+     "coast_cycles": 28
+    },
+    {
+     "rpm": 5104.0,
+     "frames": 16928,
+     "load": "pickup_load_32.wav",
+     "coast_frames": 16928,
+     "coast_rpm": 5104.0,
+     "coast": "pickup_coast_32.wav",
+     "cycles": 30,
+     "coast_cycles": 30
+    },
+    {
+     "rpm": 5384.0,
+     "frames": 16582,
+     "load": "pickup_load_33.wav",
+     "coast_frames": 16582,
+     "coast_rpm": 5384.0,
+     "coast": "pickup_coast_33.wav",
+     "cycles": 31,
+     "coast_cycles": 31
     }
    ],
+   "limiter": "pickup_limiter.wav",
+   "limiter_frames": 41856,
+   "limiter_rpm": 5288,
+   "limiter_period": 0.2907,
+   "dynamics": "baked",
    "gain_db": 1.0,
    "gears": 1.25,
    "turbo": "low",
@@ -339,47 +2822,376 @@
   },
   "drift": {
    "id": "drift",
-   "cyl": 6,
-   "idle": 950,
-   "redline": 7600,
+   "engine": "Toyota 2JZ Reihensechszylinder",
+   "idle": 987,
+   "redline": 6450,
    "layers": [
     {
+     "rpm": 987.0,
+     "frames": 17508,
      "load": "drift_load_0.wav",
-     "rpm": 950.0,
-     "frames": 47349,
-     "coast": "drift_coast_0.wav"
+     "coast_frames": 17509,
+     "coast_rpm": 986.9,
+     "coast": "drift_coast_0.wav",
+     "cycles": 6,
+     "coast_cycles": 6
     },
     {
+     "rpm": 1040.0,
+     "frames": 16615,
      "load": "drift_load_1.wav",
-     "rpm": 1431.2,
-     "frames": 33279,
-     "coast": "drift_coast_1.wav"
+     "coast_frames": 16615,
+     "coast_rpm": 1040.0,
+     "coast": "drift_coast_1.wav",
+     "cycles": 6,
+     "coast_cycles": 6
     },
     {
+     "rpm": 1097.0,
+     "frames": 15752,
      "load": "drift_load_2.wav",
-     "rpm": 2156.1,
-     "frames": 33135,
-     "coast": "drift_coast_2.wav"
+     "coast_frames": 15752,
+     "coast_rpm": 1097.0,
+     "coast": "drift_coast_2.wav",
+     "cycles": 6,
+     "coast_cycles": 6
     },
     {
+     "rpm": 1156.0,
+     "frames": 17439,
      "load": "drift_load_3.wav",
-     "rpm": 3248.2,
-     "frames": 26067,
-     "coast": "drift_coast_3.wav"
+     "coast_frames": 17439,
+     "coast_rpm": 1156.0,
+     "coast": "drift_coast_3.wav",
+     "cycles": 7,
+     "coast_cycles": 7
     },
     {
+     "rpm": 1219.0,
+     "frames": 16538,
      "load": "drift_load_4.wav",
-     "rpm": 4893.3,
-     "frames": 26496,
-     "coast": "drift_coast_4.wav"
+     "coast_frames": 16538,
+     "coast_rpm": 1219.0,
+     "coast": "drift_coast_4.wav",
+     "cycles": 7,
+     "coast_cycles": 7
     },
     {
+     "rpm": 1285.0,
+     "frames": 15689,
      "load": "drift_load_5.wav",
-     "rpm": 7372.1,
-     "frames": 26560,
-     "coast": "drift_coast_5.wav"
+     "coast_frames": 15689,
+     "coast_rpm": 1285.0,
+     "coast": "drift_coast_5.wav",
+     "cycles": 7,
+     "coast_cycles": 7
+    },
+    {
+     "rpm": 1354.0,
+     "frames": 17016,
+     "load": "drift_load_6.wav",
+     "coast_frames": 17016,
+     "coast_rpm": 1354.0,
+     "coast": "drift_coast_6.wav",
+     "cycles": 8,
+     "coast_cycles": 8
+    },
+    {
+     "rpm": 1428.0,
+     "frames": 16134,
+     "load": "drift_load_7.wav",
+     "coast_frames": 16134,
+     "coast_rpm": 1428.0,
+     "coast": "drift_coast_7.wav",
+     "cycles": 8,
+     "coast_cycles": 8
+    },
+    {
+     "rpm": 1505.0,
+     "frames": 17223,
+     "load": "drift_load_8.wav",
+     "coast_frames": 17223,
+     "coast_rpm": 1505.0,
+     "coast": "drift_coast_8.wav",
+     "cycles": 9,
+     "coast_cycles": 9
+    },
+    {
+     "rpm": 1587.0,
+     "frames": 16333,
+     "load": "drift_load_9.wav",
+     "coast_frames": 16333,
+     "coast_rpm": 1587.0,
+     "coast": "drift_coast_9.wav",
+     "cycles": 9,
+     "coast_cycles": 9
+    },
+    {
+     "rpm": 1673.0,
+     "frames": 17215,
+     "load": "drift_load_10.wav",
+     "coast_frames": 17215,
+     "coast_rpm": 1673.0,
+     "coast": "drift_coast_10.wav",
+     "cycles": 10,
+     "coast_cycles": 10
+    },
+    {
+     "rpm": 1763.0,
+     "frames": 16336,
+     "load": "drift_load_11.wav",
+     "coast_frames": 16336,
+     "coast_rpm": 1763.0,
+     "coast": "drift_coast_11.wav",
+     "cycles": 10,
+     "coast_cycles": 10
+    },
+    {
+     "rpm": 1859.0,
+     "frames": 17041,
+     "load": "drift_load_12.wav",
+     "coast_frames": 17041,
+     "coast_rpm": 1859.0,
+     "coast": "drift_coast_12.wav",
+     "cycles": 11,
+     "coast_cycles": 11
+    },
+    {
+     "rpm": 1960.0,
+     "frames": 16163,
+     "load": "drift_load_13.wav",
+     "coast_frames": 16163,
+     "coast_rpm": 1960.0,
+     "coast": "drift_coast_13.wav",
+     "cycles": 11,
+     "coast_cycles": 11
+    },
+    {
+     "rpm": 2066.0,
+     "frames": 16728,
+     "load": "drift_load_14.wav",
+     "coast_frames": 16728,
+     "coast_rpm": 2066.0,
+     "coast": "drift_coast_14.wav",
+     "cycles": 12,
+     "coast_cycles": 12
+    },
+    {
+     "rpm": 2178.0,
+     "frames": 17190,
+     "load": "drift_load_15.wav",
+     "coast_frames": 17190,
+     "coast_rpm": 2178.0,
+     "coast": "drift_coast_15.wav",
+     "cycles": 13,
+     "coast_cycles": 13
+    },
+    {
+     "rpm": 2296.0,
+     "frames": 16307,
+     "load": "drift_load_16.wav",
+     "coast_frames": 16307,
+     "coast_rpm": 2296.0,
+     "coast": "drift_coast_16.wav",
+     "cycles": 13,
+     "coast_cycles": 13
+    },
+    {
+     "rpm": 2420.0,
+     "frames": 16661,
+     "load": "drift_load_17.wav",
+     "coast_frames": 16661,
+     "coast_rpm": 2420.0,
+     "coast": "drift_coast_17.wav",
+     "cycles": 14,
+     "coast_cycles": 14
+    },
+    {
+     "rpm": 2551.0,
+     "frames": 16935,
+     "load": "drift_load_18.wav",
+     "coast_frames": 16935,
+     "coast_rpm": 2551.0,
+     "coast": "drift_coast_18.wav",
+     "cycles": 15,
+     "coast_cycles": 15
+    },
+    {
+     "rpm": 2690.0,
+     "frames": 17130,
+     "load": "drift_load_19.wav",
+     "coast_frames": 17130,
+     "coast_rpm": 2690.0,
+     "coast": "drift_coast_19.wav",
+     "cycles": 16,
+     "coast_cycles": 16
+    },
+    {
+     "rpm": 2835.0,
+     "frames": 17270,
+     "load": "drift_load_20.wav",
+     "coast_frames": 17270,
+     "coast_rpm": 2835.0,
+     "coast": "drift_coast_20.wav",
+     "cycles": 17,
+     "coast_cycles": 17
+    },
+    {
+     "rpm": 2989.0,
+     "frames": 16380,
+     "load": "drift_load_21.wav",
+     "coast_frames": 16380,
+     "coast_rpm": 2989.0,
+     "coast": "drift_coast_21.wav",
+     "cycles": 17,
+     "coast_cycles": 17
+    },
+    {
+     "rpm": 3151.0,
+     "frames": 16452,
+     "load": "drift_load_22.wav",
+     "coast_frames": 16452,
+     "coast_rpm": 3151.0,
+     "coast": "drift_coast_22.wav",
+     "cycles": 18,
+     "coast_cycles": 18
+    },
+    {
+     "rpm": 3322.0,
+     "frames": 16472,
+     "load": "drift_load_23.wav",
+     "coast_frames": 16472,
+     "coast_rpm": 3322.0,
+     "coast": "drift_coast_23.wav",
+     "cycles": 19,
+     "coast_cycles": 19
+    },
+    {
+     "rpm": 3502.0,
+     "frames": 16448,
+     "load": "drift_load_24.wav",
+     "coast_frames": 16448,
+     "coast_rpm": 3502.0,
+     "coast": "drift_coast_24.wav",
+     "cycles": 20,
+     "coast_cycles": 20
+    },
+    {
+     "rpm": 3691.0,
+     "frames": 17166,
+     "load": "drift_load_25.wav",
+     "coast_frames": 17166,
+     "coast_rpm": 3691.0,
+     "coast": "drift_coast_25.wav",
+     "cycles": 22,
+     "coast_cycles": 22
+    },
+    {
+     "rpm": 3891.0,
+     "frames": 17024,
+     "load": "drift_load_26.wav",
+     "coast_frames": 17024,
+     "coast_rpm": 3891.0,
+     "coast": "drift_coast_26.wav",
+     "cycles": 23,
+     "coast_cycles": 23
+    },
+    {
+     "rpm": 4102.0,
+     "frames": 16850,
+     "load": "drift_load_27.wav",
+     "coast_frames": 16850,
+     "coast_rpm": 4102.0,
+     "coast": "drift_coast_27.wav",
+     "cycles": 24,
+     "coast_cycles": 24
+    },
+    {
+     "rpm": 4324.0,
+     "frames": 16651,
+     "load": "drift_load_28.wav",
+     "coast_frames": 16651,
+     "coast_rpm": 4324.0,
+     "coast": "drift_coast_28.wav",
+     "cycles": 25,
+     "coast_cycles": 25
+    },
+    {
+     "rpm": 4559.0,
+     "frames": 17056,
+     "load": "drift_load_29.wav",
+     "coast_frames": 17056,
+     "coast_rpm": 4559.0,
+     "coast": "drift_coast_29.wav",
+     "cycles": 27,
+     "coast_cycles": 27
+    },
+    {
+     "rpm": 4806.0,
+     "frames": 16779,
+     "load": "drift_load_30.wav",
+     "coast_frames": 16779,
+     "coast_rpm": 4806.0,
+     "coast": "drift_coast_30.wav",
+     "cycles": 28,
+     "coast_cycles": 28
+    },
+    {
+     "rpm": 5066.0,
+     "frames": 17055,
+     "load": "drift_load_31.wav",
+     "coast_frames": 17055,
+     "coast_rpm": 5066.0,
+     "coast": "drift_coast_31.wav",
+     "cycles": 30,
+     "coast_cycles": 30
+    },
+    {
+     "rpm": 5341.0,
+     "frames": 16716,
+     "load": "drift_load_32.wav",
+     "coast_frames": 16716,
+     "coast_rpm": 5341.0,
+     "coast": "drift_coast_32.wav",
+     "cycles": 31,
+     "coast_cycles": 31
+    },
+    {
+     "rpm": 5630.0,
+     "frames": 16881,
+     "load": "drift_load_33.wav",
+     "coast_frames": 16881,
+     "coast_rpm": 5630.0,
+     "coast": "drift_coast_33.wav",
+     "cycles": 33,
+     "coast_cycles": 33
+    },
+    {
+     "rpm": 5935.0,
+     "frames": 16984,
+     "load": "drift_load_34.wav",
+     "coast_frames": 16984,
+     "coast_rpm": 5935.0,
+     "coast": "drift_coast_34.wav",
+     "cycles": 35,
+     "coast_cycles": 35
+    },
+    {
+     "rpm": 6256.0,
+     "frames": 16573,
+     "load": "drift_load_35.wav",
+     "coast_frames": 16573,
+     "coast_rpm": 6256.0,
+     "coast": "drift_coast_35.wav",
+     "cycles": 36,
+     "coast_cycles": 36
     }
    ],
+   "limiter": "drift_limiter.wav",
+   "limiter_frames": 39424,
+   "limiter_rpm": 6318,
+   "limiter_period": 0.1493,
+   "dynamics": "baked",
    "gain_db": 0.5,
    "gears": 1.0,
    "turbo": "hi",
@@ -394,5 +3206,6 @@
   "mid",
   "mid_soft"
  ],
- "pops": 4
+ "pops": 4,
+ "source": "engine-sim (github.com/ange-yaghi/engine-sim, MIT), tools/record_engines.py"
 }

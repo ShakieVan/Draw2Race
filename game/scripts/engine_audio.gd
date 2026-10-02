@@ -1,7 +1,8 @@
 class_name EngineAudio
 extends Node
 
-# Motorklang aller Fahrzeuge (Spieler und Gegner) aus Drehzahlschichten (tools/make_engine_sounds.py).
+# Motorklang aller Fahrzeuge (Spieler und Gegner) aus Drehzahlschichten, aufgenommen mit engine-sim (tools/record_engines.py;
+# Turbo, Schubumluftventil und Fehlzündungen aus tools/make_engine_sounds.py).
 # Je Fahrzeug und Schicht ein Abspieler für "Last" (Gas) und "Schub" (Gas weg); zwei benachbarte Schichten werden überblendet,
 # die Tonhöhe ergibt sich aus gewünschter Drehzahl / Schichtdrehzahl. Die Drehzahl wird aus Geschwindigkeit und Gas nur für den
 # Klang nachgebildet (Gangmodell); die Simulation wird ausschließlich gelesen (Leitplanke 4).
@@ -10,17 +11,21 @@ const DIR := "res://assets/sfx/engines/"
 const BASE_GEARS := [4.5, 8.0, 11.5, 15.0, 19.0, 26.0]     # Geschwindigkeit (m/s) am Ende jedes Gangs (mal car.gears)
 # Pegel: Die Schichten sind auf etwa -17 (Leerlauf) bis -12 dBFS (Nenndrehzahl) effektiv normiert.
 const PLAYER_DB := -10.0
-const RIVAL_DB := -16.0
-const REV_DB := 5.0                # Zuschlag von Leerlauf bis Nenndrehzahl
+const RIVAL_DB := -12.0               # Gegner nur wenig leiser als das eigene Auto (Nutzerwunsch 01.10.2026)
+const REV_DB := 5.0                # Zuschlag von Leerlauf bis Nenndrehzahl (nur synthetische Schichten ohne eigene Dynamik)
+const BAKED_DB := 5.0              # Aufnahmen mit eingebauter Dynamik (lauteste Lastschicht -12 dBFS, Leerlauf deutlich leiser)
+const LIMIT_AT := 0.985            # Anteil der Rotgrenze, ab dem bei Vollgas der Begrenzer eingreift
 const MAX_VOICES := 6
 const PAD_FRAMES := 4              # Randproben hinter dem Loop-Ende (Anfang des Loops) für die lineare Interpolation
 const PREVIEW_LENGTH := 4.6        # Probelauf in der Auswahl (s)
+const SLOTS := 3                   # Abspielerpaare (Last/Schub) je Stimme; die Schichten wechseln durch, wenn die Drehzahl wandert
 
 class Voice extends RefCounted:
 	var car: Dictionary = {}
 	var load_players: Array[AudioStreamPlayer] = []
 	var coast_players: Array[AudioStreamPlayer] = []
-	var active: Array[bool] = []
+	var slot_layer: Array[int] = []    # Schicht, die ein Abspielerpaar gerade spielt (-1 frei)
+	var rpms: Array[float] = []
 	var turbo: AudioStreamPlayer
 	var panner: AudioEffectPanner
 	var bus := ""
@@ -32,6 +37,9 @@ class Voice extends RefCounted:
 	var pops_left := 0
 	var pop_wait := 0.0
 	var detune := 1.0
+	var limiter: AudioStreamPlayer
+	var limit_amt := 0.0
+	var phase := 0.0                 # Stelle im Arbeitsspiel (0..1); neue Schichten setzen hier ein (Gleichtakt der Zündungen)
 
 var manifest: Dictionary = {}
 var streams := {}
@@ -120,16 +128,25 @@ func make_voice(car: Dictionary, index: int) -> Voice:
 	v.rpm = float(car.idle)
 	v.detune = 1.0 + (0.0 if index == 0 else (0.012 if index % 2 == 1 else -0.015) * float((index + 1) / 2))
 	for layer in car.layers:
+		v.rpms.append(float(layer.rpm))
+		layer_stream(layer, "load")              # vorab laden, damit der Wechsel im Rennen nicht hakt
+		layer_stream(layer, "coast")
+	for i in range(SLOTS):
 		for mode in ["load", "coast"]:
 			var pl := AudioStreamPlayer.new()
 			pl.bus = v.bus
-			pl.stream = stream(str(layer[mode]), int(layer.frames))
 			pl.volume_db = -80.0
 			add_child(pl)
-			pl.play(rng.randf() * 0.5)
-			pl.stream_paused = true
 			(v.load_players if mode == "load" else v.coast_players).append(pl)
-		v.active.append(false)
+		v.slot_layer.append(-1)
+	if car.has("limiter"):
+		v.limiter = AudioStreamPlayer.new()
+		v.limiter.bus = v.bus
+		v.limiter.stream = stream(str(car.limiter), int(car.get("limiter_frames", 0)))
+		v.limiter.volume_db = -80.0
+		add_child(v.limiter)
+		v.limiter.play()
+		v.limiter.stream_paused = true
 	if v.is_player:
 		v.turbo = AudioStreamPlayer.new()
 		v.turbo.bus = "SFX"
@@ -140,12 +157,18 @@ func make_voice(car: Dictionary, index: int) -> Voice:
 		v.turbo.stream_paused = true
 	return v
 
+func layer_stream(layer: Dictionary, mode: String) -> AudioStreamWAV:
+	return stream(str(layer[mode]), int(layer.get("coast_frames", layer.frames)) if mode == "coast" else int(layer.frames))
+
 func clear() -> void:
 	preview_time = -1.0
 	for v in voices:
 		for pl in v.load_players + v.coast_players:
 			pl.stop()
 			pl.queue_free()
+		if v.limiter != null:
+			v.limiter.stop()
+			v.limiter.queue_free()
 		if v.turbo != null:
 			v.turbo.stop()
 			v.turbo.queue_free()
@@ -154,15 +177,18 @@ func clear() -> void:
 func silence() -> void:
 	for v in voices:
 		for pl in v.load_players + v.coast_players:
-			pl.stream_paused = true
-		for k in range(v.active.size()):
-			v.active[k] = false
+			pl.stop()
+		for i in range(v.slot_layer.size()):
+			v.slot_layer[i] = -1
+		if v.limiter != null:
+			v.limiter.stream_paused = true
 		if v.turbo != null:
 			v.turbo.stream_paused = true
 
 func target_rpm(v: Voice, speed: float, throttle: float, airborne: bool) -> float:
 	# Gangmodell nur für den Klang: Drehzahl steigt im Gang mit der Geschwindigkeit, fällt beim Hochschalten zurück; beim Anfahren
-	# schleift die Kupplung (Drehzahl folgt dem Gas); in der Luft dreht der Motor frei.
+	# schleift die Kupplung (Drehzahl folgt dem Gas); in der Luft dreht der Motor frei bis in den Begrenzer. Kurz vor dem
+	# Hochschalten erreicht er bei Vollgas die Rotgrenze (der Begrenzer regelt ab); im letzten Gang begrenzt der Fahrtwind.
 	var idle := float(v.car.idle)
 	var red := float(v.car.redline) * 0.97
 	var scale := float(v.car.get("gears", 1.0))
@@ -173,11 +199,13 @@ func target_rpm(v: Voice, speed: float, throttle: float, airborne: bool) -> floa
 	var hi := float(BASE_GEARS[g]) * scale
 	var frac := clampf((speed - lo) / maxf(0.1, hi - lo), 0.0, 1.0)
 	var low_rpm := idle if g == 0 else red * 0.56
-	var r := lerpf(low_rpm, red, pow(frac, 0.85))
+	var r := lerpf(low_rpm, red, pow(minf(1.0, frac / 0.95), 0.85))
+	if g == BASE_GEARS.size() - 1:
+		r = minf(r, red * 0.95)
 	if speed < 3.5:
 		r = maxf(r, idle + throttle * 0.42 * (red - idle))
 	if airborne:
-		r = lerpf(r, red * 0.85, 0.6 * throttle)
+		r = lerpf(r, red, throttle)
 	return r
 
 func preview(id: String) -> void:
@@ -202,7 +230,7 @@ func preview_step(dt: float, sfx_on: bool) -> void:
 	if t < 0.45:
 		goal = idle
 	elif t < 1.75:
-		goal = lerpf(idle, red * 0.88, smoothstep(0.45, 1.75, t))
+		goal = lerpf(idle, red, smoothstep(0.45, 1.45, t))
 		thr = 1.0
 	elif t < 2.0:
 		goal = red * 0.58               # Hochschalten: Drehzahl fällt zurück
@@ -216,12 +244,12 @@ func preview_step(dt: float, sfx_on: bool) -> void:
 	v.throttle += (thr - v.throttle) * (1.0 - exp(-dt * 12.0))
 	v.rpm += (goal - v.rpm) * (1.0 - exp(-dt * (9.0 if goal > v.rpm else 3.2)))
 	var fade := clampf((PREVIEW_LENGTH - t) / 0.6, 0.0, 1.0)
-	var db := PLAYER_DB + float(v.car.get("gain_db", 0.0)) + REV_DB * clampf((v.rpm - idle) / (red - idle), 0.0, 1.0) + linear_to_db(maxf(0.0001, fade))
+	var db := PLAYER_DB + float(v.car.get("gain_db", 0.0)) + rev_db(v) + linear_to_db(maxf(0.0001, fade))
 	if not sfx_on:
 		db = -80.0
 	if v.panner != null:
 		v.panner.pan = 0.0
-	mix_voice(v, db)
+	mix_voice(v, db, dt, goal)
 	drive_turbo(v, boost and sfx_on, 12.0, false, fade)
 	drive_pops(v, dt, db, true)
 	v.prev_throttle = v.throttle
@@ -261,8 +289,7 @@ func update_voice(v: Voice, vehicle: RaceVehicle, dt: float, camera: Camera3D, s
 	var goal := target_rpm(v, speed, v.throttle, vehicle.airborne)
 	v.rpm += (goal - v.rpm) * (1.0 - exp(-dt * (9.0 if goal > v.rpm else 4.0)))
 	# Lautstärke: Gesamtpegel, Abstand zum eigenen Auto, außerhalb des Bildes leiser; Stereolage aus der Bildposition.
-	var frac_rpm := clampf((v.rpm - float(v.car.idle)) / (float(v.car.redline) - float(v.car.idle)), 0.0, 1.0)
-	var db := (PLAYER_DB if v.is_player else RIVAL_DB) + float(v.car.get("gain_db", 0.0)) + REV_DB * frac_rpm + linear_to_db(maxf(0.0001, level))
+	var db := (PLAYER_DB if v.is_player else RIVAL_DB) + float(v.car.get("gain_db", 0.0)) + rev_db(v) + linear_to_db(maxf(0.0001, level))
 	if not v.is_player and camera != null:
 		var world_pos := Vector3(vehicle.pos.x, 0.4, vehicle.pos.y)
 		var sp := camera.unproject_position(world_pos)
@@ -271,47 +298,112 @@ func update_voice(v: Voice, vehicle: RaceVehicle, dt: float, camera: Camera3D, s
 		var off := maxf(0.0, maxf(absf(nx - 0.5), absf(ny - 0.5)) - 0.5)
 		if camera.is_position_behind(world_pos):
 			off = 1.0
-		db -= clampf((vehicle.pos.distance_to(own_pos) - 6.0) * 0.55, 0.0, 22.0) + off * 30.0
+		db -= clampf((vehicle.pos.distance_to(own_pos) - 6.0) * 0.4, 0.0, 16.0) + off * 30.0
 		if v.panner != null:
 			v.panner.pan = clampf((nx - 0.5) * 1.7, -0.85, 0.85)
 	elif v.panner != null:
 		v.panner.pan = 0.0
 	if stopped:
 		db -= 10.0
-	mix_voice(v, db)
+	mix_voice(v, db, dt, goal)
 	drive_turbo(v, vehicle.boosting and not stopped, speed, stopped, level)
 	drive_pops(v, dt, db, v.is_player or vehicle.pos.distance_to(own_pos) < 25.0)
 	v.prev_throttle = v.throttle
 
-func mix_voice(v: Voice, db: float) -> void:
-	# Zwei benachbarte Drehzahlschichten gleichleistig überblenden, Last gegen Schub nach Gas.
-	var rpms: Array = []
-	for layer in v.car.layers:
-		rpms.append(float(layer.rpm))
+func rev_db(v: Voice) -> float:
+	if str(v.car.get("dynamics", "")) == "baked":
+		return BAKED_DB
+	return REV_DB * clampf((v.rpm - float(v.car.idle)) / (float(v.car.redline) - float(v.car.idle)), 0.0, 1.0)
+
+func mix_voice(v: Voice, db: float, dt := 0.0, goal := 0.0) -> void:
+	# Zwei benachbarte Drehzahlschichten gleichleistig überblenden, Last gegen Schub nach Gas. Steht der Motor bei Vollgas an
+	# der Rotgrenze, übernimmt die Begrenzer-Schleife (Zündunterbrechung, aufgenommen im Leerlauf mit Vollgas).
+	v.phase = fposmod(v.phase + v.rpm * v.detune / 120.0 * dt, 1.0)
+	var red := float(v.car.redline) * 0.97
+	var at_limit := v.limiter != null and goal >= red * LIMIT_AT and v.rpm >= red * (LIMIT_AT - 0.02) and v.throttle > 0.7
+	v.limit_amt = move_toward(v.limit_amt, 1.0 if at_limit else 0.0, dt * (14.0 if at_limit else 8.0))
+	if v.limiter != null:
+		var lim_on := v.limit_amt > 0.002
+		if lim_on == v.limiter.stream_paused:
+			v.limiter.stream_paused = not lim_on
+			if lim_on:
+				v.limiter.seek(0.0)
+		if lim_on:
+			v.limiter.pitch_scale = v.detune
+			v.limiter.volume_db = db + linear_to_db(maxf(0.0001, sqrt(v.limit_amt)))
+	var keep := sqrt(1.0 - v.limit_amt)
+	var baked := str(v.car.get("dynamics", "")) == "baked"
+	var rpms := v.rpms
 	var r := clampf(v.rpm, rpms[0], rpms[rpms.size() - 1])
 	var k := 0
 	while k < rpms.size() - 2 and r >= rpms[k + 1]:
 		k += 1
 	var w := clampf((r - rpms[k]) / (rpms[k + 1] - rpms[k]), 0.0, 1.0)
-	var load_w := sqrt(0.14 + 0.86 * v.throttle)
-	var coast_w := sqrt(maxf(0.0, 1.0 - 0.86 * v.throttle))
-	for layer in range(rpms.size()):
-		var g := 0.0
-		if layer == k:
-			g = cos(w * PI * 0.5)
-		elif layer == k + 1:
-			g = sin(w * PI * 0.5)
-		var on := g > 0.002
-		if on != v.active[layer]:
-			v.active[layer] = on
-			v.load_players[layer].stream_paused = not on
-			v.coast_players[layer].stream_paused = not on
-		if on:
-			var pitch: float = v.rpm / float(rpms[layer]) * v.detune
-			v.load_players[layer].pitch_scale = pitch
-			v.coast_players[layer].pitch_scale = pitch
-			v.load_players[layer].volume_db = db + linear_to_db(maxf(0.0001, g * load_w))
-			v.coast_players[layer].volume_db = db + linear_to_db(maxf(0.0001, g * coast_w))
+	# Synthetische Schichten mischten immer etwas Last bei; in den Aufnahmen sind Last und Schub getrennt
+	var load_w := (sqrt(v.throttle) if baked else sqrt(0.14 + 0.86 * v.throttle)) * keep
+	var coast_w := (sqrt(maxf(0.0, 1.0 - v.throttle)) if baked else sqrt(maxf(0.0, 1.0 - 0.86 * v.throttle))) * keep
+	var wanted := {}
+	if cos(w * PI * 0.5) * keep > 0.002:
+		wanted[k] = cos(w * PI * 0.5)
+	if sin(w * PI * 0.5) * keep > 0.002:
+		wanted[k + 1] = sin(w * PI * 0.5)
+	# Abspielerpaare freigeben, deren Schicht nicht mehr gebraucht wird; neue Schichten auf freie Paare legen (sie beginnen
+	# mit Gewicht nahe 0, der Neustart ist daher unhörbar)
+	for i in range(SLOTS):
+		if v.slot_layer[i] != -1 and not wanted.has(v.slot_layer[i]):
+			v.load_players[i].stop()
+			v.coast_players[i].stop()
+			v.slot_layer[i] = -1
+	for layer in wanted:
+		if v.slot_layer.has(layer):
+			continue
+		var free := v.slot_layer.find(-1)
+		if free == -1:
+			continue
+		v.slot_layer[free] = layer
+		var info: Dictionary = v.car.layers[layer]
+		# Stelle im Arbeitsspiel aus der tatsächlichen Abspielposition einer laufenden Schicht (genauer als mitgezählt). Godot meldet
+		# dort das Ende des zuletzt gemischten Blocks; genau dort beginnt die neue Schicht mit dem nächsten Block.
+		var ref_phase := slot_phase(v)
+		if ref_phase >= 0.0:
+			v.phase = ref_phase
+		var start_phase := v.phase
+		for mode in ["load", "coast"]:
+			var pl: AudioStreamPlayer = (v.load_players if mode == "load" else v.coast_players)[free]
+			var st := layer_stream(info, mode)
+			pl.stream = st
+			# Die Schleifen sind auf gleiche Zündlage gedreht (tools/record_engines.py): an derselben Stelle des Arbeitsspiels
+			# einsetzen wie die laufende Schicht, in einem zufälligen ganzen Arbeitsspiel der Schleife
+			var cycles := int(info.get("coast_cycles" if mode == "coast" else "cycles", 0))
+			var at := rng.randf() * 0.9 * float(st.loop_end)
+			if cycles > 0:
+				at = (float(rng.randi_range(0, cycles - 1)) + start_phase) * float(st.loop_end) / float(cycles)
+			pl.play(at / float(st.mix_rate))
+	for i in range(SLOTS):
+		var layer := v.slot_layer[i]
+		if layer == -1:
+			continue
+		var g: float = wanted[layer]
+		v.load_players[i].pitch_scale = v.rpm / rpms[layer] * v.detune
+		v.coast_players[i].pitch_scale = v.rpm / float(v.car.layers[layer].get("coast_rpm", rpms[layer])) * v.detune
+		v.load_players[i].volume_db = db + linear_to_db(maxf(0.0001, g * load_w))
+		v.coast_players[i].volume_db = db + linear_to_db(maxf(0.0001, g * coast_w))
+
+func slot_phase(v: Voice) -> float:
+	# Stelle im Arbeitsspiel (0..1) der lautesten laufenden Lastschicht; -1 wenn keine läuft.
+	var best := -1
+	for i in range(SLOTS):
+		if v.slot_layer[i] != -1 and v.load_players[i].playing and (best == -1 or v.load_players[i].volume_db > v.load_players[best].volume_db):
+			best = i
+	if best == -1:
+		return -1.0
+	var pl := v.load_players[best]
+	var st := pl.stream as AudioStreamWAV
+	var cycles := int(v.car.layers[v.slot_layer[best]].get("cycles", 0))
+	if st == null or cycles <= 0:
+		return -1.0
+	var pos := pl.get_playback_position() * float(st.mix_rate)
+	return fposmod(pos / (float(st.loop_end) / float(cycles)), 1.0)
 
 func drive_turbo(v: Voice, boosting: bool, speed: float, stopped: bool, gain: float) -> void:
 	# Nur eigenes Auto: Pfeifen solange der Turbo zündet, beim Ende das Schubumluftventil.

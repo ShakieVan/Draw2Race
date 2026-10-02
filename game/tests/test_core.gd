@@ -82,8 +82,12 @@ func _init() -> void:
 		var b := point.duplicate()
 		b.speed = 29.0
 		reckless.append(b)
-	var slow := simulate(track,safe)
-	var fast := simulate(track,reckless)
+	# Das Stadion hat eine Mauer um das Oval: Hier zählt der Zeitverlust durch Überziehen, nicht der Aufprall (Hindernisse prüft test_collision.gd).
+	var free_track := Circuit.new()
+	free_track.obstacles.clear()
+	free_track.obstacle_grid.clear()
+	var slow := simulate(free_track,safe)
+	var fast := simulate(free_track,reckless)
 	print("BALANCE safe=",slow.finish_time," reckless=",fast.finish_time," slips=",slow.max_slip," / ",fast.max_slip)
 	check(fast.max_slip>slow.max_slip*1.3,"Überzogene Kurven erzeugen mehr Reifenschlupf")
 	var brake := RaceVehicle.new(track,safe)

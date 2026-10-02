@@ -10,13 +10,20 @@ komponierte Szene:
   (zweite UV-Ebene) und eine Begleitdatei <name>_layout.json mit den Straßenflächen (Laufzeit-Bauteile wie Laternen
   werden dort ausgespart).
 
+Themen: Der Kern (diese Datei) enthält die Stadt (Thema "city") und die allgemeinen Helfer. Alles Übrige steckt in
+Themenmodulen tools/dio_themes/<thema>.py (Thema = Feld "theme" der Streckendatei). Ein Modul wird direkt nach dem Laden der
+Streckendaten in die Globals dieser Datei ausgeführt, darf also jeden Helfer benutzen, und legt THEME_CFG sowie die
+Hook-Funktionen theme_* fest. Einzelheiten und Regeln für paralleles Arbeiten: docs/dioramen/README.md.
+
 Koordinaten: Spiel (x, y oben, z) = Blender (x, -z, y). Im Skript ist "2D" immer (x, z) des Spiels.
-Aufruf: tools/blender.ps1 tools/diorama.py <strecke.json> <aus.glb> <aus_ao.jpg> <texturordner> <modellordner>
+Aufruf: tools/blender.ps1 tools/diorama.py <strecke.json> <aus.glb> <aus_ao.jpg> <texturordner> <modellordner> [<themenmodul.py>]
+(üblich über tools/dio_build.ps1)
 """
 import json
 import math
 import os
 import random
+import re
 import sys
 
 import bmesh
@@ -30,9 +37,14 @@ import kit_house
 
 A = sys.argv[sys.argv.index("--") + 1:]
 TRACK, OUT_GLB, OUT_AO, TEX, PROPS = A[:5]
+THEME_FILE_ARG = A[5] if len(A) > 5 else ""           # optional: ein Themenmodul von Hand vorgeben (Versuche, dio_build.ps1 -ThemeFile)
 data = json.load(open(TRACK, encoding="utf-8"))
 HW = float(data.get("half_width", 3.5))
-ROAD_Y, KERB_Y, WALK_Y, GROUND_Y = 0.17, 0.30, 0.30, 0.295
+THEME = data.get("theme", "city")
+TRACK_ID = str(data.get("id", os.path.splitext(os.path.basename(TRACK))[0]))
+OPEN = bool(data.get("open", False))                  # Sprintstrecke: Start und Ziel getrennt, keine geschlossene Schleife
+CITY = THEME == "city"                                # Stadt-Bausteine (Häuser, Park, Tribünen, Bänke ...) gehören zum Thema "city"
+ROAD_Y, KERB_Y, WALK_Y = 0.17, 0.30, 0.30
 Y_J, Y_K, Y_W = ROAD_Y + 0.006, KERB_Y + 0.002, WALK_Y + 0.002   # Kreuzungen/Seitenstraßen liegen knapp darüber
 KERB_W, WALK_W = 0.55, 3.45
 SIDE = KERB_W + WALK_W                        # Randstein + Gehweg = 4,0 m
@@ -43,10 +55,76 @@ bpy.ops.wm.read_factory_settings(use_empty=True)
 scene = bpy.context.scene
 
 
+# ---------------------------------------------------------------- Themenmodule (tools/dio_themes/<thema>.py)
+# Das Modul darf THEME_CFG setzen und die folgenden Hook-Funktionen neu definieren. Die Vorgaben hier tun nichts. Aufgerufen werden
+# die Hooks vom Kern an festen Stellen; auf der obersten Ebene des Moduls darf nur definiert werden (die Kern-Helfer unten
+# entstehen erst später), Aufrufe von mesh_object, box usw. gehören in die Hook-Funktionen.
+THEME_CFG = {}
+
+
+def theme_materials():
+    """Hook 1: Materialien des Themas in M eintragen (nach den Kernmaterialien, vor jeder Geometrie)."""
+
+
+def theme_ground():
+    """Hook 2: Gelände, Boden, Wasser. Objekte, die an objs_ground angehängt werden, bekommen die gebackene Umgebungsverdeckung."""
+
+
+def theme_scenery():
+    """Hook 3: Modelle, Bauten, Tribünen usw. (nach den Kern-Bauteilen, vor dem Backen); hier ao_proxies() aufrufen."""
+
+
+def theme_bake_hidden():
+    """Hook 4: Namenspräfixe von Objekten, die beim Backen der Umgebungsverdeckung unsichtbar sind (z. B. ["Meer"])."""
+    return []
+
+
+def theme_layout(layout):
+    """Hook 5: Begleitdatei (dict) vor dem Schreiben ergänzen oder ändern."""
+
+
+THEME_FILE = THEME_FILE_ARG or os.path.join(os.path.dirname(os.path.abspath(__file__)), "dio_themes", THEME + ".py")
+if os.path.isfile(THEME_FILE):
+    with open(THEME_FILE, encoding="utf-8") as _fh:
+        exec(compile(_fh.read(), THEME_FILE, "exec"), globals())
+    print("DIORAMA Themenmodul:", THEME_FILE)
+else:
+    print("DIORAMA kein Themenmodul für", THEME, "- nur der Kern")
+
+# Einstellungen: Vorgaben des Kerns, überschrieben von THEME_CFG. Die Vorgaben entsprechen dem Verhalten vor den Themenmodulen
+# (Stadt: volle Straße; alles andere: bemalte Fahrbahn der Küste).
+ROAD_MODE = THEME_CFG.get("road", "city" if CITY else "painted")
+if ROAD_MODE not in ("city", "painted", "runtime"):
+    raise ValueError("THEME_CFG['road'] muss city, painted oder runtime sein: " + str(ROAD_MODE))
+CFG = {
+    "road": ROAD_MODE,
+    # Höhe der Bodenfläche (m). Stadt: bündig mit dem Gehweg; Küste: fast bündig mit der Fahrbahn; Laufzeit-Fahrbahn: Höhe des
+    # Laufzeit-Bodens (0,08), damit Reifenspuren (0,105 / 0,137) und Randsteine (Unterkante 0,14) wie ohne Diorama passen.
+    "ground_y": 0.295 if ROAD_MODE == "city" else (0.08 if ROAD_MODE == "runtime" else 0.185),
+    "margin": 46.0 if ROAD_MODE == "city" else 34.0,    # Rand um die Mittellinie, begrenzt Bodenraster und Lichttextur (m)
+    "portal": ROAD_MODE != "runtime",                  # Startportal (Pylone auf den Gehwegen)
+    "crowd": ROAD_MODE != "runtime",                   # Zuschauerzonen (Gitter, Banner, Menge, Fahnen) auf den Geraden
+    "junctions": ROAD_MODE == "city",                  # Kreuzungen und Zufahrten an 90°-Ecken planen (nur geschlossene Strecken)
+    "baked": ["building", "street_tree", "fountain"] if CITY else [],   # Bausteintypen, die das Diorama selbst enthält
+    "vertex_colors": "ACTIVE",                         # export_vertex_color des glTF-Exports (Wasser-/Geländegewichte stecken darin)
+    "runtime_terrain": False,                          # true: das Spiel baut das Geländerelief der Strecke weiter selbst
+    "edge_out": None,                                  # Backen: Bodenkacheln "Boden_*" näher als das (+0,75 m) entfallen; None = Vorgabe
+    "edge_in": None,
+}
+CFG.update(THEME_CFG)
+ROAD_MODE = CFG["road"]
+GROUND_Y = float(CFG["ground_y"])
+MARGIN = float(CFG["margin"])
+JUNCTIONS = bool(CFG["junctions"]) and not OPEN
+if ROAD_MODE == "runtime" and GROUND_Y >= ROAD_Y - 0.02:
+    raise ValueError("Laufzeit-Fahrbahn: ground_y %.3f muss unter der Fahrbahn (%.2f) liegen" % (GROUND_Y, ROAD_Y))
+
+
 # ---------------------------------------------------------------- Mittellinie
-def resample(points, step):
+def resample(points, step, closed=True):
     pts = [Vector((p[0], p[1])) for p in points]
-    pts.append(pts[0])
+    if closed:
+        pts.append(pts[0])
     out, carry = [], 0.0
     for a, b in zip(pts, pts[1:]):
         seg = (b - a).length
@@ -55,26 +133,36 @@ def resample(points, step):
             out.append(a.lerp(b, t / seg))
             t += step
         carry = t - seg
+    if not closed:
+        out.append(pts[-1])
     return out
 
 
-center = resample(data["points"], 0.5)
+center = resample(data["points"], 0.5, not OPEN)
 N = len(center)
-tang = [(center[(i + 1) % N] - center[i - 1]).normalized() for i in range(N)]
+
+
+def nb(i, d):
+    """Nachbarindex: ringförmig, bei Sprintstrecken (OPEN) an den Enden begrenzt."""
+    return min(max(i + d, 0), N - 1) if OPEN else (i + d) % N
+
+
+tang = [(center[nb(i, 1)] - center[nb(i, -1)]).normalized() for i in range(N)]
 left = [Vector((-t.y, t.x)) for t in tang]
 dist = [0.0]
 for i in range(1, N + 1):
-    dist.append(dist[-1] + (center[i % N] - center[i - 1]).length)
+    dist.append(dist[-1] + (0.0 if OPEN and i == N else (center[i % N] - center[i - 1]).length))
 area = sum(center[i].x * center[(i + 1) % N].y - center[(i + 1) % N].x * center[i].y for i in range(N)) * 0.5
-inside_sign = 1.0 if area > 0 else -1.0     # links der Fahrtrichtung liegt innen, wenn gegen den Uhrzeigersinn
+inside_sign = 1.0 if area > 0 or OPEN else -1.0     # links der Fahrtrichtung liegt innen, wenn gegen den Uhrzeigersinn
 outer = -inside_sign
 curv = []
 for i in range(N):
-    a, b = tang[i - 2], tang[(i + 2) % N]
+    a, b = tang[nb(i, -2)], tang[nb(i, 2)]
     curv.append(abs(math.atan2(a.x * b.y - a.y * b.x, a.dot(b))) / 2.0)
 
 C = np.array([[p.x, p.y] for p in center])
-SEG_A, SEG_B = C, np.roll(C, -1, axis=0)
+SEG_A, SEG_B = (C[:-1], C[1:]) if OPEN else (C, np.roll(C, -1, axis=0))   # Segmente der Mittellinie (offen: ohne Schlusssegment)
+NSEG = len(SEG_A)
 
 
 def dist_to_center(P, keep=None):
@@ -92,7 +180,9 @@ def dist_to_center(P, keep=None):
 
 
 def inside(P):
-    """Punkt-in-Polygon (Mittellinie) für viele Punkte."""
+    """Punkt-in-Polygon (Mittellinie) für viele Punkte; bei Sprintstrecken gibt es kein Innen (alles False)."""
+    if OPEN:
+        return np.zeros(len(P), bool)
     x, y = P[:, 0][:, None], P[:, 1][:, None]
     ax, ay, bx, by = SEG_A[:, 0], SEG_A[:, 1], SEG_B[:, 0], SEG_B[:, 1]
     cond = (ay > y) != (by > y)
@@ -102,9 +192,9 @@ def inside(P):
 
 def keep_except(lo, hi):
     """Segmentmaske ohne den (zyklischen) Indexbereich lo..hi."""
-    keep = np.ones(N, bool)
+    keep = np.ones(NSEG, bool)
     for k in range((hi - lo) % N + 1):
-        keep[(lo + k) % N] = False
+        keep[(lo + k) % NSEG] = False
     return keep
 
 
@@ -215,6 +305,8 @@ for _name in ("menge", "banner", "portal", "schach"):
 M["e:flagge"] = event_material("flagge", True)
 M["stahl"] = material("D_Stahl", color=(0.62, 0.64, 0.68), rough=0.4)
 M["holz"] = material("D_Holz", color=(0.34, 0.17, 0.07), rough=0.8)
+M["ao"] = material("AO_Proxy", color=(0.5, 0.5, 0.5), rough=1.0)       # Stellvertreter für Laufzeit-Bauteile (ao_proxies), nur beim Backen
+theme_materials()
 
 
 # ---------------------------------------------------------------- Netz-Helfer
@@ -266,8 +358,30 @@ def cone(fr, key, a, b, radius, height, y0, sides=6):
     return out
 
 
+def activate_vertex_colors(me):
+    """Farbattribut des Netzes zum aktiven Attribut und zur Render-Farbe machen. Der glTF-Export (export_vertex_color = ACTIVE)
+    schreibt sonst ein weißes COLOR_0 und legt die Daten als COLOR_1 ab, die Godot nicht liest (Wasser-/Geländegewichte, Rasen-
+    und Pflastertönung, Fahrbahn-Spurrillen gingen verloren). Bevorzugt wird das Attribut "Color"; ein bereits gesetztes
+    aktives Attribut bleibt unberührt. mesh_object() ruft das selbst auf; Themen, die Netze direkt mit bmesh bauen, brauchen es nicht
+    mehr (der Kern holt es vor dem Export für alle Netze nach), dürfen es aber auch selbst aufrufen."""
+    ca = me.color_attributes
+    if not len(ca):
+        return
+    if ca.active_color is None:
+        idx = ca.find("Color")
+        idx = 0 if idx < 0 else idx
+        ca.active_color = ca[idx]
+        ca.render_color_index = idx
+        try:
+            ca.default_color_name = ca[idx].name        # Vorgabe-Attribut (wie in der Umgehung des Hafen-Themas), Fehler sind unkritisch
+        except Exception:
+            pass
+    elif ca.render_color_index != ca.active_color_index:
+        ca.render_color_index = ca.active_color_index
+
+
 def mesh_object(name, parts):
-    """parts: Liste (Material-Schlüssel, Ecken als (x, z, y), UVs[, Blickrichtung (x, z) für senkrechte Flächen])."""
+    """parts: Liste (Material-Schlüssel, Ecken als (x, z, y), UVs[, Blickrichtung (x, z) für senkrechte Flächen[, Vertexfarben]])."""
     me = bpy.data.meshes.new(name)
     bm = bmesh.new()
     uv0 = bm.loops.layers.uv.new("UVMap")
@@ -294,6 +408,7 @@ def mesh_object(name, parts):
     bm.normal_update()
     bm.to_mesh(me)
     bm.free()
+    activate_vertex_colors(me)
     for key in keys:
         me.materials.append(M[key])
     obj = bpy.data.objects.new(name, me)
@@ -314,19 +429,125 @@ placed = []          # Flächen (Vierecke in 2D), auf denen keine Häuser/Bäume
 colliders = []       # Hindernisse für die Fahrphysik (Begleitdatei "obstacles"): Rechteck oder Kreis, Höhe, Art
 
 
-def collide_rect(cx, cz, ux, uz, ha, hb, height, kind):
-    """Rechteckiges Hindernis: Mitte, Richtung der a-Achse (Einheitsvektor), halbe Maße entlang a und quer dazu."""
+def collide_rect(cx, cz, ux, uz, ha, hb, height, kind, visible=True):
+    """Rechteckiges Hindernis: Mitte, Richtung der a-Achse (Einheitsvektor), halbe Maße entlang a und quer dazu.
+    visible=False: reiner Fahrschlauch-Begrenzer ohne Körper im Bild (Begleitdatei "v": false); in der einfachen Grafikstufe
+    zeichnet das Spiel ihn nicht als Klotz, die Fahrphysik kennt ihn trotzdem."""
     n = math.hypot(ux, uz) or 1.0
     colliders.append({"k": kind, "c": [round(cx, 3), round(cz, 3)], "u": [round(ux / n, 5), round(uz / n, 5)],
-                      "h": [round(ha, 3), round(hb, 3)], "y": round(height, 2)})
+                      "h": [round(ha, 3), round(hb, 3)], "y": round(height, 2), **({} if visible else {"v": False})})
 
 
-def collide_circle(cx, cz, r, height, kind):
-    colliders.append({"k": kind, "c": [round(cx, 3), round(cz, 3)], "r": round(r, 3), "y": round(height, 2)})
+def collide_circle(cx, cz, r, height, kind, visible=True):
+    """Kreisförmiges Hindernis (siehe collide_rect für visible)."""
+    colliders.append({"k": kind, "c": [round(cx, 3), round(cz, 3)], "r": round(r, 3), "y": round(height, 2),
+                      **({} if visible else {"v": False})})
 footprints = []      # (Frame, a0, a1, b0, b1): Gesamtfläche von Straße + Rand + Gehweg (für Boden und Häuser)
 asphalt_rects = []   # (Frame, a0, a1, b0, b1): reine Fahrbahnflächen (Begleitdatei für das Spiel)
 arm_parts = []       # Flächen aller Kreuzungen/Seitenstraßen
-lamps = []           # neue Laternen für Kreuzungen und Nebenstraßen: (Standort, Blickpunkt auf der Straße)
+lamps = []           # neue Laternen für Kreuzungen und Nebenstraßen: (Standort, Blickpunkt auf der Straße[, Modellname])
+extra_lights = []    # Punktlichter ohne Laternenmast (Begleitdatei "lights"), siehe add_light
+occluder_polys = []  # Lichtblocker als Polygone mit Höhe (Begleitdatei "occluder_polys"), siehe add_occluder_poly
+prop_y_list = []     # Bodenhöhe des Dioramas an Standorten von Laufzeit-Bauteilen (Begleitdatei "prop_y"), siehe set_prop_y
+
+
+def add_lamp(x, z, toward_x, toward_z, model=None):
+    """Laterne des Spiels (Mast als Hindernis, Licht in der Lichtkarte) eintragen; (toward_x, toward_z) = Punkt, zu dem der Ausleger zeigt.
+    model: Laternenmodell des Spiels (z. B. "hafen_laterne"); ohne Angabe gilt die Vorgabe des Spiels (Stadt: stadt_laterne_kit, sonst
+    kueste_laterne). Gleichwertig zu lamps.append((Vector((x, z)), Vector((toward_x, toward_z)))), das weiterhin geht."""
+    entry = (Vector((x, z)), Vector((toward_x, toward_z)))
+    lamps.append(entry + (str(model),) if model else entry)
+
+
+def add_light(x, z, y, color=(1.0, 0.82, 0.5), energy=1.0, range=7.0, omni=True, glow=0.0):
+    """Punktlicht ohne Laterne eintragen (Nachttischlampe, Budenbirne, Bildschirmschein, Flutlichtkopf ...). Es geht in dieselbe
+    Lichtkarte wie die Straßenlaternen (Boden, Fahrbahn, Häuser, Autos; Gebäude und Lichtblocker werfen Schatten) und ist am Tag aus.
+    x, z, y: Lage in Spielkoordinaten, y = Höhe der Lichtquelle über dem Boden (m); sie bestimmt, ob ein Lichtblocker der Höhe h
+    den Strahl zum Boden verdeckt. color: (r, g, b) linear. energy: 1,0 = Stärke einer Straßenlaterne. range: Radius am Boden (m), an
+    dem das Licht ausläuft. omni: zusätzlich ein echtes OmniLight3D (nur Premium, ohne Schatten, das Spiel deckelt die Zahl; für
+    unwichtige Lichter False). glow: Größe (m) eines leuchtenden Flecks (Billboard) an der Lichtquelle, 0 = keiner."""
+    entry = {"x": round(float(x), 3), "z": round(float(z), 3), "y": round(float(y), 2), "color": [round(float(c), 3) for c in color[:3]],
+             "energy": round(float(energy), 3), "range": round(float(range), 2)}
+    if not omni:
+        entry["omni"] = False
+    if glow:
+        entry["glow"] = round(float(glow), 2)
+    extra_lights.append(entry)
+
+
+def add_occluder_poly(points, height=8.0):
+    """Lichtblocker als beliebiges Polygon (Liste von (x, z), mindestens drei Ecken; z. B. gekrümmte Tribünen) mit Höhe (m). Er
+    blockiert das Licht der Laternen und Punktlichter wie ein Haus, aber nur für Strahlen, die auf der Höhe des Blockers noch unter dessen
+    Oberkante verlaufen (ein Licht hoch über einer niedrigen Mauer leuchtet darüber hinweg). Der Boden innerhalb bleibt unbeleuchtet."""
+    pts = [[round(float(p[0]), 3), round(float(p[1]), 3)] for p in points]
+    if len(pts) < 3:
+        raise ValueError("add_occluder_poly braucht mindestens drei Ecken")
+    occluder_polys.append([pts, round(float(height), 2)])
+
+
+def add_occluder_chain(points, width=0.6, height=8.0, closed=False):
+    """Lichtblocker entlang eines Linienzugs (Wand, Tribünenrand): je Segment ein Streifen der Breite width (m), Höhe height; closed schließt
+    den Zug. Praktisch für gekrümmte Bauten, die sich nicht als Rechteck beschreiben lassen."""
+    pts = [Vector((float(p[0]), float(p[1]))) for p in points]
+    pairs = list(zip(pts, pts[1:])) + ([(pts[-1], pts[0])] if closed and len(pts) > 2 else [])
+    for a, b in pairs:
+        d = b - a
+        if d.length < 1e-6:
+            continue
+        t = d.normalized()
+        n = Vector((-t.y, t.x)) * (width / 2)
+        e = t * 0.05                                           # kleine Überlappung der Streifen
+        add_occluder_poly([a - e + n, b + e + n, b + e - n, a - e - n], height)
+
+
+def set_prop_y(prop, y):
+    """Bodenhöhe (m) des Dioramas am Standort eines Laufzeit-Bauteils der Streckendatei setzen: Das Spiel stellt KI-Modelle (place_ai),
+    Baumkarten, Laternen und Klötzchen-Ersatz dort auf diese Höhe (zusätzlich zu "y" des Bausteins und der Streckengelände-Höhe).
+    prop: Index in data["props"] oder (x, z). Gebraucht, wo das Diorama echtes Relief hat (Steinbruch-Bänke); auf ebenem Boden entfällt es."""
+    if isinstance(prop, int):
+        p = data["props"][prop]
+        x, z = float(p.get("x", 0.0)), float(p.get("z", 0.0))
+    else:
+        x, z = float(prop[0]), float(prop[1])
+    for e in prop_y_list:
+        if abs(e[0] - x) < 0.01 and abs(e[1] - z) < 0.01:
+            e[2] = round(float(y), 3)
+            return
+    prop_y_list.append([round(x, 3), round(z, 3), round(float(y), 3)])
+
+
+def set_prop_heights(height_fn, types=None, include_lamps=True):
+    """set_prop_y für alle Laufzeit-Bauteile auf einmal: height_fn(x, z) liefert die Bodenhöhe des Dioramas. types: nur diese Bausteintypen
+    (None = alle, die das Diorama nicht selbst enthält, also nicht in CFG["baked"]); Bauteile im Wasser (y < -1) entfallen. include_lamps:
+    auch die Laternen des Kerns/Themas (lamps). Höhen unter 5 mm werden nicht eingetragen. Rückgabe: Anzahl der Einträge."""
+    count = 0
+    for p in data["props"]:
+        kind = str(p.get("type", ""))
+        baked = kind in CFG["baked"] or (kind == "ai" and ("ai:" + str(p.get("model", ""))) in CFG["baked"])
+        if baked or (types is not None and kind not in types) or float(p.get("y", 0.0)) < -1.0:
+            continue
+        x, z = float(p.get("x", 0.0)), float(p.get("z", 0.0))
+        h = float(height_fn(x, z))
+        if abs(h) >= 0.005:
+            set_prop_y((x, z), h)
+            count += 1
+    if include_lamps:
+        for entry in lamps:
+            h = float(height_fn(entry[0].x, entry[0].y))
+            if abs(h) >= 0.005:
+                set_prop_y((entry[0].x, entry[0].y), h)
+                count += 1
+    return count
+
+
+def lamp_entry(entry):
+    """Eintrag von lamps (Standort, Blickpunkt[, Modell]) als Begleitdatei-Eintrag."""
+    out = {"x": round(entry[0].x, 3), "z": round(entry[0].y, 3), "toward": [round(entry[1].x, 3), round(entry[1].y, 3)]}
+    if len(entry) > 2 and entry[2]:
+        out["model"] = str(entry[2])
+    return out
+
+
 arms = []            # Achsen der Zufahrten für Häuserreihen: (Ursprung, Richtung, Seitenrichtung, s_von, s_bis)
 skip_by_side = {1.0: set(), -1.0: set()}   # Segmente der Hauptbänder, die an Kreuzungen entfallen (je Seite)
 BAKED = {"lamp", "building", "street_tree", "fountain"}
@@ -634,7 +855,7 @@ corners = find_corners()
 print("DIORAMA Ecken:", len(corners), [(round(c["P"].x, 1), round(c["P"].y, 1), int(c["sigma"])) for c in corners])
 K, W, H = KERB_W, SIDE, HW
 
-for J in corners:
+for J in (corners if JUNCTIONS else []):      # Kreuzungen/Zufahrten nur, wenn das Thema sie wünscht (Stadt)
     P, u, v = J["P"], J["u"], J["v"]
     F = Frame(P, u, v)
     Rw, Rn = J["r_in"], J["r_out"]
@@ -762,49 +983,51 @@ def build_portal(i):
     placed.append(f.poly(-8.0, 8.0, -HW - SIDE - 1.0, FOOT))
 
 
-build_portal(PORTAL_I)
+if CFG["portal"]:
+    build_portal(PORTAL_I)
 
 # T-Einmündungen an langen Geraden (Außenseite der Gesamtform)
 t_count = 0
 runs = []
 straight = [c < 0.01 for c in curv]
-for i0 in [i for i in range(N) if straight[i] and not straight[i - 1]]:
+for i0 in ([] if OPEN else [i for i in range(N) if straight[i] and not straight[i - 1]]):
     e = i0
     while straight[(e + 1) % N] and e - i0 < N:      # zyklisch: die Gerade darf über den Streckenanfang laufen
         e += 1
     runs.append((i0, e))
-for (r0, r1) in runs:
-    length_m = (r1 - r0) * 0.5
-    if length_m < 16:
-        continue
-    slots = [(r0 + r1) // 2] if length_m < 70 else [r0 + (r1 - r0) // 3, r0 + 2 * (r1 - r0) // 3]
-    for kk in slots:
-        kk %= N
-        Ft = Frame(center[kk], tang[kk], left[kk] * outer)
-        keep = keep_except(kk - 80, kk + 80)
-        t_len, t_why = best_length(Ft, lambda L: (-FOOT, FOOT, H + W, H + W + L), 40.0, keep)
-        if not t_len:
-            print("DIORAMA T-Einmündung bei", (round(center[kk].x, 1), round(center[kk].y, 1)), "abgelehnt:", t_why)
+if CITY:
+    for (r0, r1) in runs:
+        length_m = (r1 - r0) * 0.5
+        if length_m < 16:
             continue
-        t_len += W
-        skip_by_side[outer].update(x % N for x in range(kk - 8, kk + 9))
-        ft = Frame(Ft.pt(0, 0), Ft.u, Ft.v)
-        if t_len <= 20.0:
-            build_garage(ft, t_len, H)        # kurze Zufahrt: Tiefgarage statt Sackgasse
-        else:
-            build_arm(ft, None, t_len, "T", 0, 0, H, Ft.v, 1, 0)
-        footprints.append((Ft, -FOOT, FOOT, H, H + t_len))
-        placed.append(Ft.poly(-FOOT + 1.5, FOOT - 1.5, H, H + t_len))
-        arms.append((Ft.pt(0, 0), Ft.v, Ft.u, H + W + 14, H + t_len - 5))
-        t_count += 1
-        print("DIORAMA T-Einmündung bei", (round(center[kk].x, 1), round(center[kk].y, 1)), "Länge", t_len)
+        slots = [(r0 + r1) // 2] if length_m < 70 else [r0 + (r1 - r0) // 3, r0 + 2 * (r1 - r0) // 3]
+        for kk in slots:
+            kk %= N
+            Ft = Frame(center[kk], tang[kk], left[kk] * outer)
+            keep = keep_except(kk - 80, kk + 80)
+            t_len, t_why = best_length(Ft, lambda L: (-FOOT, FOOT, H + W, H + W + L), 40.0, keep)
+            if not t_len:
+                print("DIORAMA T-Einmündung bei", (round(center[kk].x, 1), round(center[kk].y, 1)), "abgelehnt:", t_why)
+                continue
+            t_len += W
+            skip_by_side[outer].update(x % N for x in range(kk - 8, kk + 9))
+            ft = Frame(Ft.pt(0, 0), Ft.u, Ft.v)
+            if t_len <= 20.0:
+                build_garage(ft, t_len, H)        # kurze Zufahrt: Tiefgarage statt Sackgasse
+            else:
+                build_arm(ft, None, t_len, "T", 0, 0, H, Ft.v, 1, 0)
+            footprints.append((Ft, -FOOT, FOOT, H, H + t_len))
+            placed.append(Ft.poly(-FOOT + 1.5, FOOT - 1.5, H, H + t_len))
+            arms.append((Ft.pt(0, 0), Ft.v, Ft.u, H + W + 14, H + t_len - 5))
+            t_count += 1
+            print("DIORAMA T-Einmündung bei", (round(center[kk].x, 1), round(center[kk].y, 1)), "Länge", t_len)
 
 # ---------------------------------------------------------------- Hauptbänder (Fahrbahn, Randsteine, Gehwege)
 def ribbon(name, key_of, off_a, off_b, y_a, y_b, tile, skip=None, ruts=False):
     """Band parallel zur Mittellinie zwischen den seitlichen Abständen off_a..off_b (links positiv). ruts: schwarze Vertexfarbe
     (der Fahrbahn-Shader legt dort Pfützen länglich in die Fahrspuren; Flächen ohne Farbe sind weiß)."""
     parts = []
-    for i in range(N):
+    for i in range(N - 1 if OPEN else N):
         j = (i + 1) % N
         if skip and i in skip:
             continue
@@ -820,20 +1043,26 @@ def ribbon(name, key_of, off_a, off_b, y_a, y_b, tile, skip=None, ruts=False):
     return mesh_objects(name, parts)
 
 
+# Straßenarten (THEME_CFG["road"]): "city" = Fahrbahn, Linien, Randstein mit Gehweg, Parkweg, Kreuzungen; "painted" = Fahrbahn,
+# Linien und flacher rot-weißer Randstein; "runtime" = nichts davon, das Spiel baut die Straße selbst (Begleitdatei runtime_road).
 objs_ground = []
-objs_ground += ribbon("Fahrbahn", lambda i: "asphalt", -HW, HW, ROAD_Y, ROAD_Y, 6.0, ruts=True)
-for s in (-1, 1):
-    skip = skip_by_side[float(s)]
-    paint = lambda i: "kerb_paint" if curv[i] > 0.02 else "kerb"
-    objs_ground += ribbon(f"Linie_{s}", lambda i: "linie", s * (HW - 0.32), s * (HW - 0.2), ROAD_Y + 0.004, ROAD_Y + 0.004, 1.0, skip)
-    objs_ground += ribbon(f"Randkante_{s}", paint, s * HW, s * HW, ROAD_Y, KERB_Y, 1.0, skip)
-    objs_ground += ribbon(f"Randstein_{s}", paint, s * HW, s * (HW + KERB_W), KERB_Y, KERB_Y, 1.0, skip)
-    objs_ground += ribbon(f"Gehweg_{s}", lambda i: "gehweg", s * (HW + KERB_W), s * (HW + SIDE), WALK_Y, WALK_Y, 5.0, skip)
+if ROAD_MODE != "runtime":
+    objs_ground += ribbon("Fahrbahn", lambda i: "asphalt", -HW, HW, ROAD_Y, ROAD_Y, 6.0, ruts=True)
+    for s in (-1, 1):
+        skip = skip_by_side[float(s)]
+        paint = (lambda i: "kerb_paint" if curv[i] > 0.02 else "kerb") if ROAD_MODE == "city" else (lambda i: "kerb_paint")
+        objs_ground += ribbon(f"Linie_{s}", lambda i: "linie", s * (HW - 0.32), s * (HW - 0.2), ROAD_Y + 0.004, ROAD_Y + 0.004, 1.0, skip)
+        if ROAD_MODE == "city":
+            objs_ground += ribbon(f"Randkante_{s}", paint, s * HW, s * HW, ROAD_Y, KERB_Y, 1.0, skip)
+        objs_ground += ribbon(f"Randstein_{s}", paint, s * HW, s * (HW + KERB_W), KERB_Y if ROAD_MODE == "city" else ROAD_Y + 0.018, KERB_Y if ROAD_MODE == "city" else ROAD_Y + 0.018, 1.0, skip)
+        if ROAD_MODE == "city":
+            objs_ground += ribbon(f"Gehweg_{s}", lambda i: "gehweg", s * (HW + KERB_W), s * (HW + SIDE), WALK_Y, WALK_Y, 5.0, skip)
 # Innen: gepflasterter Weg als Übergang zum Park (an Kreuzungen der Innenseite ebenfalls ausgespart).
-s_in = inside_sign
-objs_ground += ribbon("Parkweg", lambda i: "pflaster", s_in * (HW + SIDE), s_in * (HW + 5.8), WALK_Y + 0.002, WALK_Y + 0.002, 3.0,
-                      skip_by_side[s_in])
-objs_ground += mesh_objects("Kreuzungen", arm_parts)
+if ROAD_MODE == "city":
+    s_in = inside_sign
+    objs_ground += ribbon("Parkweg", lambda i: "pflaster", s_in * (HW + SIDE), s_in * (HW + 5.8), WALK_Y + 0.002, WALK_Y + 0.002, 3.0,
+                          skip_by_side[s_in])
+    objs_ground += mesh_objects("Kreuzungen", arm_parts)
 
 
 # ---------------------------------------------------------------- Bodenraster (Zonen)
@@ -848,7 +1077,6 @@ def in_footprints(P, margin=0.0):
 
 
 xs, zs = C[:, 0], C[:, 1]
-MARGIN = 46.0
 x0, x1 = math.floor(xs.min() - MARGIN), math.ceil(xs.max() + MARGIN)
 z0, z1 = math.floor(zs.min() - MARGIN), math.ceil(zs.max() + MARGIN)
 cells = {"pflaster": [], "gras": []}
@@ -877,32 +1105,59 @@ def ground_tint(key, x, z):
         return (f * 0.98, f, f * 0.95)
     f = 1.0 + (value_noise(x, z, 5.0) - 0.5) * 0.12
     return (f, f, f * 0.98)
-for step, want_inside in ((1.0, False), (0.5, True)):
-    gx = np.arange(x0, x1, step) + step / 2
-    gz = np.arange(z0, z1, step) + step / 2
-    P = np.array([[x, z] for z in gz for x in gx])
-    d = dist_to_center(P)
-    ins = inside(P)
-    blocked = in_footprints(P, margin=-step / 2)      # nur Kacheln, die ganz unter Straße/Gehweg liegen, entfallen (keine schwarzen Lücken am Rand)
-    for (x, z), dd, ii, bl in zip(P, d, ins, blocked):
-        if dd < HW + 3.0 or ii != want_inside or bl:
+if CITY:
+    for step, want_inside in ((1.0, False), (0.5, True)):
+        gx = np.arange(x0, x1, step) + step / 2
+        gz = np.arange(z0, z1, step) + step / 2
+        P = np.array([[x, z] for z in gz for x in gx])
+        d = dist_to_center(P)
+        ins = inside(P)
+        blocked = in_footprints(P, margin=-step / 2)      # nur Kacheln, die ganz unter Straße/Gehweg liegen, entfallen (keine schwarzen Lücken am Rand)
+        for (x, z), dd, ii, bl in zip(P, d, ins, blocked):
+            if dd < HW + 3.0 or ii != want_inside or bl:
+                continue
+            key = "gras" if ii and dd > HW + 5.2 else "pflaster"
+            tile = 3.0
+            h = step / 2
+            corners_ = [(x - h, z - h, GROUND_Y), (x + h, z - h, GROUND_Y), (x + h, z + h, GROUND_Y), (x - h, z + h, GROUND_Y)][::-1]
+            tint_c = ground_tint(key, x, z)
+            cells[key].append((key, corners_, [(cx / tile, -cz / tile) for cx, cz, _ in corners_], None, [tint_c] * 4))
+    for key, parts in cells.items():
+        objs_ground.append(mesh_object(f"Boden_{key}", parts))
+    # Horizont: weiter Rahmen rund um das Stadtgebiet.
+    far = 400
+    frame = []
+    for ax0, az0, ax1, az1 in ((x0 - far, z0 - far, x1 + far, z0), (x0 - far, z1, x1 + far, z1 + far),
+                               (x0 - far, z0, x0, z1), (x1, z0, x1 + far, z1)):
+        quad = [(ax0, az1, GROUND_Y), (ax1, az1, GROUND_Y), (ax1, az0, GROUND_Y), (ax0, az0, GROUND_Y)]
+        frame.append(("weite", quad, [(x / 3.0, -z / 3.0) for x, z, _ in quad]))
+    mesh_object("Weite", frame)
+
+
+def check_runtime_ground():
+    """Laufzeit-Fahrbahn: Der Boden des Themas darf die vom Spiel gebaute Straße nicht überdecken (Netzpunkte nahe der Mittellinie
+    müssen unter der Fahrbahnhöhe ROAD_Y liegen)."""
+    bad = 0
+    for o in objs_ground:
+        me = o.data
+        if not len(me.vertices):
             continue
-        key = "gras" if ii and dd > HW + 5.2 else "pflaster"
-        tile = 3.0
-        h = step / 2
-        corners_ = [(x - h, z - h, GROUND_Y), (x + h, z - h, GROUND_Y), (x + h, z + h, GROUND_Y), (x - h, z + h, GROUND_Y)][::-1]
-        tint_c = ground_tint(key, x, z)
-        cells[key].append((key, corners_, [(cx / tile, -cz / tile) for cx, cz, _ in corners_], None, [tint_c] * 4))
-for key, parts in cells.items():
-    objs_ground.append(mesh_object(f"Boden_{key}", parts))
-# Horizont: weiter Rahmen rund um das Stadtgebiet.
-far = 400
-frame = []
-for ax0, az0, ax1, az1 in ((x0 - far, z0 - far, x1 + far, z0), (x0 - far, z1, x1 + far, z1 + far),
-                           (x0 - far, z0, x0, z1), (x1, z0, x1 + far, z1)):
-    quad = [(ax0, az1, GROUND_Y), (ax1, az1, GROUND_Y), (ax1, az0, GROUND_Y), (ax0, az0, GROUND_Y)]
-    frame.append(("weite", quad, [(x / 3.0, -z / 3.0) for x, z, _ in quad]))
-mesh_object("Weite", frame)
+        co = np.empty(len(me.vertices) * 3, np.float32)
+        me.vertices.foreach_get("co", co)
+        co = co.reshape(-1, 3)
+        near = dist_to_center(np.stack([co[:, 0], -co[:, 1]], 1)) < HW + 0.3
+        n = int(((co[:, 2] > ROAD_Y - 0.01) & near).sum())
+        if n:
+            print("DIORAMA Boden überdeckt die Laufzeit-Fahrbahn:", o.name, n, "Punkte höher als", ROAD_Y - 0.01)
+        bad += n
+    if bad:
+        raise ValueError("Boden des Themas überdeckt die Laufzeit-Fahrbahn (%d Netzpunkte); ground_y niedriger setzen" % bad)
+
+
+# Gelände, Boden und Wasser des Themas (Hook 2); Objekte in objs_ground bekommen die gebackene Umgebungsverdeckung.
+theme_ground()
+if ROAD_MODE == "runtime":
+    check_runtime_ground()
 
 # ---------------------------------------------------------------- Modelle laden (Bäume, Brunnen) und Häuser (Bausatz)
 LIB = {}
@@ -939,7 +1194,7 @@ def rect_corners(cx, cz, hw_, hd, ang):
 LOD_DIST = 24.0      # Bauten näher als so viele Meter an der Rennstrecke spiegeln sich in der nassen Fahrbahn (eigene Objekte)
 
 
-def place(name, x, z, ang, height, clearance=FOOT + 0.2, trunk=0.0, check_center=True):
+def place(name, x, z, ang, height, clearance=FOOT + 0.2, trunk=0.0, check_center=True, base_y=None):
     """Modell (Baum) platzieren. trunk > 0: nur der Stamm zählt (Bäume dürfen mit der Krone über Gehweg/Straße ragen)."""
     obj, ext = model(name)
     s = height / max(ext.z, 1e-4)
@@ -951,11 +1206,116 @@ def place(name, x, z, ang, height, clearance=FOOT + 0.2, trunk=0.0, check_center
         return False
     inst = obj.copy()
     scene.collection.objects.link(inst)
-    inst.matrix_world = Matrix.Translation((x, -z, GROUND_Y)) @ Matrix.Rotation(-ang, 4, "Z") @ Matrix.Scale(s, 4)
+    inst.matrix_world = Matrix.Translation((x, -z, GROUND_Y if base_y is None else base_y)) @ Matrix.Rotation(-ang, 4, "Z") @ Matrix.Scale(s, 4)
     placed.append(poly)
     collide_circle(x, z, 0.35, 3.0, "baum")
     recipe["trees"].append({"model": name, "at": [round(x, 3), round(z, 3)], "yaw": round(ang, 4), "height": round(height, 2)})
     return True
+
+
+# ---------------------------------------------------------------- AO-Stellvertreter für Laufzeit-Bauteile
+# Was das Spiel zur Laufzeit setzt (KI-Modelle "ai", Laternen, Bäume ...), fehlt im Blender-Bild und würfe sonst keinen Kontaktschatten
+# in die gebackene Umgebungsverdeckung des Bodens. ao_proxies() stellt einfache Quader und Kegelstümpfe an ihre Stelle; sie
+# existieren nur beim Backen und werden vor dem glTF-Export gelöscht (ao_proxy_objs).
+ao_proxy_objs = []
+_gd_tables = {}
+# Kronen: (Radius, Höhe des Kronenansatzes, Gesamthöhe) bei scale 1; der Stamm ist ein dünner Zylinder.
+AO_CROWN = {"street_tree": (1.7, 2.2, 4.6), "palm": (1.5, 2.6, 4.6), "pine": (1.6, 1.4, 5.6), "oak": (2.4, 1.8, 4.6)}
+# Höhe der Kreis-Bauteile aus PROP_CIRCLES (track.gd rechnet für alle mit 4 m; für das Bild zählt die tatsächliche Höhe)
+AO_HEIGHT = {"lamp": 4.0, "lantern": 2.5, "floodlight": 9.0, "rock": 1.2, "parasol": 2.4, "tower": 5.5, "billboard": 3.0, "fountain": 1.2}
+
+
+def track_gd_table(name):
+    """Liest eine Zahlentabelle `const NAME := {"a": 1.5, ...}` aus game/scripts/track.gd (AI_RADIUS, PROP_CIRCLES): die Maße der Fahrphysik."""
+    if name not in _gd_tables:
+        with open(os.path.join(PROPS, "..", "..", "scripts", "track.gd"), encoding="utf-8") as fh:
+            m = re.search(r"const\s+" + name + r"\s*:=\s*\{(.*?)\}", fh.read(), re.S)
+        _gd_tables[name] = {k: float(v) for k, v in re.findall(r'"([^"]+)"\s*:\s*(-?[0-9.]+)', m.group(1))} if m else {}
+    return _gd_tables[name]
+
+
+def ao_prism(parts, cx, cz, r0, r1, y0, y1, sides=8):
+    """Kegelstumpf (r0 unten, r1 oben) als Flächenliste."""
+    ring0 = [(cx + r0 * math.cos(2 * math.pi * k / sides), cz + r0 * math.sin(2 * math.pi * k / sides)) for k in range(sides)]
+    ring1 = [(cx + r1 * math.cos(2 * math.pi * k / sides), cz + r1 * math.sin(2 * math.pi * k / sides)) for k in range(sides)]
+    for k in range(sides):
+        p0, p1, q0, q1 = ring0[k], ring0[(k + 1) % sides], ring1[k], ring1[(k + 1) % sides]
+        mid = ((p0[0] + p1[0]) / 2 - cx, (p0[1] + p1[1]) / 2 - cz)
+        parts.append(("ao", [(p0[0], p0[1], y0), (p1[0], p1[1], y0), (q1[0], q1[1], y1), (q0[0], q0[1], y1)],
+                      [(0, 0), (1, 0), (1, 1), (0, 1)], mid))
+    parts.append(("ao", [(x, z, y1) for x, z in ring1],
+                  [(0.5 + 0.5 * math.cos(2 * math.pi * k / sides), 0.5 + 0.5 * math.sin(2 * math.pi * k / sides)) for k in range(sides)]))
+
+
+def ao_proxies(types=None, base_y=None, include_lamps=True):
+    """Stellvertreter für Laufzeit-Bauteile der Streckendatei erzeugen (nur für das Backen; siehe oben).
+    types: Liste der Bausteintypen (z. B. ["ai", "lamp", "palm"]); None = alle bekannten, die das Diorama nicht selbst enthält
+    (CFG["baked"]). Maße wie die Fahrphysik (track.gd AI_RADIUS / PROP_CIRCLES, w/d/h der Bausteine). base_y: Höhe des Bodens am
+    Standort (Zahl oder Funktion (x, z) -> y), Vorgabe GROUND_Y. include_lamps: auch die vom Kern gesetzten Laternen (lamps).
+    Rückgabe: Anzahl der Stellvertreter."""
+    radii, ai_radii = track_gd_table("PROP_CIRCLES"), track_gd_table("AI_RADIUS")
+    parts, count = [], 0
+
+    def ground(x, z):
+        return float(base_y(x, z)) if callable(base_y) else (GROUND_Y if base_y is None else float(base_y))
+
+    def wanted(kind):
+        return (kind in types) if types is not None else (kind not in CFG["baked"])
+
+    def tree(x, z, y0, kind, scale):
+        r, y_crown, h = AO_CROWN[kind]
+        ao_prism(parts, x, z, 0.12 * scale, 0.1 * scale, y0, y0 + y_crown * scale, 6)                      # Stamm
+        ao_prism(parts, x, z, r * scale, 0.35 * r * scale, y0 + y_crown * scale, y0 + h * scale, 8)        # Krone
+    for p in data["props"]:
+        kind = p["type"]
+        if not wanted(kind) or float(p.get("y", 0.0)) < -1.0:
+            continue
+        x, z = float(p.get("x", 0.0)), float(p.get("z", 0.0))
+        y0 = ground(x, z)
+        rot = math.radians(float(p.get("rot", 0.0)))
+        sc = float(p.get("scale", 1.0))
+        rect = circle = None                                    # rect = (Breite, Tiefe, Höhe), circle = (Radius, Höhe)
+        if kind == "ai":
+            h = float(p.get("h", 3.0))
+            if "w" in p and "d" in p:
+                rect = (float(p["w"]), float(p["d"]), h)
+            elif str(p.get("model", "")) in ai_radii:
+                circle = (ai_radii[str(p["model"])], h)
+        elif kind in ("building", "pavilion"):
+            rect = (float(p.get("w", 4.0)), float(p.get("d", 4.0)), float(p.get("h", 3.0)))
+        elif kind == "planter":
+            rect = (float(p.get("w", 2.0)), float(p.get("d", 0.6)), 0.6)
+        elif kind == "stand":
+            rect = (float(p.get("w", 8.0)), float(p.get("d", 3.0)) + 2.0, 3.0)
+        elif kind == "cabin":
+            rect = (5.0, 4.0, 2.4)
+        elif kind == "boathouse":
+            rect = (4.5, 5.0, 2.5)
+        elif kind == "log":
+            rect = (3.2, 0.7, 0.7)
+        elif kind in AO_CROWN:
+            tree(x, z, y0, kind, sc)
+            count += 1
+            continue
+        elif kind in radii:
+            circle = (radii[kind] * (sc if kind in ("rock", "pine", "oak") else 1.0), AO_HEIGHT.get(kind, 4.0) * (sc if kind == "rock" else 1.0))
+        if rect:
+            fr = Frame((x, z), (math.cos(rot), math.sin(rot)), (-math.sin(rot), math.cos(rot)))
+            parts += box(fr, "ao", -rect[0] / 2, rect[0] / 2, -rect[1] / 2, rect[1] / 2, y0, y0 + rect[2])
+        elif circle:
+            ao_prism(parts, x, z, circle[0], circle[0], y0, y0 + circle[1])
+        else:
+            continue
+        count += 1
+    if include_lamps and wanted("lamp"):
+        for entry in lamps:
+            pos = entry[0]
+            ao_prism(parts, pos.x, pos.y, radii.get("lamp", 0.18), radii.get("lamp", 0.18), ground(pos.x, pos.y), ground(pos.x, pos.y) + 4.0)
+            count += 1
+    if parts:
+        ao_proxy_objs.append(mesh_object("AOProxy_%d" % len(ao_proxy_objs), parts))
+    print("DIORAMA AO-Stellvertreter:", count)
+    return count
 
 
 kit_near, kit_far = [], []      # Flächen aller Häuser, getrennt nach Nähe zur Strecke
@@ -1014,68 +1374,69 @@ def row_along(pts, tans, lefts, side, offset, max_h, check_center=True):
             i += 3
 
 
-row_along(center, tang, left, outer, FOOT + 0.6, 14.0)      # erste Reihe hinter dem Gehweg der Rennstrecke; weiter außen füllt das Stadtraster
-for origin, direction, normal, s0, s1 in arms:
-    if s1 - s0 < 6:
-        continue
-    n_pts = int((s1 - s0) / 0.5)
-    pts = [origin + direction * (s0 + 0.5 * k) for k in range(n_pts)]
-    for side in (1, -1):
-        row_along(pts, [direction] * n_pts, [normal] * n_pts, side, FOOT + 0.6, 14.0, check_center=False)
-
-
-def nearest_street(p):
-    """Richtung (Einheitsvektor) und Blickrichtung zur nächsten Straße (Rennstrecke oder Zufahrt) vom Punkt p aus."""
-    d2 = ((C - np.array([p.x, p.y])) ** 2).sum(1)
-    i = int(d2.argmin())
-    best = (math.sqrt(float(d2[i])), tang[i], (Vector(C[i]) - p).normalized() if d2[i] > 1e-6 else left[i])
+if CITY:
+    row_along(center, tang, left, outer, FOOT + 0.6, 14.0)      # erste Reihe hinter dem Gehweg der Rennstrecke; weiter außen füllt das Stadtraster
     for origin, direction, normal, s0, s1 in arms:
-        rel = p - origin
-        side = 1.0 if rel.dot(normal) >= 0 else -1.0
-        if -1.0 <= rel.dot(direction) <= s1 + 8.0 and abs(rel.dot(normal)) < best[0]:
-            best = (abs(rel.dot(normal)), direction, -normal * side)
-    return best[1], best[2]
-
-
-def infill(step=11.0, skip=0.08, w_max=None):
-    """Übrige Blockflächen mit Häusern füllen, Fassade zur nächsten Straße; Plätze am Raster, leicht versetzt."""
-    for zz in np.arange(z0 + 4, z1 - 2, step):
-        for xx in np.arange(x0 + 4, x1 - 2, step):
-            if rng.random() < skip:
-                continue
-            p = Vector((xx + rng.uniform(-2, 2), zz + rng.uniform(-2, 2)))
-            dirv, to_street = nearest_street(p)
-            # Stadtraster: Fassade zeigt in die Achsrichtung, die der Richtung zur nächsten Straße am nächsten liegt
-            if abs(to_street.x) >= abs(to_street.y):
-                f = Vector((1.0 if to_street.x >= 0 else -1.0, 0.0))
-            else:
-                f = Vector((0.0, 1.0 if to_street.y >= 0 else -1.0))
-            dirv = Vector((-f.y, f.x))
-            for attempt in range(3):
-                spec = kit_house.choose(rng, 16.0)
-                if w_max:
-                    spec["w"] = min(spec["w"], w_max)
-                spec["w"] *= 1.0 - 0.2 * attempt
-                spec["floors"] = max(2, spec["floors"] - attempt)
-                if place_house(spec, p.x, p.y, dirv.x, dirv.y, f.x, f.y):
-                    break
-
-
-def block_rows(spacing=36.0, lane=4.0):
-    """Blockfüllung im Stadtraster: je Ost-West-Linie zwei Häuserreihen mit einander zugewandten Fassaden und einer Gasse."""
-    z_line = z0 + 8.0
-    while z_line < z1 - 6.0:
-        n_pts = int((x1 - x0 - 4.0) / 0.5)
-        pts = [Vector((x0 + 2.0 + 0.5 * k, z_line)) for k in range(n_pts)]
+        if s1 - s0 < 6:
+            continue
+        n_pts = int((s1 - s0) / 0.5)
+        pts = [origin + direction * (s0 + 0.5 * k) for k in range(n_pts)]
         for side in (1, -1):
-            row_along(pts, [Vector((1.0, 0.0))] * n_pts, [Vector((0.0, 1.0))] * n_pts, side, lane, 18.0)
-        z_line += spacing
+            row_along(pts, [direction] * n_pts, [normal] * n_pts, side, FOOT + 0.6, 14.0, check_center=False)
 
 
-block_rows()
-infill()
-infill(step=6.5, skip=0.25, w_max=10.0)      # zweiter Durchgang: Lücken mit kleineren Häusern schließen
-print("DIORAMA Häuser", sum(house_kinds.values()), house_kinds, len(kit_near), "+", len(kit_far), "Flächen (nah + fern)")
+    def nearest_street(p):
+        """Richtung (Einheitsvektor) und Blickrichtung zur nächsten Straße (Rennstrecke oder Zufahrt) vom Punkt p aus."""
+        d2 = ((C - np.array([p.x, p.y])) ** 2).sum(1)
+        i = int(d2.argmin())
+        best = (math.sqrt(float(d2[i])), tang[i], (Vector(C[i]) - p).normalized() if d2[i] > 1e-6 else left[i])
+        for origin, direction, normal, s0, s1 in arms:
+            rel = p - origin
+            side = 1.0 if rel.dot(normal) >= 0 else -1.0
+            if -1.0 <= rel.dot(direction) <= s1 + 8.0 and abs(rel.dot(normal)) < best[0]:
+                best = (abs(rel.dot(normal)), direction, -normal * side)
+        return best[1], best[2]
+
+
+    def infill(step=11.0, skip=0.08, w_max=None):
+        """Übrige Blockflächen mit Häusern füllen, Fassade zur nächsten Straße; Plätze am Raster, leicht versetzt."""
+        for zz in np.arange(z0 + 4, z1 - 2, step):
+            for xx in np.arange(x0 + 4, x1 - 2, step):
+                if rng.random() < skip:
+                    continue
+                p = Vector((xx + rng.uniform(-2, 2), zz + rng.uniform(-2, 2)))
+                dirv, to_street = nearest_street(p)
+                # Stadtraster: Fassade zeigt in die Achsrichtung, die der Richtung zur nächsten Straße am nächsten liegt
+                if abs(to_street.x) >= abs(to_street.y):
+                    f = Vector((1.0 if to_street.x >= 0 else -1.0, 0.0))
+                else:
+                    f = Vector((0.0, 1.0 if to_street.y >= 0 else -1.0))
+                dirv = Vector((-f.y, f.x))
+                for attempt in range(3):
+                    spec = kit_house.choose(rng, 16.0)
+                    if w_max:
+                        spec["w"] = min(spec["w"], w_max)
+                    spec["w"] *= 1.0 - 0.2 * attempt
+                    spec["floors"] = max(2, spec["floors"] - attempt)
+                    if place_house(spec, p.x, p.y, dirv.x, dirv.y, f.x, f.y):
+                        break
+
+
+    def block_rows(spacing=36.0, lane=4.0):
+        """Blockfüllung im Stadtraster: je Ost-West-Linie zwei Häuserreihen mit einander zugewandten Fassaden und einer Gasse."""
+        z_line = z0 + 8.0
+        while z_line < z1 - 6.0:
+            n_pts = int((x1 - x0 - 4.0) / 0.5)
+            pts = [Vector((x0 + 2.0 + 0.5 * k, z_line)) for k in range(n_pts)]
+            for side in (1, -1):
+                row_along(pts, [Vector((1.0, 0.0))] * n_pts, [Vector((0.0, 1.0))] * n_pts, side, lane, 18.0)
+            z_line += spacing
+
+
+    block_rows()
+    infill()
+    infill(step=6.5, skip=0.25, w_max=10.0)      # zweiter Durchgang: Lücken mit kleineren Häusern schließen
+    print("DIORAMA Häuser", sum(house_kinds.values()), house_kinds, len(kit_near), "+", len(kit_far), "Flächen (nah + fern)")
 
 # ---------------------------------------------------------------- Rennausstattung: Zuschauerzonen (Gitter, Werbebanner, Menge, Fahnen)
 lamp_pos = [Vector((p["x"], p["z"])) for p in data["props"] if p["type"] == "lamp"]
@@ -1141,6 +1502,8 @@ def crowd_zone(side, s_from, s_to):
         s = s_from + (k + 0.5) * PANEL
         if abs(s) < 1.6:                                   # Startportal
             continue
+        if OPEN and not 0 <= int(round(s / 0.5)) < N:
+            continue
         i = int(round(s / 0.5)) % N
         if not all(straight_i[(i + d) % N] for d in range(-5, 6)) or i in skip_by_side[side]:
             continue
@@ -1160,6 +1523,9 @@ def crowd_zone(side, s_from, s_to):
     s = s_from + 2.0
     while s < s_to - 1.0:
         i = int(round(s / 0.5)) % N
+        if OPEN and not 0 <= int(round(s / 0.5)) < N:
+            s += 4.8
+            continue
         if abs(s) > 2.6 and not i in skip_by_side[side] and all(straight_i[(i + d) % N] for d in range(-5, 6)):
             g = Frame(center[i] + left[i] * side * (HW + KERB_W + 0.15), tang[i], left[i] * side)
             pos = g.pt(0.0, 1.85)
@@ -1210,12 +1576,16 @@ def bleachers(side, s_from, s_to):
 
 
 straight_i = [c < 0.01 for c in curv]
-zone_counts = [crowd_zone(side, -26.0, 26.0) for side in (1.0, -1.0)]
-stands = [bleachers(inside_sign, -12.5, -2.5), bleachers(inside_sign, 2.5, 12.5)]
-print("DIORAMA Tribünen:", stands)
+if OPEN:                                              # an den Enden einer Sprintstrecke gibt es keine "Nachbarn jenseits"
+    for _k in range(12):
+        straight_i[_k] = straight_i[N - 1 - _k] = False
+zone_counts = [crowd_zone(side, -26.0, 26.0) for side in (1.0, -1.0)] if CFG["crowd"] else []
+if CITY:
+    stands = [bleachers(inside_sign, -12.5, -2.5), bleachers(inside_sign, 2.5, 12.5)]
+    print("DIORAMA Tribünen:", stands)
 # Weitere Zuschauerzonen auf langen Geraden der Strecke (nicht auf der Startgeraden): mittig in der Gerade, beidseits
 extra_zones = []
-for r0, r1 in runs:
+for r0, r1 in (runs if CFG["crowd"] else []):
     if r1 >= N or r0 < 0 or (r1 - r0) * 0.5 < 22.0:
         continue
     s_a, s_b = r0 * 0.5 + 5.0, r1 * 0.5 - 5.0
@@ -1228,30 +1598,32 @@ print("DIORAMA weitere Zuschauerzonen:", extra_zones)
 print("DIORAMA Zuschauerzonen (Felder, Fahnen):", zone_counts)
 event_objs = mesh_objects("Ausstattung", dress_parts)
 event_decals += [o for o in event_objs if o.name.endswith("_e_menge")]
-recipe["event"] = {"portal": {"at": [round(center[PORTAL_I].x, 3), round(center[PORTAL_I].y, 3)], "dir": [round(tang[PORTAL_I].x, 4), round(tang[PORTAL_I].y, 4)]},
-                   "zones": [{"side": int(sd), "s": [-26.0, 26.0]} for sd in (1.0, -1.0)]}
+if CFG["portal"] or CFG["crowd"]:
+    recipe["event"] = {"portal": {"at": [round(center[PORTAL_I].x, 3), round(center[PORTAL_I].y, 3)], "dir": [round(tang[PORTAL_I].x, 4), round(tang[PORTAL_I].y, 4)]},
+                       "zones": [{"side": int(sd), "s": [-26.0, 26.0]} for sd in (1.0, -1.0)]}
 
 # ---------------------------------------------------------------- Parkbänke entlang des gepflasterten Parkwegs
-bench_parts = []
-bench_count = 0
-for i in range(14, N, 34):
-    if i in skip_by_side[inside_sign] or not all(straight_i[(i + d) % N] for d in range(-12, 13)):
-        continue
-    off = inside_sign * (HW + SIDE + 1.75)                          # auf dem Parkweg, Blick zur Fahrbahn
-    g = Frame(center[i] + left[i] * off, tang[i], left[i] * -inside_sign)
-    if in_footprints(np.array([tuple(g.pt(0, 0))]), margin=2.0).any():
-        continue
-    y = GROUND_Y + 0.004
-    bench_parts += box(g, "holz", -0.85, 0.85, -0.22, 0.22, y + 0.42, y + 0.48)              # Sitzfläche
-    bench_parts += box(g, "holz", -0.85, 0.85, 0.20, 0.25, y + 0.55, y + 0.90)               # Rückenlehne (hinten = vom Weg abgewandt)
-    for a in (-0.72, 0.72):
-        bench_parts += box(g, "stahl", a - 0.03, a + 0.03, -0.2, 0.22, y, y + 0.42)           # Füße
-    placed.append(g.poly(-1.2, 1.2, -0.7, 0.7))
-    bc = g.pt(0.0, 0.0)
-    collide_rect(bc.x, bc.y, g.u.x, g.u.y, 0.85, 0.25, 0.9, "bank")
-    bench_count += 1
-bench_objs = mesh_objects("Bank", bench_parts)
-print("DIORAMA Parkbänke:", bench_count)
+if CITY:
+    bench_parts = []
+    bench_count = 0
+    for i in range(14, N, 34):
+        if i in skip_by_side[inside_sign] or not all(straight_i[(i + d) % N] for d in range(-12, 13)):
+            continue
+        off = inside_sign * (HW + SIDE + 1.75)                          # auf dem Parkweg, Blick zur Fahrbahn
+        g = Frame(center[i] + left[i] * off, tang[i], left[i] * -inside_sign)
+        if in_footprints(np.array([tuple(g.pt(0, 0))]), margin=2.0).any():
+            continue
+        y = GROUND_Y + 0.004
+        bench_parts += box(g, "holz", -0.85, 0.85, -0.22, 0.22, y + 0.42, y + 0.48)              # Sitzfläche
+        bench_parts += box(g, "holz", -0.85, 0.85, 0.20, 0.25, y + 0.55, y + 0.90)               # Rückenlehne (hinten = vom Weg abgewandt)
+        for a in (-0.72, 0.72):
+            bench_parts += box(g, "stahl", a - 0.03, a + 0.03, -0.2, 0.22, y, y + 0.42)           # Füße
+        placed.append(g.poly(-1.2, 1.2, -0.7, 0.7))
+        bc = g.pt(0.0, 0.0)
+        collide_rect(bc.x, bc.y, g.u.x, g.u.y, 0.85, 0.25, 0.9, "bank")
+        bench_count += 1
+    bench_objs = mesh_objects("Bank", bench_parts)
+    print("DIORAMA Parkbänke:", bench_count)
 
 # ---------------------------------------------------------------- Parkende Autos entlang der Zufahrten
 car_rng = random.Random(11)
@@ -1272,82 +1644,88 @@ car_objs = mesh_objects("Auto", car_parts_all)
 print("DIORAMA parkende Autos:", len(recipe.get("cars", [])))
 
 # ---------------------------------------------------------------- Park, Brunnen, Bäume
-fountain = next((p for p in data["props"] if p["type"] == "fountain"), None)
-if fountain:
-    fx, fz = fountain["x"], fountain["z"]
-    def ring_object(name, r_out, r_in, y0, y1):
-        """Ring (Beckenrand): Außenwand, Oberseite, Innenwand – mit Zylinder-UV für die Steintextur."""
-        me = bpy.data.meshes.new(name)
-        bm_r = bmesh.new()
-        uv_r = bm_r.loops.layers.uv.new("UVMap")
-        n_r = 48
-        for k in range(n_r):
-            t0, t1 = 2 * math.pi * k / n_r, 2 * math.pi * (k + 1) / n_r
-            spec = ((r_out, y0, r_out, y1, 1.0), (r_out, y1, r_in, y1, 0.0), (r_in, y1, r_in, y0, -1.0))
-            for ra, ya, rb, yb, side in spec:
-                pts = [(fx + ra * math.cos(t0), -(fz + ra * math.sin(t0)), ya), (fx + ra * math.cos(t1), -(fz + ra * math.sin(t1)), ya),
-                       (fx + rb * math.cos(t1), -(fz + rb * math.sin(t1)), yb), (fx + rb * math.cos(t0), -(fz + rb * math.sin(t0)), yb)]
-                f = bm_r.faces.new([bm_r.verts.new(q) for q in pts])
-                want = Vector((0, 0, 1)) if side == 0.0 else Vector((math.cos((t0 + t1) / 2), -math.sin((t0 + t1) / 2), 0)) * side
-                bm_r.normal_update()
-                if f.normal.dot(want) < 0:
-                    f.normal_flip()
-                for loop in f.loops:
-                    v = loop.vert.co
-                    loop[uv_r].uv = (math.atan2(-(v.y + 0), v.x - fx) * r_out / 2.0, (v.z if side != 0.0 else math.hypot(v.x - fx, v.y + fz)) / 2.0)
-        bm_r.to_mesh(me)
-        bm_r.free()
-        o = bpy.data.objects.new(name, me)
-        scene.collection.objects.link(o)
-        me.materials.append(M["stein"])
-        return o
-    rim = ring_object("Brunnen_Rand", 3.4, 2.95, GROUND_Y, GROUND_Y + 0.55)
-    bpy.ops.mesh.primitive_cylinder_add(vertices=48, radius=3.0, depth=0.04, location=(fx, -fz, GROUND_Y + 0.42))
-    water = bpy.context.active_object
-    water.name = "Brunnen_Wasser"
-    water.data.materials.append(M["wasser"])
-    bpy.ops.mesh.primitive_cylinder_add(vertices=24, radius=0.35, depth=1.6, location=(fx, -fz, GROUND_Y + 0.8))
-    col = bpy.context.active_object
-    col.data.materials.append(M["stein"])
-    bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=1.1, depth=0.25, location=(fx, -fz, GROUND_Y + 1.55))
-    bowl = bpy.context.active_object
-    bowl.data.materials.append(M["stein"])
-    for o in (water, col, bowl):
-        # Einfache Zylinderabwicklung (Winkel × Höhe) für die Steintextur.
-        me = o.data
-        uv = me.uv_layers[0] if me.uv_layers else me.uv_layers.new()
-        uv.name = "UVMap"
-        for loop in me.loops:
-            v = me.vertices[loop.vertex_index].co
-            uv.data[loop.index].uv = (math.atan2(v.y, v.x) * 3.4 / 2.0, v.z / 2.0)
-    placed.append(rect_corners(fx, fz, 3.6, 3.6, 0))
-TREES = ["stadt_baum"]
-tree_pool = [t for t in ("stadt_baum_linde", "stadt_baum_ahorn", "stadt_baum_platane", "stadt_baum_kastanie")
-             if __import__("os").path.exists(f"{PROPS}/{t}.glb")] or TREES
-# Straßenbäume auf dem Gehweg (außen), zwischen den Laternen.
-step = int(9.0 / 0.5)
-for i in range(step // 2, N, step):
-    for side in (outer, inside_sign):
-        # Straßenbäume am Außenrand des Gehwegs und klein genug, dass die Krone (Radius ≈ 0,4 × Höhe) nicht über die Fahrbahn ragt
-        p = center[i] + left[i] * side * (FOOT - 0.9)
-        place(rng.choice(tree_pool), p.x, p.y, rng.uniform(0, 6.28), rng.uniform(5.0, 5.8), clearance=HW + KERB_W + 1.2, trunk=0.5)
-# Straßenbäume an den Nebenstraßen (beide Seiten, alle 12 m, am Außenrand des Gehwegs)
-for origin, direction, normal, s0, s1 in arms:
-    b = 8.0
-    while b < s1 + 4.0:
-        for side in (1, -1):
-            p = origin + direction * b + normal * side * (FOOT - 0.9)
-            place(rng.choice(tree_pool), p.x, p.y, rng.uniform(0, 6.28), rng.uniform(5.0, 5.8), trunk=0.5, check_center=False)
-        b += 12.0
-# Parkbäume auf dem Rasen.
-gx = np.arange(x0, x1, 3.0)
-gz = np.arange(z0, z1, 3.0)
-P = np.array([[x + rng.uniform(-1, 1), z + rng.uniform(-1, 1)] for z in gz for x in gx])
-d = dist_to_center(P)
-ins = inside(P)
-for (x, z), dd, ii in zip(P, d, ins):
-    if ii and dd > HW + 7.5 and rng.random() < 0.45:
-        place(rng.choice(tree_pool), x, z, rng.uniform(0, 6.28), rng.uniform(6, 9), clearance=HW + 7.0, trunk=1.2)
+fountain = None
+if CITY:
+    fountain = next((p for p in data["props"] if p["type"] == "fountain"), None)
+    if fountain:
+        fx, fz = fountain["x"], fountain["z"]
+        def ring_object(name, r_out, r_in, y0, y1):
+            """Ring (Beckenrand): Außenwand, Oberseite, Innenwand – mit Zylinder-UV für die Steintextur."""
+            me = bpy.data.meshes.new(name)
+            bm_r = bmesh.new()
+            uv_r = bm_r.loops.layers.uv.new("UVMap")
+            n_r = 48
+            for k in range(n_r):
+                t0, t1 = 2 * math.pi * k / n_r, 2 * math.pi * (k + 1) / n_r
+                spec = ((r_out, y0, r_out, y1, 1.0), (r_out, y1, r_in, y1, 0.0), (r_in, y1, r_in, y0, -1.0))
+                for ra, ya, rb, yb, side in spec:
+                    pts = [(fx + ra * math.cos(t0), -(fz + ra * math.sin(t0)), ya), (fx + ra * math.cos(t1), -(fz + ra * math.sin(t1)), ya),
+                           (fx + rb * math.cos(t1), -(fz + rb * math.sin(t1)), yb), (fx + rb * math.cos(t0), -(fz + rb * math.sin(t0)), yb)]
+                    f = bm_r.faces.new([bm_r.verts.new(q) for q in pts])
+                    want = Vector((0, 0, 1)) if side == 0.0 else Vector((math.cos((t0 + t1) / 2), -math.sin((t0 + t1) / 2), 0)) * side
+                    bm_r.normal_update()
+                    if f.normal.dot(want) < 0:
+                        f.normal_flip()
+                    for loop in f.loops:
+                        v = loop.vert.co
+                        loop[uv_r].uv = (math.atan2(-(v.y + 0), v.x - fx) * r_out / 2.0, (v.z if side != 0.0 else math.hypot(v.x - fx, v.y + fz)) / 2.0)
+            bm_r.to_mesh(me)
+            bm_r.free()
+            o = bpy.data.objects.new(name, me)
+            scene.collection.objects.link(o)
+            me.materials.append(M["stein"])
+            return o
+        rim = ring_object("Brunnen_Rand", 3.4, 2.95, GROUND_Y, GROUND_Y + 0.55)
+        bpy.ops.mesh.primitive_cylinder_add(vertices=48, radius=3.0, depth=0.04, location=(fx, -fz, GROUND_Y + 0.42))
+        water = bpy.context.active_object
+        water.name = "Brunnen_Wasser"
+        water.data.materials.append(M["wasser"])
+        bpy.ops.mesh.primitive_cylinder_add(vertices=24, radius=0.35, depth=1.6, location=(fx, -fz, GROUND_Y + 0.8))
+        col = bpy.context.active_object
+        col.data.materials.append(M["stein"])
+        bpy.ops.mesh.primitive_cylinder_add(vertices=32, radius=1.1, depth=0.25, location=(fx, -fz, GROUND_Y + 1.55))
+        bowl = bpy.context.active_object
+        bowl.data.materials.append(M["stein"])
+        for o in (water, col, bowl):
+            # Einfache Zylinderabwicklung (Winkel × Höhe) für die Steintextur.
+            me = o.data
+            uv = me.uv_layers[0] if me.uv_layers else me.uv_layers.new()
+            uv.name = "UVMap"
+            for loop in me.loops:
+                v = me.vertices[loop.vertex_index].co
+                uv.data[loop.index].uv = (math.atan2(v.y, v.x) * 3.4 / 2.0, v.z / 2.0)
+        placed.append(rect_corners(fx, fz, 3.6, 3.6, 0))
+    TREES = ["stadt_baum"]
+    tree_pool = [t for t in ("stadt_baum_linde", "stadt_baum_ahorn", "stadt_baum_platane", "stadt_baum_kastanie")
+                 if __import__("os").path.exists(f"{PROPS}/{t}.glb")] or TREES
+    # Straßenbäume auf dem Gehweg (außen), zwischen den Laternen.
+    step = int(9.0 / 0.5)
+    for i in range(step // 2, N, step):
+        for side in (outer, inside_sign):
+            # Straßenbäume am Außenrand des Gehwegs und klein genug, dass die Krone (Radius ≈ 0,4 × Höhe) nicht über die Fahrbahn ragt
+            p = center[i] + left[i] * side * (FOOT - 0.9)
+            place(rng.choice(tree_pool), p.x, p.y, rng.uniform(0, 6.28), rng.uniform(5.0, 5.8), clearance=HW + KERB_W + 1.2, trunk=0.5)
+    # Straßenbäume an den Nebenstraßen (beide Seiten, alle 12 m, am Außenrand des Gehwegs)
+    for origin, direction, normal, s0, s1 in arms:
+        b = 8.0
+        while b < s1 + 4.0:
+            for side in (1, -1):
+                p = origin + direction * b + normal * side * (FOOT - 0.9)
+                place(rng.choice(tree_pool), p.x, p.y, rng.uniform(0, 6.28), rng.uniform(5.0, 5.8), trunk=0.5, check_center=False)
+            b += 12.0
+    # Parkbäume auf dem Rasen.
+    gx = np.arange(x0, x1, 3.0)
+    gz = np.arange(z0, z1, 3.0)
+    P = np.array([[x + rng.uniform(-1, 1), z + rng.uniform(-1, 1)] for z in gz for x in gx])
+    d = dist_to_center(P)
+    ins = inside(P)
+    for (x, z), dd, ii in zip(P, d, ins):
+        if ii and dd > HW + 7.5 and rng.random() < 0.45:
+            place(rng.choice(tree_pool), x, z, rng.uniform(0, 6.28), rng.uniform(6, 9), clearance=HW + 7.0, trunk=1.2)
+
+
+# ---------------------------------------------------------------- Szenerie des Themas (Hook 3)
+theme_scenery()
 
 # ---------------------------------------------------------------- Haus-Objekte (ein Objekt je Oberfläche und Nähe-Gruppe)
 house_objs = mesh_objects("Haus_nah", kit_near) + mesh_objects("Haus_fern", kit_far)
@@ -1361,7 +1739,9 @@ ao = bpy.data.images.new("Diorama_AO", SIZE, SIZE, alpha=False)
 decal_objs = [o for o in objs_ground if o.name.endswith("_linie")]
 solid_objs = [o for o in objs_ground if o.name.endswith(("_rot", "_weiss", "_beton", "_orange", "_gummi", "_dunkel", "_blau", "_gelb", "_stahl"))]
 bake_objs = [o for o in objs_ground if o not in decal_objs and o not in solid_objs] +             [o for o in scene.objects if o.name.startswith("Brunnen_Rand")]
-EDGE_OUT, EDGE_IN = FOOT, HW + 5.8      # Außenkanten der glatten Bänder
+# Außenkanten der glatten Bänder (Kacheln "Boden_*" darunter backen nicht mit); Laufzeit-Fahrbahn: unmittelbar am Fahrbahnrand
+EDGE_OUT = CFG["edge_out"] if CFG["edge_out"] is not None else (HW + 1.0 if ROAD_MODE == "runtime" else FOOT)
+EDGE_IN = CFG["edge_in"] if CFG["edge_in"] is not None else (HW + 1.0 if ROAD_MODE == "runtime" else HW + 5.8)
 for o in bake_objs + decal_objs:
     me = o.data
     lu = me.uv_layers.new(name="Licht")
@@ -1405,12 +1785,22 @@ scene.world.light_settings.distance = 6.0
 bpy.ops.object.select_all(action="DESELECT")
 for o in bake_objs:
     o.select_set(True)
-for o in decal_objs + event_decals:
+_hidden_prefix = tuple(theme_bake_hidden() or ())                 # Hook 4: z. B. das Meer
+bake_hidden = decal_objs + event_decals + ([o for o in scene.objects if o.name.startswith(_hidden_prefix)] if _hidden_prefix else [])
+for o in bake_hidden:
     o.hide_render = True
-bpy.context.view_layer.objects.active = bake_objs[0]
-bpy.ops.object.bake(type="AO", margin=8)
-for o in decal_objs + event_decals:
+if bake_objs:
+    bpy.context.view_layer.objects.active = bake_objs[0]
+    bpy.ops.object.bake(type="AO", margin=8)
+else:
+    print("DIORAMA nichts zu backen (kein Boden): Lichttextur bleibt weiß")
+for o in bake_hidden:
     o.hide_render = False
+for o in ao_proxy_objs:                                           # Stellvertreter haben ihren Schatten geworfen und gehören nicht ins Bild
+    mesh_ = o.data
+    bpy.data.objects.remove(o, do_unlink=True)
+    bpy.data.meshes.remove(mesh_)
+ao_proxy_objs.clear()
 # Ungebackene Lücken (reines Schwarz) hell füllen, dann kompakt als Graustufen-JPG speichern.
 px = np.array(ao.pixels[:], dtype=np.float32).reshape(SIZE, SIZE, 4)
 px[px[..., 0] < 0.02, :3] = 1.0
@@ -1437,12 +1827,52 @@ for fr, a0, a1, b0, b1 in asphalt_rects:
 if fountain:
     collide_circle(fountain["x"], fountain["z"], 3.4, 0.6, "mauer")
 print("DIORAMA Hindernisse:", len(colliders))
-json.dump({"blocked": blocked, "extent": [x0, z0, x1, z1], "occluders": light_blockers, "obstacles": colliders,
-           "lamps": [{"x": round(a.x, 3), "z": round(a.y, 3), "toward": [round(t.x, 3), round(t.y, 3)]} for a, t in lamps]},
-          open(OUT_GLB.replace(".glb", "_layout.json"), "w"))
-recipe["lamps"] = [{"at": [round(a.x, 3), round(a.y, 3)], "toward": [round(t.x, 3), round(t.y, 3)]} for a, t in lamps]
+layout = {"blocked": blocked, "extent": [x0, z0, x1, z1], "occluders": light_blockers, "obstacles": colliders,
+          "baked": list(CFG["baked"]), "water_y": None,
+          "lamps": [lamp_entry(entry) for entry in lamps]}
+# Optionale Schlüssel nur, wenn gesetzt (ohne sie gelten im Spiel die bisherigen Vorgaben): siehe docs/dioramen/README.md
+if ROAD_MODE == "runtime":
+    layout["runtime_road"] = True                                 # das Spiel baut Fahrbahn, Randsteine, Rampen, Schleifen, Abkürzungen selbst
+if CFG["runtime_terrain"]:
+    layout["runtime_terrain"] = True                              # das Spiel baut das Geländerelief der Strecke (track.terrain) selbst
+for _key in ("ground_set", "ground_tints", "ground_scales", "tints", "water", "water_nodes"):
+    if CFG.get(_key):
+        layout[_key] = CFG[_key]
+if extra_lights:
+    layout["lights"] = extra_lights                               # Punktlichter (add_light)
+if occluder_polys:
+    layout["occluder_polys"] = occluder_polys                     # Lichtblocker als Polygone (add_occluder_poly / add_occluder_chain)
+if prop_y_list:
+    layout["prop_y"] = prop_y_list                                # Bodenhöhe an Standorten von Laufzeit-Bauteilen (set_prop_y)
+theme_layout(layout)                                              # Hook 5
+
+
+def check_layout_extras(lay):
+    """Warnungen (Zeilen "DIORAMA Warnung") zu den optionalen Schlüsseln: Punktlichter außerhalb der Fläche, Bodenhöhen ohne Baustein."""
+    ex = lay["extent"]
+    for e in lay.get("lights", []):
+        if not (ex[0] <= e["x"] <= ex[2] and ex[1] <= e["z"] <= ex[3]):
+            print("DIORAMA Warnung: Punktlicht außerhalb der Fläche (kein Licht dort):", e["x"], e["z"])
+        if e["range"] <= 0 or e["energy"] < 0:
+            print("DIORAMA Warnung: Punktlicht mit Reichweite <= 0 oder negativer Stärke:", e["x"], e["z"])
+    known = [(float(p.get("x", 0.0)), float(p.get("z", 0.0))) for p in data["props"]] + [(l["x"], l["z"]) for l in lay.get("lamps", [])]
+    stray = [e for e in lay.get("prop_y", []) if not any(abs(e[0] - kx) < 0.05 and abs(e[1] - kz) < 0.05 for kx, kz in known)]
+    if stray:
+        print("DIORAMA Warnung: %d Bodenhöhen (prop_y) ohne Baustein/Laterne an diesem Ort, z. B. %s" % (len(stray), stray[0]))
+    print("DIORAMA Lichter:", len(lay.get("lights", [])), "| Lichtblocker (Polygone):", len(lay.get("occluder_polys", [])),
+          "| Bodenhöhen:", len(lay.get("prop_y", [])), "| unsichtbare Hindernisse:", sum(1 for o in lay["obstacles"] if o.get("v") is False))
+
+
+check_layout_extras(layout)
+with open(OUT_GLB.replace(".glb", "_layout.json"), "w") as _fh:
+    json.dump(layout, _fh)
+recipe["lamps"] = [{"at": [round(e[0].x, 3), round(e[0].y, 3)], "toward": [round(e[1].x, 3), round(e[1].y, 3)]} for e in lamps]
 recipe["track"] = os.path.basename(TRACK)
-json.dump(recipe, open(OUT_GLB.replace(".glb", "_recipe.json"), "w"), indent=0)
+with open(OUT_GLB.replace(".glb", "_recipe.json"), "w") as _fh:
+    json.dump(recipe, _fh, indent=0)
 print("DIORAMA Boden", sum(len(o.data.polygons) for o in objs_ground), "Flächen, Modelle", len(placed), "Zufahrten", len(arms))
-bpy.ops.export_scene.gltf(filepath=OUT_GLB, export_format="GLB", export_yup=True, export_image_format="JPEG",
+for _o in scene.objects:                                          # Vertexfarben aller Netze für den Export aktivieren (auch Netze der Themen)
+    if _o.type == "MESH":
+        activate_vertex_colors(_o.data)
+bpy.ops.export_scene.gltf(filepath=OUT_GLB, export_format="GLB", export_yup=True, export_image_format="JPEG", export_vertex_color=CFG["vertex_colors"],
                           export_jpeg_quality=88, export_apply=True)

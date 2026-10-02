@@ -2,11 +2,11 @@
 
 Ein Rennspiel für Android, bei dem du nicht lenkst, sondern planst: Du zeichnest mit dem Finger zwei Runden Ideallinie – **wie schnell** du zeichnest, ist das Tempo, das dein Auto fahren will. Dann startet das Rennen, und die Fahrphysik zeigt, ob deine Linie hält: Bremsweg, Haftungsgrenze, Rutschen und Dreher entstehen aus der Bewegung des Autos, nicht aus einer Animation.
 
-**Version 0.1.0** · Godot 4.6.1 · offline spielbar · nicht-kommerzielles Hobbyprojekt
+**Version 0.2.27** · Godot 4.6.1 · offline spielbar · nicht-kommerzielles Hobbyprojekt
 
 ## Spielen
 
-1. Unter [Releases](../../releases) die Datei `Draw2Race.apk` herunterladen.
+1. Unter [Releases](../../releases) die Datei `Draw2Race-<Version>.apk` herunterladen (spätere Updates bietet das Spiel selbst an).
 2. Auf dem Android-Handy öffnen und die Installation erlauben (Installation aus unbekannten Quellen).
 3. „Linie zeichnen“, am leuchtenden Startpunkt ansetzen und **zwei Runden in Pfeilrichtung** zeichnen.
 
@@ -21,8 +21,10 @@ Ein Rennspiel für Android, bei dem du nicht lenkst, sondern planst: Du zeichnes
 
 ## Inhalt
 
-- **Drei Strecken:** Azure Coast (Küstenoval), Downtown L (Stadt, L-Form), Forest Eight (Schotter-Acht mit Kreuzung ohne Ampel).
-- **Karriere:** je Strecke drei Gold-Herausforderungen mit bis zu drei Rivalen; Gold schaltet Strecken und fünf Autos mit eigenen Fahrwerten frei.
+- **Neun Strecken**, jede als gebackenes Diorama mit eigener Kulisse: Azure Coast (Küstenstadion), Downtown L (Stadt), Forest Eight (Schotter-Acht im Wald), Harbour Run (Containerhafen mit Sprung und Abkürzung), Fun Fair Eight (Jahrmarkt), Quarry Loop (Steinbruch mit Looping), Serra Pass (Bergsprint an der Steilküste), Drift Arena (Drift-Modus auf Punkte) und Toy Box Speedway (Kinderzimmer).
+- **2,5D-Fahrphysik:** Schanzen, Brückenkreuzungen, Loopings, Höhenprofil und Leitplanken entstehen aus der Bewegung des Autos; Deko wie Häuser, Mauern und Bäume hat einen Körper – wer hineinzeichnet, kracht.
+- **Karriere:** je Strecke drei Gold-Herausforderungen mit bis zu drei Rivalen; Gold schaltet Strecken und acht Autos mit eigenen Fahrwerten frei.
+- **Motoren:** jedes Auto klingt wie sein Motor (Dreizylinder bis V12, Big-Block-V8), aufgenommen mit einer physikalischen Motorsimulation, mit Begrenzer, Fehlzündungen und Turbo.
 - **Tageszeit, Wetter, Nebel:** fest je Herausforderung, von Tag bis Nacht mit Regen, Schnee und Nebelschwaden. Nässe und Schnee senken die Haftung.
 - **Bestenliste:** die zehn schnellsten Fahrten je Strecke und Herausforderung.
 - **Musik:** durchgehende Zufalls-Playlist in zwei Stilen („energiegeladen“ mit Gesang, „ruhig“ instrumental), eigene Stücke für Sieg und Niederlage.
@@ -45,6 +47,7 @@ Android benötigt zusätzlich JDK 17 und das Android SDK. Strecken sind Daten (`
 - [Umsetzungsplan](docs/UMSETZUNGSPLAN.md)
 - [Referenzanalyse](docs/REFERENZANALYSE.md) und [Klang-Steckbriefe](docs/KLANG_STECKBRIEFE.md)
 - [Grafikbesprechung mit ChatGPT (30.09.2026)](docs/BESPRECHUNG_GRAFIK.md)
+- [Dioramen-Pipeline und Strecken](docs/dioramen/README.md)
 
 ## Herkunft und Lizenzen
 
@@ -53,4 +56,6 @@ Draw2Race steht unter **[CC BY-NC 4.0](LICENSE)**: Teilen und Verändern mit Nam
 - **Musik:** eigene Stücke, lokal mit dem KI-Musikmodell **YuE2** erzeugt. Das Modell steht unter einer nicht-kommerziellen Lizenz (CC BY-NC 4.0); die Musik darf daher ebenfalls nur nicht-kommerziell genutzt werden.
 - **Engine:** [Godot Engine](https://godotengine.org) (MIT), Lizenztexte in `game/assets/Godot-LICENSE.txt` und `Godot-COPYRIGHT.txt`.
 - **Schrift:** Outfit (SIL Open Font License 1.1), `game/assets/OFL.txt`.
+- **Motorgeräusche:** aufgenommen mit [engine-sim](https://github.com/ange-yaghi/engine-sim) von Ange Yaghi (MIT); abgeleitete Motorbeschreibungen und Lizenztext in `tools/engine_sim/`.
+- **Texturen:** Böden und Beläge teils von [ambientCG](https://ambientcg.com) (CC0), sonst prozedural erzeugt; Herkunft jeweils in `HERKUNFT.md` neben den Dateien.
 - **Inspiration:** Das Spielprinzip ist von *DrawRace 2* (RedLynx) inspiriert. Grafik, Strecken, Fahrzeuge, Musik und Geräusche sind eigene Arbeiten; aus dem Original wurde nichts übernommen.

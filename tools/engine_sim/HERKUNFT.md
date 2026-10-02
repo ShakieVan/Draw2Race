@@ -11,3 +11,5 @@ Beispielmotoren von engine-sim (siehe `CARS` im Werkzeug).
 | `grip_i3.mr` | `engines/atg-video-1/05_honda_vtec.mr` | Dreizylinder: Hubzapfen 0/240/120°, Zündabstand 240°, Bohrung 74 / Hub 82 mm, ein Auspuff, Begrenzer 6800 |
 
 Die Klänge selbst entstehen durch Simulation (kein Fremdklangmaterial); engine-sim steht unter MIT-Lizenz.
+
+Lizenztext von engine-sim (MIT, Copyright 2022 Ange Yaghi): `LICENSE-engine-sim.txt` in diesem Ordner. Er gilt für die drei abgeleiteten `.mr`-Dateien.

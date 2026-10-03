@@ -244,6 +244,11 @@ func sample(p: Vector2, time: float) -> bool:
 	var start_speed := speed_f
 	var limit := DRAW_LIMIT + track.hw(ph) - Circuit.HALF_WIDTH - EDGE_MARGIN
 	offset_f = clampf(lerpf(offset_f, lateral(p, ph), 1.0 - exp(-distance / OFFSET_SMOOTH)), -limit, limit)
+	if not on_shortcut.is_empty():
+		# Auf einem Lineal (Wippe) rastet die Linie mittig ein: Seitenversatz höchstens ±rail.
+		for w in track.rest_seesaws():
+			if w.shortcut == int(on_shortcut.index) and w.inside(p, 1.0):
+				offset_f = clampf(offset_f, -w.rail, w.rail)
 	speed_f = lerpf(speed_f, speed, 1.0 - exp(-distance / SPEED_SMOOTH))
 	progress = minf(candidate, cap)
 	raw.append({"x": p.x, "z": p.y, "time": time, "active_dt": elapsed})

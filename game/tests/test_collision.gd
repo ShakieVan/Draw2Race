@@ -97,6 +97,21 @@ func _init() -> void:
 	var v5 := run(t5, 10.0, 2.0)
 	check(v5.velocity.length() < v1.velocity.length() + 2.0, "Absperrung federt weicher ab")
 
+	# Anliegen statt Aufprall (seit 03.10.2026): Absperrung längs der Fahrbahn ragt 0,25 m in die Linie, das Auto drückt mit Vollgas
+	# dagegen. Es schrammt entlang (Reibung ∝ Normalstoß) statt festzukleben und zum Wrack zu werden.
+	for kind in ["absperrung", "mauer"]:
+		var t7 := Circuit.load_track("azure")
+		t7.obstacles.clear()
+		t7.obstacle_grid.clear()
+		var sm := 25.0 / t7.length
+		t7.add_rect(t7.at(sm, 1.0), t7.tangent(sm), Vector2(18.0, 0.3), 1.0, kind)
+		for k in range(-6, 7):
+			var q := t7.at(sm + k * 3.0 / t7.length, 1.0)
+			t7.obstacle_grid[Vector2i(floori(q.x / Circuit.OBSTACLE_CELL), floori(q.y / Circuit.OBSTACLE_CELL))] = [0]
+		var v7 := run(t7, 14.0, 3.0)
+		check(not v7.wrecked and v7.progress * t7.length > 28.0 and v7.velocity.length() > 8.0,
+			"Längs an der %s: schrammt entlang (%.1f m, %.1f m/s, Wrack %s)" % [kind, v7.progress * t7.length, v7.velocity.length(), v7.wrecked])
+
 	# Reproduzierbar: zweimal dieselbe Fahrt ergibt dieselbe Lage.
 	var t6 := Circuit.load_track("azure")
 	wall_ahead(t6, 20.0, 0.0, 0.5)

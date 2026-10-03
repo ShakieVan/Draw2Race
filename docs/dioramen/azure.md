@@ -102,3 +102,8 @@ Die Entwicklungsdatei `tools/dio_themes/_azure_dev.py` ist gelöscht. Der Sand d
 - Die Hügel beginnen jenseits der Fläche des Dioramas (Ausdehnung ±77 / ±63): Häuser stehen am Rand der Fläche und darüber hinaus (Ferne ohne gebackenen Kontaktschatten).
 - Laternen am Rand der Parkplätze werfen limettengrünes Licht auf den Rasen hinter dem Asphalt (Lichtfarbe der Laternen des Spiels, nicht änderbar vom Thema).
 - Ferner Rand des Meeres und der Horizont-Ebene bei x ≈ ±177 (Küstenstreifen endet dort): außerhalb jeder Spielkamera.
+
+## Nachtrag 03.10.2026 (Höhen-Paket, C3)
+
+- Die Küste hat eine **gebackene** Fahrbahn und deshalb **keine** Spurenkarte (HOEHEN_PLAN 8, verschoben: Spuren auf gebackenen Fahrbahnen brauchen eigene UV-Wege). Der
+  Fahrbahn-Shader rechnet ohne Karte exakt wie vorher (`wear_strength` 0); Kontrollbild Tag (`dio_shot.gd`, Tag `_c3chk`, `AT` 0,3) ohne Auffälligkeiten. Kein Neubau.

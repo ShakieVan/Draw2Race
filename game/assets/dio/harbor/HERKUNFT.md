@@ -13,3 +13,4 @@ Zusätzlich verwendet das Thema die Spielmaterialien `assets/event/{banner,porta
 CC0-Texturen Concrete034 (Kaimauer, Betonbauteile) aus `art/texturen`.
 
 Lizenz der erzeugten Bilder: wie das Projekt; sie enthalten kein fremdes Material außer den oben genannten CC0-Körnungen.
+- `src/riffelblech.png`, `src/riffelblech_n.png` (03.10.2026): Tränenblech für das Stahldeck der Containerterrasse, prozedural (`tools/make_harbor_textures.py riffel`), keine fremden Quellen.

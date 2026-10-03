@@ -1,6 +1,6 @@
 # Diorama Toy Box Speedway (`kids`)
 
-Stand 02.10.2026 (Politur nach der ersten Fassung, am Abend die Sandfläche an der langsamen Stelle). Modul: `tools/dio_themes/kids.py` (gemeinsame Geometrie: `tools/make_fair_kids_geom.py`), Texturen:
+Stand 03.10.2026 (Lineal-Wippe als Abkürzung, Bauplan `docs/dioramen/HOEHEN_PLAN.md` 4.4/7; davor 02.10.2026 Politur und Sandfläche). Modul: `tools/dio_themes/kids.py` (gemeinsame Geometrie: `tools/make_fair_kids_geom.py`), Texturen:
 `tools/make_kids_textures.py` → `game/assets/dio/kids/` (Herkunft dort in `HERKUNFT.md`, alles prozedural). Bauen: `tools\dio_build.ps1 -Track kids -Shots -Times day,dusk,night -Tag _x`.
 
 ## Maßstab
@@ -9,7 +9,34 @@ Spielzeugauto etwa 1 : 50: Ein Duplo-Stein ist 3,2 x 1,6 x 1 m, ein Buntstift 8 
 folgen dem (grob 1 m = 1,8 cm): Würfel 1,1 m, Spielkarte 3,6 x 5 m, Badeente 3 m, Bagger 8 m, Hausschuhe 11 m, Brettspiel 14 m, Puppenhaus 18 m.
 Das Titel- und Fußband des Spiels deckt in der Übersicht etwa z < -42 und z > 40 ab (rund 12 m oben und unten); Wichtiges, das im Bild sein soll, steht dazwischen.
 
-## Was gebaut ist
+## Lineal-Wippe (03.10.2026, Streckenfassung `rev` 2)
+
+Die Abkürzung (`shortcuts[0]`, 73,9 m, s 0,598 bis 0,852) führt über ein 24 m langes Lineal, das auf einem Filzstift kippt (`seesaws[0]`: Drehpunkt bei
+Pfadmeter 28 = (8,2 | -32,74), `pivot_h` 1,1, Dicke 0,3). Das Lineal ist ein **Laufzeit-Bauteil**: `world.gd` (`build_seesaw_nodes`) setzt einen Knoten an den
+Drehpunkt, lädt `game/assets/props/kinder_lineal.glb` und kippt ihn mit dem Simulationszustand. Das Diorama liefert alles darum herum:
+
+- **Lineal-Modell** `tools/make_kids_ruler.py` (Blender: `powershell -File tools/blender.ps1 tools/make_kids_ruler.py`) → `kinder_lineal.glb`, normiert wie
+  im Bauplan A5 (1 m längs +x = Ausfahrt, Oberseite y 0, Breite 1 m; das Spiel skaliert auf 24 x 0,3 x 4 m), gebaut in den Maßen der Streckendatei:
+  Buche, Oberseite mit Zentimeterskala 0 bis 60 (Millimeterstriche an der Südkante, Zentimeter an der Nordkante), Ziffern von oben lesbar (in der Übersicht
+  liegt 0 im Westen = Ausfahrtsende), Aufdruck „TOY BOX · 60 cm“; rote Endkappen (2,5 cm über dem Deck), rot-weiß schraffierte Stirn am Einfahrtsende (sie
+  wird für Nachfolger zur Kante), Fase 0,14 m an der Unterseite beider Enden (das tiefe Ende liegt in Ruhelage plan), rote Knetkugel als Gegengewicht an der
+  Südkante des Einfahrtsendes. Seidenmatter Lack (Rauigkeit 0,78, wenig Glanz). 296 Dreiecke. Texturen `lineal_wippe_oben.jpg` (3072 x 512) und
+  `lineal_wippe_teile.png` aus `make_kids_textures.py lineal_wippe`.
+- **Filzstift** (`build_pen`, gebacken mit Umgebungsverdeckung): grün, 7 m lang quer unter dem Drehpunkt, Durchmesser 0,89 m (seit 03.10.2026, vorher 0,72 m),
+  damit er auf dem Parkett liegt (0,08) und seine Oberkante (0,97) genau die Unterseite des Lineals am Drehpunkt trägt (das Lineal liegt wie jede Fahrbahn
+  0,17 m über der Simulationshöhe, `K_SEESAW_LIFT` = `world.gd SEESAW_LIFT`; die Collider der Stiftenden sind 0,9 m breit); Schaft mit Etikett, Griffzone, weißer Konus,
+  Filzspitze (Norden), aufgesteckte Kappe mit Clip (Süden). Die Hindernisse sind die zwei Collider der Streckendatei an den Stiftenden.
+- **Straßen-Spielteppich** (`build_road_mat`, Bodenauflage mit AO): graue Filzbahn 4,9 m breit unter der ganzen Abkürzung (die dunkle Laufzeit-Fahrbahn,
+  4 m, liegt mittig darauf), weiße Randlinien knapp außerhalb der Fahrbahn (nicht unter dem Lineal), helle Steppnaht am Rand. So liest sich die Abkürzung
+  als Spielzeugstraße und nicht als Asphaltband im Kinderzimmer.
+- **Abrieb**: aufgeraute hellere Filzflecken neben den Linealenden und feine helle Kratzer im Parkett dahinter (das Lineal ist so breit wie die Fahrbahn,
+  unter seinen Enden liegt die Laufzeit-Fahrbahn).
+- **Korridor**: kein Spielzeug näher als 3,5 m an der Pfadmitte (`reserve_shortcut`, Rechtecke je Pfadstück); die Ruhelage des Lineals wirft beim Backen
+  einen Kontaktschatten (`ruler_ao`, schräge Platte als AO-Stellvertreter).
+- Prüfung: `test_diorama` kids besteht (0 Verstöße im Fahrschlauch der Abkürzung; die beiden Stift-Collider meldet der Test als `WARN`, sie gehören zur
+  Streckendatei), `test_field` kids alle Stufen mit und ohne Spieler auf dem Lineal.
+
+## Was gebaut ist (Stand 02.10.2026, weiter gültig)
 
 - **Straße `runtime`** (orange Spielzeugbahn, Rampe, Lücke, Looping baut das Spiel), Boden auf 0,08.
 - **Parkett**: einzelne Dielen (3 m x 24 m) aus einem Atlas mit acht Holztönen, je Diele zufällig gespiegelt, versetzte Stöße je Spalte (`floor_rect`).
@@ -64,6 +91,12 @@ Das Titel- und Fußband des Spiels deckt in der Übersicht etwa z < -42 und z > 
 - Kern-Eigenheit Vertexfarbe: `fix_vertex_colors` in `theme_layout` ist seit dem Kern-Update überflüssig, bleibt aber verträglich.
 
 ## Offene Punkte
+
+- ~~Lineal sitzt 0,17 m zu tief~~ behoben am 03.10.2026: `world.gd` setzt den Wippenknoten auf `pivot_h` + Gelände + `SEESAW_LIFT` (0,17), Autos stehen
+  wie auf jeder Fahrbahn 3 cm über der Oberseite; der Laufzeitstreifen der Abkürzung spart die Grundfläche des Lineals aus, das tiefe Einfahrtsende mit
+  rot-weißer Kante liegt in Ruhelage sichtbar auf Fahrbahnhöhe. Stift und Kontaktschatten (`ruler_ao`) folgen der Anhebung.
+- Die Wippe liegt in der Rennkamera am oberen Bildrand knapp unter der HUD-Leiste, das Kippen sieht man nur schräg (Kameraführung, nicht geändert).
+- Eine Ampel am Wippenabzweig (`kinder_ampel.glb`, P3) ist nicht gebaut.
 
 - Das Lampenlicht der Lichtkarte wirkt auf senkrechten Flächen nur bis etwa 9 m Höhe (`lit_overlay.gdshader`: `reach = 1 - smoothstep(3, 9, height)`, auf die Stadt
   zugeschnitten). Im Kinderzimmer sind Möbel höher (Regal 14 m, Bett 11,6 m, Puppenhaus 10,5 m): Ihre Oberseiten und oberen Wandteile bleiben nachts dunkel. Siehe

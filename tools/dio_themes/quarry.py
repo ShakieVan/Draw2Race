@@ -33,6 +33,11 @@ Q_DF = 10.0                                    # Breite der ebenen Sohle neben d
 Q_BENCHES, Q_U0, Q_PERIOD, Q_RISE, Q_SLOPE = 4, 1.5, 10.5, 2.8, 2.0
 Q_LAKE = {"x": -42.0, "z": -5.0, "w": 18.0, "d": 11.0}
 Q_WATER_DEPTH = 1.5
+Q_LAKE_SLOPE = 4.5                              # Länge der Uferböschung (m)
+if data.get("rev", 1) >= 2:
+    Q_LAKE = {"x": 9.0, "z": -9.5, "w": 7.5, "d": 4.2}      # Pumpensumpf östlich des Sohlenwegs (Wasserhaltung der Grube)
+    Q_WATER_DEPTH = 1.1
+    Q_LAKE_SLOPE = 1.1
 Q_AI = [p for p in data["props"] if p["type"] == "ai"]
 Q_PLAN = {}
 Q_PIT = {}                                      # Graben in der Lücke der Fahrbahn (Lage und Raster), von q_pit_plan() gefüllt
@@ -417,10 +422,233 @@ def q_seg_dist(P, a, b):
     return np.sqrt(((P - (np.array(a) + t[:, None] * ab)) ** 2).sum(1))
 
 
+# ---------------------------------------------------------------- Höhenniveaus (Fassung 2, Bruchkante Ost; docs/dioramen/HOEHEN_PLAN.md 4.1, 7 C1)
+# Maßgeblich ist das Geländeraster der Streckendatei ("terrain", wie Circuit.terrain_height): obere Sohle 5,6 m, Dämme der Fahr- und der
+# Landerampe, Sohlenweg-Korridor 0. Das Diorama schärft es nur dort, wo die Spielebene ohnehin eine Wand hat: an den unsichtbaren
+# Bruchwand-Hindernissen ("collider", mauer, b 0) wird der 2-m-Übergang des Rasters zu einer senkrechten Wand an der Hinderniskante; die
+# Dämme bekommen außerhalb ihres ebenen Kamms (Halbbreite + 2,5 m) eine Haufwerkböschung 1 : 1,3; außen an der Fahrrampe (Felswand-
+# Hindernisse, h >= 10) bleibt der Boden auf Fahrbahnhöhe und die Felswand Ost steigt 6,5 m neben der Mittellinie an. Innerhalb von
+# Halbbreite + 0,8 m einer tieferen Fahrbahn bleibt der Boden auf deren Höhe (Sohlenweg unter dem Sprung).
+Q_TER = data.get("terrain", {})
+Q_TER_H = np.array(Q_TER["heights"], float).reshape(int(Q_TER["h"]), int(Q_TER["w"])) if Q_TER else None
+Q_TG = None                                     # Tangenten der Mittellinie (numpy), in q_levels_plan() gefüllt (der Kern rechnet sie erst nach dem Laden des Moduls)
+Q_BASE_TAB = None                               # Höhenprofil je Mittellinienpunkt
+Q_FACES = []                                    # Bruchwände: dict(o, a, n, lo, hi, a0, a1, h_lo, h_hi, axis)
+Q_HULL = []                                     # konvexe Hülle der Mittellinie (Grubensohle innerhalb)
+Q_DAMS = []                                     # (s0, s1, Seiten): Dammabschnitte mit Haufwerkböschung (+1 links, -1 rechts)
+Q_EAST = []                                     # (s0, s1, Seite): Außenseite der Fahrrampe mit Felswand Ost
+
+
+def q_terrain(P):
+    """Geländeraster der Streckendatei für viele Punkte (bilinear, am Rand fortgesetzt wie Circuit.terrain_height)."""
+    if Q_TER_H is None:
+        return np.zeros(len(P))
+    cell = float(Q_TER["cell"])
+    w, h = Q_TER_H.shape[1], Q_TER_H.shape[0]
+    fx = (P[:, 0] - float(Q_TER["origin"][0])) / cell
+    fz = (P[:, 1] - float(Q_TER["origin"][1])) / cell
+    ix = np.clip(np.floor(fx).astype(int), 0, w - 2)
+    iz = np.clip(np.floor(fz).astype(int), 0, h - 2)
+    tx = np.clip(fx - ix, 0.0, 1.0)
+    tz = np.clip(fz - iz, 0.0, 1.0)
+    a = Q_TER_H[iz, ix] + (Q_TER_H[iz, ix + 1] - Q_TER_H[iz, ix]) * tx
+    b = Q_TER_H[iz + 1, ix] + (Q_TER_H[iz + 1, ix + 1] - Q_TER_H[iz + 1, ix]) * tx
+    return a + (b - a) * tz
+
+
+def q_track_s(P):
+    """Nächster Mittellinienpunkt je Punkt: Streckenanteil s (genau, mit Längsversatz), Seitenabstand (links positiv), Längsversatz."""
+    idx, lat = q_nearest_center(P)
+    along = ((P - C[idx]) * Q_TG[idx]).sum(1)
+    s = (S_OF[idx] + along / TOTAL) % 1.0
+    return s, lat, along
+
+
+def q_base_at(s):
+    """Höhenprofil (ohne Schanze) für viele s, aus der Tabelle des Kerns (base_height je 0,5 m) interpoliert."""
+    f = (np.asarray(s) % 1.0) * N
+    i0 = np.floor(f).astype(int) % N
+    t = f - np.floor(f)
+    return Q_BASE_TAB[i0] * (1 - t) + Q_BASE_TAB[(i0 + 1) % N] * t
+
+
+def q_in_window(s, s0, s1, fade=0.006):
+    """Weiches Fenster 0..1 über s (zyklisch), Rand fade."""
+    d0 = (np.asarray(s) - s0) % 1.0
+    span = (s1 - s0) % 1.0
+    inside_ = d0 <= span
+    e = np.minimum(d0, span - d0)
+    return np.where(inside_, np.clip(e / fade, 0.0, 1.0), 0.0)
+
+
+def q_levels_plan():
+    """Bruchwände, Dämme, Felswand Ost und Hülle aus der Streckendatei ableiten (vor dem Boden)."""
+    global Q_TG, Q_BASE_TAB
+    Q_TG = np.array([[t.x, t.y] for t in tang])
+    Q_BASE_TAB = np.array([base_height(float(S_OF[i])) for i in range(N)])
+    Q_FACES.clear()
+    Q_DAMS.clear()
+    Q_EAST.clear()
+    Q_HULL.clear()
+    pts = [tuple(p) for p in C]
+    pts = sorted(set(pts))
+    lower, upper = [], []
+    cross = lambda o, a, b: (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    for p in pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    for p in reversed(pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    Q_HULL.extend(lower[:-1] + upper[:-1])
+    if Q_TER_H is None:
+        return
+    for p in data["props"]:
+        if p.get("type") != "collider" or p.get("kind") != "mauer" or bool(p.get("visible", True)):
+            continue
+        h = float(p.get("h", 0.0))
+        rot = math.radians(float(p.get("rot", 0.0)))
+        ux, uz = math.cos(rot), math.sin(rot)
+        w_, d_ = float(p["w"]), float(p["d"])
+        if h >= 10.0:                                          # Felswand Ost (außen an der Fahrrampe)
+            s_, lat_, _ = q_track_s(np.array([(p["x"], p["z"])], float))
+            Q_EAST.append((float(s_[0]), 1.0 if lat_[0] > 0 else -1.0))
+            continue
+        if float(p.get("b", 0.0)) > 0.05:
+            continue
+        # Längsachse = längere Seite; Normale zeigt zur tieferen Seite (Geländeraster 2,3 m beidseits der Achse)
+        if w_ >= d_:
+            a = np.array([ux, uz]); half_a, half_n = w_ / 2, d_ / 2
+        else:
+            a = np.array([-uz, ux]); half_a, half_n = d_ / 2, w_ / 2
+        n = np.array([-a[1], a[0]])
+        o = np.array([p["x"], p["z"]], float)
+        tp = q_terrain(np.array([o + n * 2.3, o - n * 2.3]))
+        if abs(tp[0] - tp[1]) < 1.5:
+            continue
+        if tp[0] > tp[1]:
+            n = -n                                             # n zeigt zur tiefen Seite
+        line = o + n * half_n                                  # Wand an der Hinderniskante zur tiefen Seite
+        axis = None
+        if abs(n[0]) > 0.999:
+            axis = 0
+            line[0] = math.floor(line[0] - 1e-6) + 0.5        # auf halbe Meter (Bodenraster 1 m: je ein Knoten beidseits)
+        elif abs(n[1]) > 0.999:
+            axis = 1
+            line[1] = math.floor(line[1] - 1e-6) + 0.5
+        # entlang der Achse verlängern, solange das Raster dort eine Stufe hat (Bruchkante läuft über das Hindernis hinaus)
+        ext = []
+        for sgn in (-1.0, 1.0):
+            t = half_a
+            while t < 120.0:
+                q = line + a * sgn * (t + 1.0)
+                tq = q_terrain(np.array([q - n * 2.3, q + n * 2.3]))
+                if tq[0] - tq[1] < 1.5 or not (x0 < q[0] < x1 and z0 < q[1] < z1):
+                    break
+                t += 1.0
+            ext.append(t)
+        Q_FACES.append({"o": line, "a": a, "n": n, "a0": -ext[0], "a1": ext[1], "axis": axis, "h": h})
+    # Dämme: geneigte Abschnitte des Höhenprofils (Fahrrampe, Landerampe), Lücken ausgenommen
+    el = data.get("elevation", [])
+    for k in range(len(el) - 1):
+        s0, h0 = float(el[k][0]), float(el[k][1])
+        s1, h1 = float(el[k + 1][0]), float(el[k + 1][1])
+        if abs(h1 - h0) < 0.3:
+            continue
+        for g in data.get("gaps", []):
+            if float(g["from"]) <= s0 + 1e-4 < float(g["to"]):
+                s0 = float(g["to"])
+        Q_DAMS.append((s0, s1))
+    print("DIORAMA Höhen: Bruchwände", [(round(float(f["o"][0]), 1), round(float(f["o"][1]), 1), round(f["a0"], 1), round(f["a1"], 1)) for f in Q_FACES],
+          "| Dämme", [(round(a_, 4), round(b_, 4)) for a_, b_ in Q_DAMS], "| Felswand Ost", len(Q_EAST))
+
+
+def q_face_coords(P, f):
+    """Längs- und Querkoordinate (quer: positiv zur tiefen Seite) eines Punktfelds zu einer Bruchwand."""
+    rel = P - f["o"]
+    return rel @ f["a"], rel @ f["n"]
+
+
+def q_crisp(P, T):
+    """Geländeraster mit senkrechten Bruchwänden: im Band ±2,4 m um die Wandlinie gilt die Höhe 2,4 m weiter auf der jeweiligen Seite."""
+    T = T.copy()
+    for f in Q_FACES:
+        al, cr = q_face_coords(P, f)
+        band = (al >= f["a0"] - 0.5) & (al <= f["a1"] + 0.5) & (np.abs(cr) < 2.4)
+        if not band.any():
+            continue
+        proj = f["o"] + al[band, None] * f["a"]
+        hi = np.maximum(q_terrain(proj - f["n"] * 2.4), q_terrain(proj - f["n"] * 0.6))   # Landelippe: Krone direkt hinter der Kante
+        lo = q_terrain(proj + f["n"] * 2.4)
+        T[band] = np.where(cr[band] > 0.0, lo, hi)
+    return T
+
+
+def q_east_w(s, lat):
+    """Gewicht der Felswand Ost (Außenseite der Fahrrampe) je Punkt."""
+    if not Q_EAST:
+        return np.zeros(len(s))
+    ss = [e[0] for e in Q_EAST]
+    side = Q_EAST[0][1]
+    s0, s1 = min(ss) - 0.012, max(ss) + 0.012
+    return q_in_window(s, s0, s1, 0.012) * (np.sign(lat) == side)
+
+
+def q_floor(P):
+    """Arbeitsebene (m über der Grubensohle): Raster mit Bruchwänden, Dammböschungen, Außenseite der Fahrrampe, Korridore tieferer Äste."""
+    T = q_crisp(P, q_terrain(P))
+    if not Q_TER:
+        return T
+    s, lat, along = q_track_s(P)
+    base = q_base_at(s)
+    alat = np.abs(lat)
+    ok = np.abs(along) < 0.75                             # nur neben, nicht vor/hinter dem Abschnitt (Landelippe, Rampenfuß)
+    F = T
+    for s0, s1 in Q_DAMS:
+        w = q_in_window(s, s0, s1, 0.002) * ok
+        D = np.clip(base - np.maximum(alat - (HW + 2.5), 0.0) / 1.3, 0.0, None) * w
+        F = np.maximum(F, D)
+    we = q_east_w(s, lat)
+    F = np.where(we > 0.0, np.maximum(F, base * np.minimum(1.0, we * 2.0)), F)
+    # Korridor eines deutlich tieferen Asts (Sohlenweg unter dem Sprung, Fuß der Landelippe): Boden auf dessen Höhe. Auf Rampen liegt
+    # das Minimum des Kerns (alle Segmente im Umkreis) nur wegen der Steigung tiefer; dort gilt die Ebene selbst.
+    floor = branch_floor(P, HW + 0.8)
+    return np.where(floor < base - 1.5, np.minimum(F, floor), F)
+
+
+def q_dam_mask(P):
+    """Anteil Haufwerk (Dammböschung) je Punkt: dort Schotter statt Fels."""
+    if not Q_TER:
+        return np.zeros(len(P))
+    s, lat, along = q_track_s(P)
+    alat = np.abs(lat)
+    out = np.zeros(len(P))
+    for s0, s1 in Q_DAMS:
+        w = q_in_window(s, s0, s1, 0.004) * (np.abs(along) < 0.75)
+        out = np.maximum(out, w * (alat > HW + 0.5) * (alat < HW + 2.5 + 1.3 * 6.0))
+    return out
+
+
+def q_in_hull(P):
+    if len(Q_HULL) < 3:
+        return inside(P)
+    H_ = np.array(Q_HULL)
+    a, b = H_, np.roll(H_, -1, axis=0)
+    cr = (b[None, :, 0] - a[None, :, 0]) * (P[:, None, 1] - a[None, :, 1]) - (b[None, :, 1] - a[None, :, 1]) * (P[:, None, 0] - a[None, :, 0])
+    return (cr >= 0).all(1)
+
+
 def q_u(P):
-    """Abstand zur Grubensohle in Metern (negativ innen): Sohle = Inneres der Strecke, 10 m Rand um die Fahrbahn, Flächen um die KI-Modelle."""
-    d = dist_to_center(P) - Q_DF
-    d = np.where(inside(P), np.minimum(d, -1.0), d)
+    """Abstand zur Grubensohle in Metern (negativ innen): Sohle = Inneres der Strecke (konvexe Hülle; die Strecke kreuzt sich selbst),
+    10 m Rand um die Fahrbahn (außen an der Fahrrampe 5 m: Felswand Ost), Flächen um die KI-Modelle."""
+    df = Q_DF
+    if Q_EAST:
+        s, lat, _ = q_track_s(P)
+        df = Q_DF - 5.0 * q_east_w(s, lat)
+    d = dist_to_center(P) - df
+    d = np.where(q_in_hull(P), np.minimum(d, -1.0), d)
     for p in Q_AI:
         r = Q_FLAT.get(p.get("model"))
         if r:
@@ -434,15 +662,27 @@ def q_u(P):
 
 
 def q_height(P, u):
-    """Geländehöhe über der Sohle (m): vier Bänke mit weichen Böschungen, Ränder durch Rauschen verzogen, Absätze leicht uneben."""
+    """Bänke über der Arbeitsebene (m): vier Bänke mit weichen Böschungen, Ränder durch Rauschen verzogen, Absätze leicht uneben. Außen an der
+    Fahrrampe (Felswand Ost) ist die erste Stufe doppelt so hoch und steiler."""
     x, z = P[:, 0], P[:, 1]
     ramp = np.minimum(1.0, np.maximum(u, 0.0) / 6.0)
     uw = u + ramp * ((q_noise(x, z, 14.0, 3.0) - 0.5) * 3.4 + (q_noise(x, z, 5.0, 9.0) - 0.5) * 1.3)
+    we = np.zeros(len(P))
+    if Q_EAST:
+        s, lat, _ = q_track_s(P)
+        we = q_east_w(s, lat)
     h = np.zeros(len(P))
     for k in range(Q_BENCHES):
-        h += Q_RISE * q_smooth((uw - (Q_U0 + k * Q_PERIOD)) / Q_SLOPE)
+        rise = Q_RISE * (1.0 + we) if k == 0 else Q_RISE
+        slope = Q_SLOPE * (1.0 - 0.45 * we) if k == 0 else Q_SLOPE
+        h += rise * q_smooth((uw - (Q_U0 + k * Q_PERIOD)) / slope)
     h += 0.16 * (q_noise(x, z, 3.7, 11.0) - 0.5) * np.minimum(1.0, np.maximum(u, 0.0) / 4.0)
     return h
+
+
+def q_rel(P):
+    """Bodenhöhe über GROUND_Y: Arbeitsebene (Raster der Streckendatei, geschärft) plus Bänke."""
+    return q_floor(P) + q_height(P, q_u(P))
 
 
 def q_lake_sdf(X, Z):
@@ -456,13 +696,27 @@ def q_lake_sdf(X, Z):
 
 def q_lake_height(X, Z):
     sd = q_lake_sdf(X, Z)
-    return -Q_WATER_DEPTH * q_smooth(-sd / 4.5) * (sd < 0.4)
+    return -Q_WATER_DEPTH * q_smooth(-sd / Q_LAKE_SLOPE) * (sd < 0.4)
 
 
 def q_ground_y(x, z):
     """Bodenhöhe an einem Ort (Gelände ohne See)."""
     P = np.array([(x, z)], float)
-    return GROUND_Y + float(q_height(P, q_u(P))[0])
+    return GROUND_Y + float(q_rel(P)[0])
+
+
+def q_mesh_h(P, extra=0.0):
+    """Höhe der Bodennetze: Relief (+ extra), unter der Laufzeit-Fahrbahn höchstens so hoch, wie die Kernprüfung erlaubt (tiefste Basis
+    der Äste im Umkreis HW + 0,3 plus ROAD_Y - 0,012). Auf Rampen liegt diese Grenze bis 1 m unter der Fahrbahn (Minimum über alle Segmente
+    im Umkreis); die Dammkrone (q_crown_build) deckt dort den Streifen unter der Fahrbahn ab."""
+    h = GROUND_Y + q_rel(P) + extra
+    return np.minimum(h, branch_floor(P) + ROAD_Y - 0.012)
+
+
+def q_flat_floor(x, z, r):
+    """Steht ein Bauteil (Radius r) ganz auf der ebenen Grubensohle (Höhe 0)? Die alten Bausteine kennen nur GROUND_Y."""
+    a = np.array([(x, z)] + [(x + r * math.cos(k * 0.785), z + r * math.sin(k * 0.785)) for k in range(8)], float)
+    return float(np.abs(q_rel(a)).max()) < 0.05
 
 
 # ---------------------------------------------------------------- Planung
@@ -492,8 +746,12 @@ def q_plan():
     P["paths"].append(([(-82.0, 5.5), (-77.0, 6.2), (-72.2, 6.0)], 4.5))
     P["paths"].append(([(-30.0, 10.0), (-14.0, 7.5), (4.0, 3.5), (20.0, 0.0), (32.0, 3.0), (40.0, 5.0)], 5.0))
     P["paths"].append(([(-55.0, 10.0), (-44.0, 14.0), (-30.0, 10.0)], 4.5))
-    P["paths"].append(([(-12.0, -30.0), (-9.0, -27.0), (-6.0, -23.0)], 4.0))
-    P["paths"].append(([(70.0, -30.0), (66.0, -26.0), (62.0, -20.0)], 5.0))
+    if data.get("rev", 1) >= 2:
+        P["paths"].append(([(16.0, -33.0), (34.0, -32.5), (52.0, -33.5), (68.0, -32.0), (78.0, -36.0)], 5.0))   # obere Sohle: Haldenweg zum Brecher
+        P["paths"].append(([(4.0, -2.0), (9.0, -4.5), (14.0, -9.0)], 4.0))                                       # Zufahrt zum Pumpensumpf
+    else:
+        P["paths"].append(([(-12.0, -30.0), (-9.0, -27.0), (-6.0, -23.0)], 4.0))
+        P["paths"].append(([(70.0, -30.0), (66.0, -26.0), (62.0, -20.0)], 5.0))
     for pts, w in P["paths"]:
         for off in (-1.15, 1.15):
             P["ruts"].append(q_offset_path(pts, off))
@@ -585,6 +843,8 @@ def q_fields(X, Z, H, step):
     rock = q_smooth((slope - 0.32) / 0.5)
     rib = q_smooth((q_fbm(P[:, 0], P[:, 1], 6.0, 2, 33.0) - 0.60) * 9.0) * ((u > -0.5) & (u < 16.0))
     rock = np.clip(np.maximum(rock, rib * 0.9), 0.0, 1.0)
+    dam = q_dam_mask(P)
+    rock = rock * (1.0 - 0.8 * dam)
     # Staub: Pistenrand (wie die braune Fahrbahn), Betriebswege, Absätze und Windflecken
     dust = 0.85 * (1.0 - q_smooth((dc - (HW + 0.2)) / (1.8 + 2.0 * n_mid)))
     if "short" in Q_PLAN:
@@ -599,7 +859,7 @@ def q_fields(X, Z, H, step):
     # Ufer des Sees: feuchter Kalkschlamm (Staub, dunkel)
     sdl = q_lake_sdf(P[:, 0], P[:, 1])
     dust = np.maximum(dust, 1.0 - q_smooth((sdl - 0.2) / (2.2 + 0.8 * n_mid)))
-    dust = dust * (1.0 - rock)
+    dust = dust * (1.0 - rock) * (1.0 - 0.7 * dam)
     # Schlammstrecke der Piste und Graben (Lücke): feucht = dunkler
     damp = np.zeros(len(P))
     for zone in data.get("surfaces", []):
@@ -610,7 +870,19 @@ def q_fields(X, Z, H, step):
         fade = np.clip(np.minimum((s - g["from"]) / 0.004, (g["to"] - s) / 0.004), 0.0, 1.0)
         damp = np.maximum(damp, fade * (1.0 - q_smooth((dc - (HW + 0.5)) / 2.0)))
     dust = np.maximum(dust, damp * 0.6 * (1.0 - rock))
-    dapple = 0.93 + 0.20 * (n_big - 0.5) + 0.08 * (n_mid - 0.5)
+    if Q_FACES:
+        fl_ = q_floor(P)
+        upper = q_smooth((fl_ - 3.5) / 1.5) * (1.0 - rock)
+        dust = np.maximum(dust, 0.55 * upper)
+        for f in Q_FACES:
+            if f["h"] < 4.0:
+                continue
+            al, cr = q_face_coords(P, f)
+            foot = ((al > f["a0"]) & (al < f["a1"]) & (cr > 0.0)) * (1.0 - q_smooth((cr - 0.4) / (2.2 + 1.2 * n_mid)))
+            damp = np.maximum(damp, 0.75 * foot)
+    else:
+        upper = np.zeros(len(P))
+    dapple = 0.93 + 0.20 * (n_big - 0.5) + 0.08 * (n_mid - 0.5) + 0.06 * upper
     bright = dapple * (1.0 - 0.38 * damp)
     comp = lambda w: 0.5 + (np.clip(w, 0.0, 1.0) - 0.5) * 0.62
     return bright.reshape(shape), comp(dust).reshape(shape), comp(rock).reshape(shape)
@@ -621,7 +893,7 @@ def q_build_ground():
     gz = np.arange(z0, z1 + 0.001, Q_STEP)
     X, Z = np.meshgrid(gx, gz)
     P = np.stack([X.ravel(), Z.ravel()], 1)
-    H = GROUND_Y + q_height(P, q_u(P)).reshape(X.shape)
+    H = q_mesh_h(P).reshape(X.shape)
     cxm, czm = (gx[:-1] + gx[1:]) / 2, (gz[:-1] + gz[1:]) / 2
     bx0, bx1 = math.floor(Q_LAKE["x"] - Q_LAKE["w"] / 2 - 4), math.ceil(Q_LAKE["x"] + Q_LAKE["w"] / 2 + 4)
     bz0, bz1 = math.floor(Q_LAKE["z"] - Q_LAKE["d"] / 2 - 4), math.ceil(Q_LAKE["z"] + Q_LAKE["d"] / 2 + 4)
@@ -631,7 +903,9 @@ def q_build_ground():
         skip = skip | ((czm[:, None] > pz0) & (czm[:, None] < pz1) & (cxm[None, :] > px0) & (cxm[None, :] < px1))
     br, du, ro = q_fields(X, Z, H, Q_STEP)
     COL = np.stack([br, du, ro], -1)
-    objs_ground.append(q_grid_mesh_quad("Gelaende", "gelaende", gx, gz, H, COL, skip, tile=4.0, tol_h=0.02, tol_c=0.07))
+    og = q_grid_mesh_quad("Gelaende", "gelaende", gx, gz, H, COL, skip, tile=4.0, tol_h=0.02, tol_c=0.07)
+    print("DIORAMA Bodennetz: senkrechte Bruchwände, verschobene Knoten", q_snap_faces(og))
+    objs_ground.append(og)
     if Q_PIT:
         px0, px1, pz0, pz1 = Q_PIT["hole"]
         sx0, sx1, sz0, sz1 = Q_PIT["box"]
@@ -639,7 +913,7 @@ def q_build_ground():
         rz = np.arange(pz0, pz1 + 0.001, 0.5)
         RX, RZ = np.meshgrid(rx, rz)
         PR = np.stack([RX.ravel(), RZ.ravel()], 1)
-        HR = GROUND_Y + q_height(PR, q_u(PR)).reshape(RX.shape)
+        HR = q_mesh_h(PR).reshape(RX.shape)
         brr, dur, ror = q_fields(RX, RZ, HR, 0.5)
         rcx, rcz = (rx[:-1] + rx[1:]) / 2, (rz[:-1] + rz[1:]) / 2
         pit_cells = (rcz[:, None] > sz0) & (rcz[:, None] < sz1) & (rcx[None, :] > sx0) & (rcx[None, :] < sx1)
@@ -648,7 +922,7 @@ def q_build_ground():
     fx = np.arange(bx0, bx1 + 0.001, 0.5)
     fz = np.arange(bz0, bz1 + 0.001, 0.5)
     FX, FZ = np.meshgrid(fx, fz)
-    H2 = GROUND_Y + q_lake_height(FX, FZ)
+    H2 = q_mesh_h(np.stack([FX.ravel(), FZ.ravel()], 1), q_lake_height(FX, FZ).ravel()).reshape(FX.shape)
     br2, du2, ro2 = q_fields(FX, FZ, H2, 0.5)
     objs_ground.append(q_grid_mesh("Gelaende_See", "gelaende", fx, fz, H2, np.stack([br2, du2, ro2], -1)))
     # Weite: die Ränder des Netzes bis weit hinter den Bildrand fortsetzen (gleiche Höhe und Gewichte wie der Rand)
@@ -672,7 +946,7 @@ def q_build_lake_water():
     fx = np.arange(bx0, bx1 + 0.001, 0.5)
     fz = np.arange(bz0, bz1 + 0.001, 0.5)
     FX, FZ = np.meshgrid(fx, fz)
-    h = GROUND_Y + q_lake_height(FX, FZ)
+    h = GROUND_Y + q_rel(np.stack([FX.ravel(), FZ.ravel()], 1)).reshape(FX.shape) + q_lake_height(FX, FZ)
     depth = np.clip((water_y - h) / 0.9, 0.0, 1.0)
     parts = []
     for j in range(len(fz) - 1):
@@ -708,6 +982,7 @@ def theme_materials():
 
 
 def theme_ground():
+    q_levels_plan()
     q_plan()
     q_pit_plan()
     q_build_ground()
@@ -1007,8 +1282,9 @@ def q_sign(x, z, ang, kind="warn"):
     f_ = (math.cos(ang), math.sin(ang))
     side = (-math.sin(ang), math.cos(ang))
     steel, red, white, black = (0.58, 0.60, 0.62), (0.78, 0.07, 0.06), (0.96, 0.95, 0.92), (0.08, 0.08, 0.08)
-    q_fb_tube(fb, (x, z, GROUND_Y), (x, z, GROUND_Y + 2.35), 0.035, 0.035, 8, steel, cap1=steel)
-    base_h = GROUND_Y + 1.35
+    gy = q_ground_y(x, z)
+    q_fb_tube(fb, (x, z, gy - 0.05), (x, z, gy + 2.35), 0.035, 0.035, 8, steel, cap1=steel)
+    base_h = gy + 1.35
     cx_, cz_ = x + f_[0] * 0.05, z + f_[1] * 0.05
 
     def tri(scale, h0, col, off):
@@ -1039,7 +1315,7 @@ def q_barrier(x, z, ang, length=2.3, lamp=True):
     """Baustellen-Absperrschranke nach Art der Straßenbaustellen: zwei rot-weiß gefelderte Bretter, senkrechte Latten, Pfosten, Gummifüße quer
     zur Reihe, rote Warnleuchte (blinkt dämmerungs- und nachts)."""
     g = Frame((x, z), (math.cos(ang), math.sin(ang)), (-math.sin(ang), math.cos(ang)))
-    yb = GROUND_Y + 0.004
+    yb = q_ground_y(x, z) + 0.004
     parts = []
     a0, a1 = -length / 2, length / 2
     for a in (a0 + 0.2, a1 - 0.2):
@@ -1204,7 +1480,7 @@ def q_puddles():
                 off = r.uniform(-1.2, 1.2)
                 spots.append((a[0] - t[1] / ln * off, a[1] + t[0] / ln * off, math.atan2(t[1], t[0])))
     if not Q_PIT:                                                        # ohne eigenen Graben: Pfützen in der Lücke
-        for g in data.get("gaps", []):
+        for g in [g_ for g_ in data.get("gaps", []) if base_height(float(g_["from"])) < 0.5]:
             i = int(((g["from"] + g["to"]) / 2) * N)
             c = center[i]
             for off in (-1.6, 0.4, 1.9):
@@ -1318,7 +1594,8 @@ def f_dc_ok(x, z):
 def q_free(x, z, r, dc_min=None):
     if dc_min is None:
         dc_min = HW + 1.5 + r
-    return q_dc(x, z) >= dc_min and not q_blocked(x, z, r) and float(q_u(np.array([(x, z)]))[0]) < -0.5
+    return (q_dc(x, z) >= dc_min and not q_blocked(x, z, r) and float(q_u(np.array([(x, z)]))[0]) < -0.5
+            and q_flat_floor(x, z, r))
 
 
 def q_site():
@@ -1345,18 +1622,20 @@ def q_site():
         if q_free(x, z, 3.6, dc_min=4.0):
             q_container(x, z, a, kinds)
     # --- Betonrohre am Graben, Warnschilder und Absperrschranken
-    for x, z, a in ((6.0, -29.5, 0.2), (28.0, -30.0, -0.1)):
+    for x, z, a in (((15.5, -13.0, 0.4), (16.5, -6.0, 0.2)) if data.get("rev", 1) >= 2 else ((6.0, -29.5, 0.2), (28.0, -30.0, -0.1))):
         if q_free(x, z, 2.4, dc_min=HW + 3.0):
             q_pipes(x, z, a)
             break
     for g in data.get("gaps", []):
         i0, i1 = int(g["from"] * N), int(g["to"] * N)
+        high = base_height(float(g["from"])) > 0.5
         for i in (i0 - 14, i1 + 14):
-            c, t, l_ = center[i], tang[i], left[i]
+            c, t, l_ = center[i % N], tang[i % N], left[i % N]
             ang = math.atan2(t.y, t.x)
             for side in (1, -1):
-                x, z = c.x + l_.x * side * (HW + 1.8), c.y + l_.y * side * (HW + 1.8)
-                if q_dc(x, z) >= HW + 1.4:
+                off = HW + (2.8 if (high and i < i0) else 1.8)
+                x, z = c.x + l_.x * side * off, c.y + l_.y * side * off
+                if q_dc(x, z) >= HW + 1.4 and not q_blocked(x, z, 1.2):
                     q_barrier(x, z, ang, 2.3)
     sign_spots = []
     for g in data.get("gaps", []):
@@ -1393,7 +1672,10 @@ def q_boulders():
     w = np.where((u > -3.0) & (u < 6.0), 0.55 + 0.4 * (n1 > 0.55), 0.0)
     w = np.maximum(w, np.where((sdl > -0.5) & (sdl < 5.0), 0.7, 0.0))
     w = np.maximum(w, np.where((u < -2.0) & (dc > HW + 4.0), 0.06 + 0.25 * (n1 > 0.62), 0.0))
-    w = np.where(dc > HW + 2.2, w, 0.0)
+    w = np.where(dc > HW + 3.4, w, 0.0)
+    for f in Q_FACES:
+        al, cr = q_face_coords(P, f)
+        w = np.where((al > f["a0"] - 1.0) & (al < f["a1"] + 1.0) & (np.abs(cr) < 1.6), 0.0, w)
     chosen = []
     for i in rng_.permutation(len(P)):
         if len(chosen) >= 150:
@@ -1614,6 +1896,8 @@ def q_lights():
     Maschinen. Jede Lichtquelle ist eine echte Quelle in der Lichtkarte (add_light), die Strahlerköpfe leuchten nur nachts; am Tag sind sie aus."""
     poles = ((-76.0, -12.0), (-76.0, 26.0), (-40.0, 36.5), (5.0, 36.5), (46.0, 38.0), (68.5, 6.0), (52.0, -35.0), (22.0, -34.5),
              (-20.0, -34.0), (-62.0, -35.0))
+    if data.get("rev", 1) >= 2:
+        poles = poles + ((12.0, -34.0), (49.0, 2.0), (-12.0, -45.5))          # Bruchkante, Fahrrampe, Nordstraße hinter der Kreuzung
     placed = []
     skipped = []
     for (px, pz) in poles:
@@ -1632,6 +1916,8 @@ def q_lights():
         add_light(hx, hz, hy, Q_FLOOD, 1.05, 25.0, omni=False, glow=1.6)
         placed.append(site)
     towers = (((-9.0, 3.0), (-30.0, 10.0)), ((30.0, 13.0), (20.0, 0.0)), ((-46.0, 3.0), (-30.0, 10.0)))
+    if data.get("rev", 1) >= 2:
+        towers = towers + (((-14.0, -11.0), (-2.0, -24.0)),)                   # Kreuzung unter dem Sprung
     for k, ((px, pz), (tx, tz)) in enumerate(towers):
         site = None
         for dx, dz in ((0, 0), (3, 0), (-3, 0), (0, 3), (0, -3), (5, 4), (-5, -4)):
@@ -1664,6 +1950,9 @@ def q_pit_plan():
     if not gaps:
         return
     g = gaps[0]
+    if base_height(float(g["from"])) > 0.5 or base_height(float(g["to"])) > 0.5:
+        print("DIORAMA Lücke liegt erhöht (Sprung über den Sohlenweg): kein Graben")
+        return
     c0, c1 = center[int(round(g["from"] * N)) % N], center[int(round(g["to"] * N)) % N]
     if abs(c0.y - c1.y) > 0.3 or abs(c0.x - c1.x) < 2.0:
         print("DIORAMA Warnung: Lücke der Fahrbahn nicht achsparallel, kein Graben")
@@ -1955,7 +2244,8 @@ def q_extras():
     spots = []
     for g in data.get("gaps", []):
         i0, i1 = int(g["from"] * N), int(g["to"] * N)
-        for i_, step in ((i0 - 3, -1), (i1 + 3, 1)):
+        high = base_height(float(g["from"])) > 0.5
+        for i_, step in (((i0 - 28) if high else (i0 - 3), -1), (i1 + 3, 1)):
             for k in range(4):
                 j = (i_ + step * k * 4) % N
                 c, l_ = center[j], left[j]
@@ -2056,7 +2346,7 @@ def q_plan_wall_heights():
         zs = np.linspace(z - d * 0.4, z + d * 0.4, 5)
         X, Z = np.meshgrid(xs, zs)
         P = np.stack([X.ravel(), Z.ravel()], 1)
-        h = GROUND_Y + q_height(P, q_u(P))
+        h = GROUND_Y + q_rel(P)
         Q_BASE_Y[(round(x, 2), round(z, 2))] = float(np.percentile(h, 12)) - 0.25
         n += 1
     return n
@@ -2076,6 +2366,8 @@ def q_fences(placed):
 
 
 def theme_scenery():
+    q_levels_build()
+    q_crown_build()
     q_foot_walls()
     q_riser_blocks()
     placed = q_site()
@@ -2092,7 +2384,8 @@ def theme_scenery():
     # Bodenhöhe der Laufzeit-Bauteile (KI-Modelle, Laternen): sie stehen im Spiel auf Höhe 0; die Felswände auf den hohen Bänken (z = +-58)
     # versänken sonst im Hang. Dieselbe Höhenfunktion gilt für die Kontaktschatten (ao_proxies).
     q_plan_wall_heights()
-    n_h = set_prop_heights(q_base_y, types=["ai"])
+    # Das Spiel setzt Laufzeit-Bauteile auf terrain_height + prop_y: eingetragen wird nur der Unterschied zum Geländeraster der Streckendatei.
+    n_h = set_prop_heights(lambda x, z: q_base_y(x, z) - terrain_y(x, z), types=["ai"])
     # Die selbst gebauten Kieshaufen brauchen keinen Stellvertreter (ihr Netz wirft den Kontaktschatten selbst).
     hidden = [(p, p["type"]) for p in Q_HEAP_AI] + [(p, p["type"]) for p in Q_AI if p.get("model") == "steinbruch_foerderband"]
     for p, _ in hidden:
@@ -2163,8 +2456,11 @@ def q_riser_blocks(limit=620):
     hx = (q_height(P + ex, q_u(P + ex)) - q_height(P - ex, q_u(P - ex))) / (2 * e)
     hz = (q_height(P + ez, q_u(P + ez)) - q_height(P - ez, q_u(P - ez))) / (2 * e)
     slope = np.hypot(hx, hz)
-    h = q_height(P, u)
+    h = q_rel(P)
     keep = slope > 0.6
+    for f in Q_FACES:                                                   # nicht auf die Bruchwände
+        al, cr = q_face_coords(P, f)
+        keep &= ~((al > f["a0"] - 1.0) & (al < f["a1"] + 1.0) & (np.abs(cr) < 1.8))
     cnt = 0
     taken = {}
     for i in rng_.permutation(np.nonzero(keep)[0]):
@@ -2178,8 +2474,455 @@ def q_riser_blocks(limit=620):
         gn = np.array([hx[i], hz[i]]) / (slope[i] + 1e-9)
         ang = math.atan2(gn[0], -gn[1])
         sx_, sy_, sz_ = pr.uniform(1.5, 3.2), pr.uniform(0.9, 1.6), pr.uniform(0.7, 1.4)
+        if Q_EAST and q_dc(x, z) < 14.0:                                # Felswand Ost dicht an der Fahrrampe: flache, kleinere Schollen
+            if pr.random() < 0.5:
+                continue
+            sx_, sy_, sz_ = sx_ * 0.6, sy_ * 0.6, sz_ * 0.45
         lean = math.atan(float(slope[i])) * 0.75
         key = q_scholle(int(abs(x * 1.3 + z * 2.1)) % 4)
         q_put_nu(key, x, z, ang, sx_, sy_, sz_, GROUND_Y + float(h[i]) - 0.35 * sz_, lean)
         cnt += 1
     print("DIORAMA Felsschollen:", cnt)
+
+
+# ---------------------------------------------------------------- Bruchkante Ost (Fassung 2): Bruchwände, Sicherheitswall, Schanzenschüttung, Landelippe, Schild
+def q_snap_faces(obj):
+    """Senkrechte Bruchwand im Bodennetz: Die beiden Knotenreihen beidseits einer Wandlinie (je 0,5 m entfernt) rücken auf 3 cm an die Linie;
+    aus dem 1-m-Übergang wird eine fast senkrechte Wand an der Kante des Hindernisses (die Reihen bleiben gerade, keine Risse)."""
+    if not Q_FACES:
+        return 0
+    me = obj.data
+    n_moved = 0
+    for v in me.vertices:
+        p = np.array([v.co.x, -v.co.y])
+        for f in Q_FACES:
+            rel = p - f["o"]
+            al, cr = float(rel @ f["a"]), float(rel @ f["n"])
+            if f["a0"] - 0.6 <= al <= f["a1"] + 0.6 and abs(cr) < 0.9:
+                new = 0.03 if cr > 0 else -0.03
+                d = f["n"] * (new - cr)
+                v.co.x += float(d[0])
+                v.co.y -= float(d[1])
+                n_moved += 1
+                break
+    me.update()
+    return n_moved
+
+
+def q_face_ledge_factor(A, far):
+    """Bankstufe nur in langen Abschnitten abseits der Fahrbahn; an den Enden über 1,5 m auslaufend."""
+    Lf = np.zeros(len(A))
+    idx_far = np.nonzero(far)[0]
+    if len(idx_far) == 0:
+        return Lf
+    near_pts = A[~far]
+    for i in idx_far:
+        d = float(np.abs(near_pts - A[i]).min()) if len(near_pts) else 99.0
+        d = min(d, A[i] - A[0] + 0.5, A[-1] - A[i] + 0.5)
+        Lf[i] = min(1.0, max(0.0, (d - 0.5) / 1.5))
+    return Lf
+
+
+def q_faces_build():
+    """Bruchwände (Kante der oberen Sohle, Landelippe ausgenommen): gesprengte Kalksteinwand mit Bohrlochpfeifen (senkrechte Halbrinnen alle
+    2,6 bis 3,6 m), leicht zerklüftet, am Fuß feucht, oben verwittert; abseits der Fahrbahn eine Bankstufe auf halber Höhe (unterer Teil 1,1 m vor
+    der Wand). Die Wand steht 7 bis 23 cm vor der senkrechten Stufe des Bodennetzes; Hindernisse hat die Streckendatei (Bruchwand-collider)."""
+    rr = random.Random(41)
+    n_faces = 0
+    for k, f in enumerate(Q_FACES):
+        if f["h"] < 4.0:
+            continue                                         # Landelippe: eigene Mauer (q_lip_build)
+        a0, a1 = f["a0"], f["a1"]
+        holes = []
+        t = a0 + rr.uniform(0.6, 1.8)
+        while t < a1 - 0.4:
+            holes.append(t)
+            t += rr.uniform(2.6, 3.6)
+        cols = list(np.arange(a0, a1 + 1e-6, 0.5))
+        for hp in holes:
+            cols += [hp - 0.14, hp - 0.07, hp, hp + 0.07, hp + 0.14]
+        A = np.array(sorted(set(round(float(c), 3) for c in cols if a0 <= c <= a1)))
+        line = f["o"][None, :] + A[:, None] * f["a"][None, :]
+        y_lo = GROUND_Y + q_rel(line + f["n"] * 0.7)
+        y_hi = GROUND_Y + q_rel(line - f["n"] * 0.7)
+        far = (dist_to_center(line + f["n"] * 2.0) > 14.0) & ((y_hi - y_lo) > 4.0)
+        Lf = q_face_ledge_factor(A, far)
+        groove = np.zeros(len(A))
+        for hp in holes:
+            groove = np.maximum(groove, 0.085 * np.cos(np.clip(np.abs(A - hp) / 0.14, 0.0, 1.0) * math.pi / 2))
+        parts = []
+
+        def rowpts(i, t_rows, ya, yb, extra):
+            out = []
+            for t_ in t_rows:
+                y = ya + (yb - ya) * t_
+                j = float(q_noise(np.array([A[i] * 1.0]), np.array([y * 1.3]), 2.6, 3.1 + k)[0])
+                off = 0.11 + 0.07 * j - groove[i] + extra
+                p = line[i] + f["n"] * off
+                tone = (0.80 + 0.12 * j) * (1.0 - 1.6 * groove[i])
+                if y - y_lo[i] < 0.45:
+                    tone *= 0.62 + 0.38 * max(0.0, y - y_lo[i]) / 0.45          # feuchter Fuß
+                if y_hi[i] - y < 0.35:
+                    tone *= 1.08                                              # verwitterte Oberkante
+                streak = float(q_noise(np.array([A[i] * 3.0]), np.array([0.0]), 1.0, 7.7 + k)[0])
+                if streak > 0.78:
+                    tone *= 0.88                                              # dunkle Laufspuren von oben
+                tone = max(0.25, min(1.05, tone))
+                out.append(((float(p[0]), float(p[1]), float(y)), (tone, tone * 0.98, tone * 0.93), (float(A[i]) / 2.4, float(y) / 2.4)))
+            return out
+        lower_t, upper_t = (0.0, 0.18, 0.5, 0.8, 1.0), (0.0, 0.3, 0.62, 1.0)
+        prev = None
+        for i in range(len(A)):
+            ym = y_lo[i] + (y_hi[i] - y_lo[i]) * 0.48
+            lo_rows = rowpts(i, lower_t, y_lo[i] - 0.08, ym, 1.1 * Lf[i])
+            up_rows = rowpts(i, upper_t, ym, y_hi[i] + 0.02, 0.0)
+            cur = (lo_rows, up_rows)
+            if prev is not None and min(y_hi[i] - y_lo[i], y_hi[i - 1] - y_lo[i - 1]) > 0.4:
+                for rows_a, rows_b in ((prev[0], cur[0]), (prev[1], cur[1])):
+                    for r_ in range(len(rows_a) - 1):
+                        q = [rows_a[r_], rows_b[r_], rows_b[r_ + 1], rows_a[r_ + 1]]
+                        parts.append(("q_fels", [c[0] for c in q], [c[2] for c in q], (float(f["n"][0]), float(f["n"][1])), [c[1] for c in q]))
+                # Absatz der Bankstufe (waagerecht) zwischen unterem Teil und Wand
+                if Lf[i] > 0.01 or Lf[i - 1] > 0.01:
+                    q = [prev[0][-1], cur[0][-1], cur[1][0], prev[1][0]]
+                    parts.append(("q_fels", [c[0] for c in q], [(c[0][0] / 2.4, c[0][1] / 2.4) for c in q], None, [tuple(v * 1.05 for v in c[1]) for c in q]))
+                # Krone: Kante 28 cm zurück auf die obere Sohle (deckt den Spalt zur Bodenstufe)
+                ta, tb = prev[1][-1], cur[1][-1]
+                ba = (float(line[i - 1][0] - f["n"][0] * 0.28), float(line[i - 1][1] - f["n"][1] * 0.28), ta[0][2])
+                bb = (float(line[i][0] - f["n"][0] * 0.28), float(line[i][1] - f["n"][1] * 0.28), tb[0][2])
+                crown = (0.86, 0.84, 0.79)
+                q = [(ta[0], crown), (tb[0], crown), (bb, crown), (ba, crown)]
+                parts.append(("q_fels", [c[0] for c in q], [(c[0][0] / 2.4, c[0][1] / 2.4) for c in q], None, [c[1] for c in q]))     # waagerecht: UV planar
+            prev = cur
+        if parts:
+            mesh_object("Bruchwand_%d" % k, parts)
+            n_faces += 1
+        print("DIORAMA Bruchwand %d: %.1f m, Bohrlöcher %d, Bankstufe auf %.0f m" % (k, a1 - a0, len(holes), float((Lf > 0.5).sum()) * 0.5))
+    return n_faces
+
+
+def q_rubble_strip(name, stations, rr, mat="q_schotter", tone=(0.92, 0.90, 0.86)):
+    """Haufwerk als Band: stations = Liste (Punkt (x, z), Querrichtung (x, z), [(Querversatz, Höhe), ...]) mit gleicher Profilzahl; Höhen absolut."""
+    parts = []
+    m = len(stations[0][2])
+    for (pa, na, pra), (pb, nb, prb) in zip(stations, stations[1:]):
+        for j in range(m - 1):
+            q = [(pa, na, pra[j]), (pb, nb, prb[j]), (pb, nb, prb[j + 1]), (pa, na, pra[j + 1])]
+            pts, uvs, cols = [], [], []
+            for p_, n_, (off, y) in q:
+                x, z = p_[0] + n_[0] * off, p_[1] + n_[1] * off
+                pts.append((x, z, y))
+                uvs.append((x / 1.6, z / 1.6))
+                sh = rr.uniform(0.86, 1.04)
+                cols.append((tone[0] * sh, tone[1] * sh, tone[2] * sh))
+            parts.append((mat, pts, uvs, None, cols))
+    return mesh_object(name, parts) if parts else None
+
+
+def q_berms_build():
+    """Sicherheitswall aus Haufwerk entlang der sichtbaren Wall-Hindernisse der Streckendatei (absperrung, 1,0 m über der Unterkante b):
+    durchgehender Schüttwall (Fuß 1,5 m, Krone 0,35 m) mit eingesetzten Brocken, Lage und Höhe wie die Hindernisse."""
+    walls = [p for p in data["props"] if p.get("type") == "collider" and p.get("kind") == "absperrung" and bool(p.get("visible", True))]
+    if not walls:
+        return 0
+    rr = random.Random(9)
+    rest = list(walls)
+    chains = []
+    while rest:
+        ch = [rest.pop(0)]
+        grown = True
+        while grown:
+            grown = False
+            for end in (0, -1):
+                e = ch[end]
+                for w in list(rest):
+                    if math.hypot(w["x"] - e["x"], w["z"] - e["z"]) < 0.5 * (w["w"] + e["w"]) + 1.2:
+                        rest.remove(w)
+                        if end == 0:
+                            ch.insert(0, w)
+                        else:
+                            ch.append(w)
+                        grown = True
+                        break
+        chains.append(ch)
+    n = 0
+    prof = ((-0.78, 0.0), (-0.52, 0.42), (-0.26, 0.86), (0.0, 1.0), (0.26, 0.86), (0.52, 0.42), (0.78, 0.0))
+    for ci, ch in enumerate(chains):
+        pts = [np.array([w["x"], w["z"]], float) for w in ch]
+        bs = [float(w.get("b", 0.0)) for w in ch]
+        hs = [float(w.get("h", 1.0)) for w in ch]
+        if len(pts) >= 2:
+            d0 = (pts[0] - pts[1]) / (np.linalg.norm(pts[0] - pts[1]) + 1e-9)
+            d1 = (pts[-1] - pts[-2]) / (np.linalg.norm(pts[-1] - pts[-2]) + 1e-9)
+        else:
+            r_ = math.radians(ch[0].get("rot", 0.0))
+            d0, d1 = -np.array([math.cos(r_), math.sin(r_)]), np.array([math.cos(r_), math.sin(r_)])
+        pts = [pts[0] + d0 * ch[0]["w"] * 0.5] + pts + [pts[-1] + d1 * ch[-1]["w"] * 0.5]
+        bs = [bs[0]] + bs + [bs[-1]]
+        hs = [hs[0]] + hs + [hs[-1]]
+        seg = [float(np.linalg.norm(b - a)) for a, b in zip(pts, pts[1:])]
+        tot = sum(seg)
+        stations = []
+        nst = max(2, int(tot / 0.5) + 1)
+        for k in range(nst):
+            d = tot * k / (nst - 1)
+            acc, j = 0.0, 0
+            while j < len(seg) - 1 and acc + seg[j] < d:
+                acc += seg[j]
+                j += 1
+            t_ = min(1.0, (d - acc) / (seg[j] + 1e-9))
+            p = pts[j] + (pts[j + 1] - pts[j]) * t_
+            tdir = (pts[j + 1] - pts[j]) / (seg[j] + 1e-9)
+            nrm = np.array([-tdir[1], tdir[0]])
+            b = bs[j] + (bs[j + 1] - bs[j]) * t_
+            h = hs[j] + (hs[j + 1] - hs[j]) * t_
+            taper = min(1.0, d / 0.9, (tot - d) / 0.9)
+            gy = GROUND_Y + b
+            row = []
+            for off, hh in prof:
+                inner = 0 < abs(off) < 0.7
+                y = gy - 0.04 + (h + 0.04) * hh * (0.25 + 0.75 * taper) + (rr.uniform(-0.08, 0.06) if inner else 0.0)
+                row.append((off * (0.75 + 0.25 * taper) + (rr.uniform(-0.07, 0.07) if inner else 0.0), y))
+            stations.append(((float(p[0]), float(p[1])), (float(nrm[0]), float(nrm[1])), row))
+            Q_SOLIDS.append((float(p[0]), float(p[1]), 0.85))
+            if k % 3 == 1 and rr.random() < 0.55:                       # Brocken auf der Krone und an den Flanken
+                side = rr.choice((-0.45, 0.0, 0.4))
+                sz_ = rr.uniform(0.35, 0.6)
+                bx, bz = p[0] + nrm[0] * side, p[1] + nrm[1] * side
+                q_put(q_boulder(rr.randint(0, 4)), float(bx), float(bz), rr.uniform(0, 6.28), scale=sz_,
+                      y=gy + h * (0.95 if side == 0.0 else 0.55) - 0.25 * sz_, anchor="origin")
+        q_rubble_strip("Sicherheitswall_%d" % ci, stations, rr, "q_schotter", (0.80, 0.77, 0.72))
+        n += 1
+    print("DIORAMA Sicherheitswall: Ketten", n, "aus", len(walls), "Hindernissen")
+    return n
+
+
+def q_kicker_rubble():
+    """Holzschanze an der Bruchkante mit Bruchstein umschüttet: beidseits der Schanzenwangen (ab 3,28 m Querabstand) eine Schüttung bis knapp
+    unter die Schanzenkante, nach außen auf die obere Sohle auslaufend; vor der Schanze 1,5 m Anlauf."""
+    rr = random.Random(23)
+    n = 0
+    for r in data.get("ramps", []):
+        s0, L_ = float(r["s"]), float(r["length"])
+        se = s0 + L_ / TOTAL
+        if not any(abs(((float(g["from"]) - se + 0.5) % 1.0) - 0.5) * TOTAL < 1.5 for g in data.get("gaps", [])):
+            continue                                                   # nur die Schanze an einer Lücke (Bruchkante)
+        if base_height(s0) < 0.5:
+            continue
+        for side in (-1.0, 1.0):
+            stations = []
+            k_n = int((L_ + 1.5) / 0.4) + 1
+            for k in range(k_n):
+                d = -1.5 + (L_ + 1.5) * k / (k_n - 1)
+                s = s0 + d / TOTAL
+                i = int((s % 1.0) * N) % N
+                c = np.array([center[i].x, center[i].y])
+                nl = np.array([left[i].x, left[i].y])
+                base = float(q_base_at(np.array([s]))[0])
+                hk = float(r["height"]) * max(0.0, d) / L_
+                top = base + hk + 0.2 - 0.06
+                g0 = GROUND_Y + base
+                row = []
+                for off, w in ((3.28, 1.0), (3.6, 0.92), (4.1, 0.7), (4.7, 0.35), (5.4, 0.0)):
+                    if d < 0:
+                        y = g0 - 0.03 + 0.12 * w * (1.5 + d) / 1.5
+                    elif w > 0:
+                        y = g0 - 0.03 + max(0.0, top - g0) * w * (0.92 + 0.12 * rr.random())
+                    else:
+                        y = g0 - 0.03
+                    row.append((side * off, y))
+                stations.append(((float(c[0]), float(c[1])), (float(nl[0]), float(nl[1])), row))
+                for off in (3.6, 4.4):
+                    Q_SOLIDS.append((float(c[0] + nl[0] * side * off), float(c[1] + nl[1] * side * off), 0.5))
+                if k % 2 == 0 and d > 0.3 and rr.random() < 0.7:
+                    sz_ = rr.uniform(0.3, 0.55)
+                    off = rr.uniform(3.7, 4.6)
+                    bx, bz = c + nl * side * off
+                    hgt = g0 + max(0.0, top - g0) * max(0.0, 1.0 - (off - 3.28) / 2.1)
+                    q_put(q_boulder(rr.randint(0, 4)), float(bx), float(bz), rr.uniform(0, 6.28), scale=sz_, y=hgt - 0.3 * sz_, anchor="origin")
+            q_rubble_strip("Schanzenschuettung_%d" % int(side > 0), stations, rr, "q_fels", (0.88, 0.86, 0.82))
+            n += 1
+    print("DIORAMA Schanze an der Bruchkante umschüttet:", n, "Seiten")
+    return n
+
+
+def q_lip_build():
+    """Landelippe: Stützmauer aus Betonblöcken (1,6 x 0,8 m, versetzt, dunkle Fugen) an der Stirnseite des Schüttkegels und eine verkratzte Stahlkante
+    (Stirnblech mit Kratzern und Rost, Oberflansch unter dem Fahrbahnende) über die ganze Dammkrone."""
+    faces = [f for f in Q_FACES if f["h"] < 4.0]
+    if not faces:
+        return 0
+    rr = random.Random(5)
+    fb = FBuild()
+    for f in faces:
+        a0, a1 = f["a0"] + 0.1, f["a1"] - 0.1
+        A = np.linspace(a0, a1, 7)
+        line = f["o"][None, :] + A[:, None] * f["a"][None, :]
+        y_lo = float((GROUND_Y + q_rel(line + f["n"] * 0.7)).min())
+        s_l, _, _ = q_track_s(f["o"][None, :] - f["n"][None, :] * 0.05)
+        y_top = float(q_base_at(s_l)[0]) + 0.155                           # knapp unter der Fahrbahn (Basis + 0,17) an der Lippe
+        steel_h = 0.62
+        y_b = y_top - steel_h
+        nf = f["n"]
+        c2 = f["o"] - nf * 2.0
+        cen = qV(float(c2[0]), float(c2[1]), 0.5 * (y_lo + y_top))      # Punkt im Damm: Flächen zeigen von ihm weg (zur Lücke)
+        joint = (0.24, 0.24, 0.23)
+
+        def P(al, off, y):
+            p = f["o"] + f["a"] * al + nf * off
+            return qV(float(p[0]), float(p[1]), y)
+        fb.poly([P(a0, 0.05, y_lo - 0.05), P(a1, 0.05, y_lo - 0.05), P(a1, 0.05, y_b), P(a0, 0.05, y_b)], joint, out_from=cen)
+        courses = max(1, int(math.ceil((y_b - y_lo) / 0.8)))
+        hc = (y_b - y_lo) / courses
+        for c_ in range(courses):
+            ya, yb_ = y_lo + c_ * hc, y_lo + (c_ + 1) * hc
+            al = a0 - (0.8 if c_ % 2 else 0.0)
+            while al < a1:
+                b0, b1 = max(a0, al), min(a1, al + 1.6)
+                if b1 - b0 > 0.15:
+                    off = 0.09 + rr.uniform(-0.015, 0.02)
+                    tone = rr.uniform(0.56, 0.68)
+                    col = (tone, tone * 0.99, tone * 0.95)
+                    col_t = tuple(v * 1.06 for v in col)
+                    fb.poly([P(b0 + 0.025, off, ya + 0.025), P(b1 - 0.025, off, ya + 0.025), P(b1 - 0.025, off, yb_ - 0.025), P(b0 + 0.025, off, yb_ - 0.025)],
+                            [col, col, col_t, col_t], out_from=cen)
+                    fb.poly([P(b0 + 0.025, off, yb_ - 0.025), P(b1 - 0.025, off, yb_ - 0.025), P(b1 - 0.025, 0.06, yb_), P(b0 + 0.025, 0.06, yb_)],
+                            tuple(v * 1.1 for v in col), out_from=cen)
+                al += 1.6
+        al = a0
+        while al < a1 - 1e-6:
+            b1 = min(a1, al + 0.2)
+            v = rr.random()
+            base_c = (0.27, 0.28, 0.30)
+            if v < 0.22:
+                base_c = (0.52, 0.53, 0.55)            # blank gekratzt
+            elif v < 0.36:
+                base_c = (0.42, 0.27, 0.15)            # Rost
+            top_c = tuple(min(1.0, x * 1.25) for x in base_c)
+            fb.poly([P(al, 0.13, y_b), P(b1, 0.13, y_b), P(b1, 0.13, y_top), P(al, 0.13, y_top)], [base_c, base_c, top_c, top_c], out_from=cen)
+            al = b1
+        fb.poly([P(a0, 0.13, y_top), P(a1, 0.13, y_top), P(a1, -0.32, y_top), P(a0, -0.32, y_top)], (0.36, 0.37, 0.39), up=True)
+        fb.poly([P(a0, 0.13, y_b), P(a1, 0.13, y_b), P(a1, 0.05, y_b - 0.02), P(a0, 0.05, y_b - 0.02)], (0.20, 0.20, 0.21), out_from=cen)
+        for sgn, al_ in ((-1, a0), (1, a1)):
+            ref = f["o"] + f["a"] * (al_ - sgn)
+            fb.poly([P(al_, 0.13, y_b), P(al_, -0.32, y_b), P(al_, -0.32, y_top), P(al_, 0.13, y_top)], (0.25, 0.26, 0.28),
+                    out_from=qV(float(ref[0]), float(ref[1]), y_b))
+        print("DIORAMA Landelippe: Betonblöcke %d Lagen, Stahlkante %.2f bis %.2f m" % (courses, y_b, y_top))
+    q_bm_object("Landelippe", fb.bm, [M["farbe"]])
+    return len(faces)
+
+
+def q_blast_sign(x, z, ang):
+    """Warnschild "Sprengbereich": gelbes Dreieck mit schwarzem Rand und schwarzem Sprengzeichen (Stern), darunter weiße Zusatztafel mit rotem Balken und
+    schwarzer Schriftzeile; Stahlmast mit Betonfuß. Blickt in Richtung ang."""
+    fb = FBuild()
+    gy = q_ground_y(x, z)
+    f_ = (math.cos(ang), math.sin(ang))
+    sd = (-math.sin(ang), math.cos(ang))
+    steel, yellow, black, white, red = (0.58, 0.60, 0.62), (0.96, 0.78, 0.06), (0.06, 0.06, 0.06), (0.95, 0.95, 0.93), (0.80, 0.08, 0.06)
+    q_fb_box(fb, x, z, gy - 0.1, gy + 0.18, 0.22, 0.22, ang, (0.60, 0.59, 0.56))
+    q_fb_tube(fb, (x, z, gy + 0.18), (x, z, gy + 2.55), 0.04, 0.04, 8, steel, cap1=steel)
+    cx, cz = x + f_[0] * 0.06, z + f_[1] * 0.06
+    behind = qV(cx - f_[0], cz - f_[1], gy + 1.9)
+
+    def V(a, h, o=0.0):
+        return qV(cx + sd[0] * a + f_[0] * o, cz + sd[1] * a + f_[1] * o, h)
+    yb, s_ = gy + 1.62, 0.92
+
+    def tri(sc, o):
+        lift = 0.06 * (1 - sc)
+        return [V(-s_ / 2 * sc, yb + lift, o), V(s_ / 2 * sc, yb + lift, o), V(0.0, yb + lift + s_ * 0.866 * sc, o)]
+    fb.poly(tri(1.0, 0.0), black, out_from=behind)
+    fb.poly(tri(0.82, 0.01), yellow, out_from=behind)
+    cy = yb + 0.31
+    star = []
+    for k in range(16):
+        r = 0.16 if k % 2 == 0 else 0.065
+        th = math.pi / 2 + k * math.pi / 8
+        star.append((math.cos(th) * r, cy + math.sin(th) * r))
+    for k in range(16):
+        a_, b_ = star[k], star[(k + 1) % 16]
+        fb.poly([V(0.0, cy, 0.02), V(a_[0], a_[1], 0.02), V(b_[0], b_[1], 0.02)], black, out_from=behind)
+    pa, pb = yb - 0.42, yb - 0.06
+    fb.poly([V(-0.42, pa, 0.0), V(0.42, pa, 0.0), V(0.42, pb, 0.0), V(-0.42, pb, 0.0)], white, out_from=behind)
+    fb.poly([V(-0.42, pb - 0.07, 0.01), V(0.42, pb - 0.07, 0.01), V(0.42, pb, 0.01), V(-0.42, pb, 0.01)], red, out_from=behind)
+    for k in range(7):
+        a_ = -0.33 + k * 0.1
+        fb.poly([V(a_, pa + 0.09, 0.01), V(a_ + 0.07, pa + 0.09, 0.01), V(a_ + 0.07, pa + 0.2, 0.01), V(a_, pa + 0.2, 0.01)], black, out_from=behind)
+    fb.poly([V(-s_ / 2, yb, -0.01), V(s_ / 2, yb, -0.01), V(0.0, yb + s_ * 0.866, -0.01)], (0.55, 0.56, 0.57),
+            out_from=qV(cx + f_[0], cz + f_[1], gy + 1.9))
+    q_bm_object("Schild_Sprengbereich", fb.bm, [M["farbe"]])
+    q_solid(x, z, 0.24, 2.6, "mast")
+
+
+def q_levels_build():
+    """Alle Bauteile der Bruchkante (vor der übrigen Aufstellung, damit deren Flächen als belegt gelten)."""
+    if not Q_TER:
+        return
+    q_faces_build()
+    q_berms_build()
+    q_kicker_rubble()
+    q_lip_build()
+    for g in data.get("gaps", []):
+        if base_height(float(g["from"])) < 0.5:
+            continue
+        s = float(g["from"]) - 15.0 / TOTAL
+        i = int((s % 1.0) * N) % N
+        c, t = np.array([center[i].x, center[i].y]), np.array([tang[i].x, tang[i].y])
+        nl = np.array([left[i].x, left[i].y])
+        best = None
+        for side in (1.0, -1.0):
+            p = c + nl * side * (HW + 2.8)
+            pp = c + nl * side * 9.0
+            if abs(float(q_rel(np.array([pp]))[0]) - float(q_base_at(np.array([s]))[0])) < 0.3 and not q_blocked(float(p[0]), float(p[1]), 0.5):
+                best = p
+                break
+        if best is not None:
+            q_blast_sign(float(best[0]), float(best[1]), math.atan2(-t[1], -t[0]))
+            print("DIORAMA Schild Sprengbereich bei", round(float(best[0]), 1), round(float(best[1]), 1))
+
+
+def q_crown_build():
+    """Dammkrone unter der Laufzeit-Fahrbahn auf den Rampen (Fahrrampe, Landerampe): ebenes Schotterband ±4,3 m auf Basis + 0,10 (7 cm unter der
+    Fahrbahn, Basis exakt je 0,5 m) mit kurzen Schürzen an den Rändern. Das Bodennetz liegt dort tiefer (Kernprüfung, q_mesh_h). Die Krone
+    wird erst hier (nach der Kernprüfung) an objs_ground gehängt und bekommt so die Lichttextur; sie liegt nach Bauart unter der Fahrbahn
+    und wird unten selbst geprüft."""
+    if not Q_DAMS:
+        return 0
+    parts = []
+    col = (0.93, 0.72, 0.19)
+    worst = -1.0
+    for s0, s1 in Q_DAMS:
+        if (s1 - s0) % 1.0 < 1e-4:
+            continue
+        i0, i1 = int(math.floor((s0 % 1.0) * N)) - 4, int(math.ceil((s1 % 1.0) * N)) + 4
+        rows = []
+        for i in range(i0, i1 + 1):
+            k = i % N
+            if in_gap(float(S_OF[k])):
+                rows.append(None)
+                continue
+            c, l_ = center[k], left[k]
+            y = float(Q_BASE_TAB[k]) + 0.10
+            worst = max(worst, y - (float(Q_BASE_TAB[k]) + ROAD_Y - 0.01))
+            row = []
+            for off, dy in ((-4.36, -0.6), (-4.3, 0.0), (0.0, 0.0), (4.3, 0.0), (4.36, -0.6)):
+                row.append((c.x + l_.x * off, c.y + l_.y * off, y + dy))
+            rows.append(row)
+        for a, b in zip(rows, rows[1:]):
+            if a is None or b is None:
+                continue
+            for j in range(4):
+                q = [a[j], b[j], b[j + 1], a[j + 1]]
+                facing = None
+                if j in (0, 3):
+                    mx = (a[j][0] + b[j][0]) / 2 - (a[2][0] + b[2][0]) / 2
+                    mz = (a[j][1] + b[j][1]) / 2 - (a[2][1] + b[2][1]) / 2
+                    facing = (mx, mz)
+                parts.append(("gelaende", q, [(p[0] / 4.0, -p[1] / 4.0) for p in q], facing, [col] * 4))
+    if not parts:
+        return 0
+    obj = mesh_object("Gelaende_Dammkrone", parts)
+    objs_ground.append(obj)
+    print("DIORAMA Dammkrone: %d Flächen, höchster Punkt %.3f m unter der Fahrbahngrenze" % (len(parts), -worst))
+    return len(parts)

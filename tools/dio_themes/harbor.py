@@ -772,27 +772,37 @@ def hb_build_rails(rng_, info, dec_black, dec_yellow):
     # Warnstreifen beidseits
     for side in (-1, 1):
         hb_hatch(dec_black, dec_yellow, xa, zs + side * 0.80, xb, zs + side * 0.80, 0.34, y + 0.016, 0.55)
-    # landseitige Schiene: Betonbalken 1,2 m breit, 0,62 m hoch über dem Boden, Schiene darauf
+    # landseitige Schiene: wie die seeseitige bündig im Boden (vorher ein 0,62 m hoher Balken über die ganze Länge, 1,6 m neben dem Randstein der
+    # Start-Ziel-Geraden: Gegner, die aus der letzten Kurve weit hinaustragen, blieben daran hängen, Feldtest 03.10.2026). Die KI-Kranbeine
+    # hängen 0,78 m über dem Boden; sie stehen jetzt auf Stützböcken (Beton mit Stahlplatte, 2,8 x 1,2 m) unter jedem landseitigen Fuß.
     hl = info["h_land"]
-    hb_cuboid(out["beton"], (xa + xb) / 2, zl, 1.0, 0.0, (xb - xa) / 2, 0.62, y - 0.02, hl - 0.08, "beton", col=(0.92, 0.92, 0.92), tile=2.5, bottom_fade=False)
-    hb_cuboid(out["stahl"], (xa + xb) / 2, zl, 1.0, 0.0, (xb - xa) / 2, 0.075, hl - 0.08, hl, "stahl", col=(1.0, 1.0, 1.0), tile=1.0, bottom_fade=False)
-    # Schutzstreifen: gelb-schwarz auf der Oberseite des Balkens neben der Schiene
+    hb_rect_flat(out["beton"], "beton", xa, zl - 0.55, xb, zl + 0.55, y + 0.012, (0.95, 0.95, 0.95), 3.0)
+    x = xa + 0.4
+    while x < xb - 0.3:
+        hb_rect_flat(out["stahl_dunkel"], "stahl_dunkel", x, zl - 0.30, x + 0.22, zl + 0.30, y + 0.018, (0.55, 0.55, 0.55))
+        x += 0.65
+    hb_cuboid(out["stahl"], (xa + xb) / 2, zl, 1.0, 0.0, (xb - xa) / 2, 0.075, y + 0.018, y + 0.135, "stahl", col=(1.0, 1.0, 1.0), tile=1.0, bottom_fade=False)
     for side in (-1, 1):
-        hb_hatch(dec_black, dec_yellow, xa, zl + side * 0.36, xb, zl + side * 0.36, 0.18, hl - 0.075, 0.45)
+        hb_hatch(dec_black, dec_yellow, xa, zl + side * 0.80, xb, zl + side * 0.80, 0.34, y + 0.016, 0.55)
+    for cx_ in info["xs"]:
+        for sg_ in (-1, 1):
+            fx_ = cx_ + sg_ * info["leg_dx"]
+            hb_cuboid(out["beton"], fx_, zl, 1.0, 0.0, 1.4, 0.6, y - 0.02, hl - 0.1, "beton", col=(0.9, 0.9, 0.9), tile=1.5, bottom_fade=False)
+            hb_cuboid(out["stahl_dunkel"], fx_, zl, 1.0, 0.0, 1.3, 0.5, hl - 0.1, hl - 0.02, "stahl_dunkel", col=(0.75, 0.75, 0.76), tile=1.0, bottom_fade=False)
+            if not hb_solid_force(fx_, zl, 1.0, 0.0, 1.4, 0.6, hl, "mauer", margin=1.0):
+                print("DIORAMA Warnung: Stützbock des Krans verletzt den Fahrschlauchabstand", round(fx_, 1))
     # Prellböcke an den Enden (rot-gelb)
     for (bx_, sgn) in ((xa, 1), (xb, -1)):
-        for zc, yb in ((zs, y), (zl, hl - 0.08)):
+        for zc, yb in ((zs, y), (zl, y)):
             hb_cuboid(out["rot"], bx_ - sgn * 0.45, zc, 1.0, 0.0, 0.45, 0.42, yb, yb + 0.7, "rot", col=(1.0, 1.0, 1.0), tile=1.0, bottom_fade=False)
             hb_cuboid(out["gelb"], bx_ - sgn * 0.02, zc, 1.0, 0.0, 0.03, 0.40, yb + 0.12, yb + 0.55, "gelb", col=(1.0, 1.0, 1.0), tile=1.0, bottom_fade=False)
-    if not hb_solid_force((xa + xb) / 2, zl, 1.0, 0.0, (xb - xa) / 2, 0.62, 0.7, "mauer", margin=1.0):
-        print("DIORAMA Warnung: landseitiger Kranbalken verletzt den Fahrschlauchabstand")
     return out, (xa, xb)
 
 
 # ---------------------------------------------------------------- Hafenbecken an der Lücke der Straße (Schanze über das Wasser)
 def hb_basin_rect():
     """Rechteck des Hafenbeckens (x0, z0, x1, z1) mit ganzzahligen Kanten: spannt die Lücke der Straße; das Spiel lässt dort die Fahrbahn weg."""
-    gaps = data.get("gaps", [])
+    gaps = [g for g in data.get("gaps", []) if base_height(float(g["from"])) < 0.5]      # Fassung 2: die erhöhte Lücke ist die Gasse der Terrasse
     if IS_ARENA or not gaps:
         return None
     tr = HB["track"]
@@ -897,6 +907,7 @@ def theme_materials():
     M["blech_wand"] = material("D_BlechWand", os.path.join(sd, "blech_wand.png"), 0.5, os.path.join(sd, "blech_wand_n.png"))
     M["schotter"] = material("D_Schotter", os.path.join(sd, "schotter.png"), 0.95, os.path.join(sd, "schotter_n.png"))
     M["blech_dach"] = material("D_BlechDach", os.path.join(sd, "blech_dach.png"), 0.45, os.path.join(sd, "blech_dach_n.png"))
+    M["riffel"] = material("D_Riffelblech", os.path.join(sd, "riffelblech.png"), 0.45, os.path.join(sd, "riffelblech_n.png"))
     hb_plan_layout()
 
 
@@ -1034,6 +1045,7 @@ def theme_scenery():
                 mesh_objects("Becken_" + k, parts)
     hb_portal()
     hb_build_containers(rng_)
+    hb_lv_build(rng_, dec_black, dec_yellow)
     hb_build_buildings(rng_, dec_white)
     hb_build_vehicles(rng_)
     if not IS_ARENA:
@@ -1392,6 +1404,7 @@ def hb_plan_layout():
     HB["lanes"] = []
     HB["buildings"] = []
     hb_occupy_props()
+    hb_lv_plan()
     hb_plan_lamps()
     info = hb_crane_rails() if not IS_ARENA else None
     HB["crane"] = info
@@ -1407,7 +1420,7 @@ def hb_plan_layout():
     if IS_ARENA:
         hb_plan_arena()
         return
-    hb_portal_plan(0.0, cantilever=True)
+    hb_portal_plan(0.0, cantilever=True, clear=3.6)          # Harbour Run: Pylon 7,1 m neben der Mitte (Feldtest: Gegner kurz vor dem Ziel)
     hb_plan_buildings()
     hb_plan_barriers()
     hb_plan_siding()
@@ -1425,6 +1438,8 @@ def hb_plan_layout():
         n = hb_plan_field(rect, axis, rows, bays, la, lb, dens, tiers, margin=2.6, seed=seed)
         print("DIORAMA Containerfeld", rect, ":", n, "Stapel")
     hb_plan_vehicles()
+    if HB_LV.get("straddle"):
+        HB["straddles"].append(HB_LV["straddle"])                      # Portalhubwagen in der Gasse unter dem Sprung
     hb_plan_cars()
     hb_plan_clutter()
     hb_plan_signs()
@@ -1933,10 +1948,14 @@ def hb_plan_lamps():
                 p, t = tr.at(ss)
                 left = np.array([-t[1], t[0]])
                 for extra in (0.0, 1.2):
-                    off = tr.hw(ss) + 3.0 + extra
+                    off = tr.hw(ss) + 5.0 + extra             # 8,5 m: Gegner, die im Regen oder in schnellen Kurven breit rutschen, treffen keinen Mast (Feldtest)
                     q = p + left * side * off
                     if HB_QUAY_Z - 0.5 < q[1] < -29.0:
                         continue                              # Kranbahn: dort stehen nur die Kai-Laternen
+                    if tr.circle_slack(float(q[0]), float(q[1]), 0.2) < 4.0:
+                        continue                              # auch zu anderen Abschnitten (Kurveninnenseite) mindestens 7,7 m
+                    if hb_lv_unguarded_dist(float(q[0]), float(q[1])) < 12.0:
+                        continue                              # neben erhöhter Fahrbahn ohne Leitplanke: wer herunterfällt, rutscht nicht in einen Mast
                     tries.append((q, p + left * side * (off - 4.0)))
         for pos, toward in tries:
             if hb_free(float(pos[0]), float(pos[1]), 1.0, 0.0, 0.3, 0.3, 1.0, 0.2):
@@ -2099,13 +2118,13 @@ def hb_generator(parts, x, z, ang, col=(0.95, 0.72, 0.08)):
 
 
 # ---------------------------------------------------------------- Startportal
-def hb_portal_plan(s=0.0, cantilever=False):
-    """Pylonenstellen des Startportals vormerken (belegen, Hindernis)."""
+def hb_portal_plan(s=0.0, cantilever=False, clear=1.65):
+    """Pylonenstellen des Startportals vormerken (belegen, Hindernis); clear = Abstand Fahrbahnrand - Pylonmitte."""
     tr = HB["track"]
     p, t = tr.at(s)
     fr = HbFrame(float(p[0]), float(p[1]), float(t[0]), float(t[1]))
     hw = tr.hw(s)
-    bp = hw + 1.65
+    bp = hw + clear
     sides = (1,) if cantilever else (-1, 1)
     info = {"s": s, "bp": bp, "sides": sides, "cant": cantilever, "fr": (float(p[0]), float(p[1]), float(t[0]), float(t[1])), "hw": hw}
     for sgn in sides:
@@ -3432,7 +3451,7 @@ def hb_plan_signs():
         t = lo + 1.6
         a_, b_ = (t, mid + half - 0.35) if across else (mid + half - 0.35, t)
         cx, cz = (a_, b_) if axis == "x" else (b_, a_)
-        if hb_free(cx, cz, 1.0, 0.0, 0.2, 0.2, 1.5, 0.2):
+        if hb_free(cx, cz, 1.0, 0.0, 0.2, 0.2, 3.5, 0.2):                      # Schildmast mindestens 3,5 m neben dem Fahrschlauch (Feldtest)
             hb_occupy(cx, cz, 1.0, 0.0, 0.3, 0.3)
             along = (-1.0, 0.0) if ((axis == "x") == across) else (0.0, -1.0)       # Schild zeigt zum Gassenanfang hin (zum Betrachter, der einfährt)
             ang = math.atan2(along[1], along[0])
@@ -3623,3 +3642,394 @@ def hb_build_siding(rng_):
         if ps:
             mesh_object(name, ps)
     print("DIORAMA Gleisanschluss: Fahrzeuge", len(sd["vehicles"]))
+
+
+# ---------------------------------------------------------------- Containerterrasse Ost (Harbour Run, Fassung 2; docs/dioramen/HOEHEN_PLAN.md 4.2, 7 C1)
+# Die Spielebene (Höhenprofil, Geländeraster = Fahrbahnhöhe bis Halbbreite + 1 m, Leitplanken, Lücke mit Lippe 0,4) steht in der Streckendatei.
+# Das Diorama trägt die Laufzeit-Fahrbahn sichtbar: zwei Lagen Container unter der Terrasse, gestufte Containertürme und Stahlstützen unter der
+# Auffahrt, ein durchgehendes Stahldeck aus Riffelblech (±4,5 m = Geländeraster, 5 cm unter der Fahrbahn) mit gelber Kante, gelbe Geländer entlang der
+# Leitplanken, eine schwarz-gelbe Absprungkante, die Gasse mit Portalhubwagen und die Landerampe aus Stahl mit verkratzter Lippe. Keine
+# Container-Hindernisse unter oder an der Terrassenfahrbahn; "supports" verbietet dem Spiel Laufzeit-Pfeiler.
+HB_LV = {}
+HB_DECK_DY = 0.12                                  # Oberkante Stahldeck über der Basis (Fahrbahn 0,17, Randsteine 0,14 bis 0,285)
+HB_DECK_HW = 4.5                                   # Halbbreite des Decks (Geländeraster: Fahrbahnhöhe bis Halbbreite + 1 m)
+HB_GIRDER = 0.42                                   # Höhe der Randträger unter dem Deck
+
+
+def hb_lv_sections():
+    """Abschnitte des Hochteils aus der Streckendatei: Auffahrt, Terrasse, Gasse (erhöhte Lücke), Landerampe; None ohne Hochteil."""
+    if IS_ARENA:
+        return None
+    el = data.get("elevation", [])
+    high = [g for g in data.get("gaps", []) if base_height(float(g["from"])) > 0.5]
+    if len(el) < 4 or not high:
+        return None
+    g = high[0]
+    return {"up": (float(el[0][0]), float(el[1][0])), "top": (float(el[1][0]), float(g["from"])), "gap": (float(g["from"]), float(g["to"])),
+            "land": (float(g["to"]), float(el[-1][0])), "lip": float(g.get("lip", 3.0))}
+
+
+def hb_lv_i(s):
+    return int(round((s % 1.0) * N)) % N
+
+
+def hb_lv_at(k):
+    """Mittellinienpunkt k des Kerns (0,5 m): Punkt, Tangente, links, Basis."""
+    k %= N
+    return (np.array([center[k].x, center[k].y]), np.array([tang[k].x, tang[k].y]), np.array([left[k].x, left[k].y]), float(base_height(float(S_OF[k]))))
+
+
+def hb_lv_range(s0, s1):
+    """Indizes der Mittellinie von s0 bis s1 (ohne Lückenstücke an den Enden)."""
+    i0, i1 = hb_lv_i(s0), hb_lv_i(s1)
+    if i1 < i0:
+        i1 += N
+    return [k for k in range(i0, i1 + 1)]
+
+
+def hb_lv_unguarded_dist(x, z):
+    """Abstand zur Mittellinie der erhöhten Abschnitte ohne Leitplanke (Auffahrt unterhalb der Leitplanken, Landerampe); ohne Hochteil groß."""
+    if not HB_LV:
+        return 1e9
+    g0 = min([float(g["from"]) for g in data.get("guardrails", [])] or [HB_LV["top"][0]])
+    best = 1e9
+    for s0, s1 in ((HB_LV["up"][0], g0), (HB_LV["land"][0], HB_LV["land"][1])):
+        for k in hb_lv_range(s0, s1)[::2]:
+            best = min(best, math.hypot(center[k % N].x - x, center[k % N].y - z))
+    return best
+
+
+def hb_lv_plan():
+    """Planung vor den Containerfeldern: Band der Hochstrecke belegen, Portalhubwagen in der Gasse, Gasse freihalten, Leuchten auf der Terrasse."""
+    HB_LV.clear()
+    sec = hb_lv_sections()
+    if not sec:
+        return
+    HB_LV.update(sec)
+    for k in hb_lv_range(sec["up"][0] - 2.0 / TOTAL, sec["land"][1] + 2.0 / TOTAL)[::4]:
+        p, t, _l, _b = hb_lv_at(k)
+        hb_occupy(float(p[0]), float(p[1]), float(t[0]), float(t[1]), 1.4, 5.4)
+    gm = (sec["gap"][0] + sec["gap"][1]) / 2.0
+    p, t, l, _b = hb_lv_at(hb_lv_i(gm))
+    glen = ((sec["gap"][1] - sec["gap"][0]) % 1.0) * TOTAL
+    HB_LV["gap_mid"] = (p, t, l, glen)
+    HB_LV["straddle"] = None
+    for off in (13.5, -13.5, 15.5, -15.5, 18.0, -18.0):
+        q = p + l * off
+        rc = hb_straddle_rect(float(q[0]), float(q[1]), float(l[0]), float(l[1]))
+        if hb_solid(rc[0], rc[1], rc[2], rc[3], rc[4], rc[5], 6.6, "auto", margin=2.0, pad=0.2):
+            HB_LV["straddle"] = {"c": (float(q[0]), float(q[1])), "u": (rc[2], rc[3]), "body": (0.95, 0.72, 0.06), "cont": (0.10, 0.28, 0.52), "seed": 31}
+            break
+    hb_occupy(float(p[0]), float(p[1]), float(t[0]), float(t[1]), glen / 2.0 + 1.0, 26.0)       # Gasse quer durch den Hof bleibt frei
+    # Leuchten auf der Terrasse: Mast auf dem Deck außerhalb des Geländers, je auf der Seite ohne andere Fahrbahn
+    HB_LV["masts"] = []
+    s_t0, s_t1 = sec["top"]
+    for frac in (0.32, 0.78):
+        s = s_t0 + ((s_t1 - s_t0) % 1.0) * frac
+        p, t, l, b = hb_lv_at(hb_lv_i(s))
+        best = None
+        for side in (1.0, -1.0):
+            far = float(dist_to_center(np.array([p + l * side * 9.0]))[0])
+            if best is None or far > best[0]:
+                best = (far, side)
+        side = best[1]
+        q = p + l * side * 4.36
+        HB_LV["masts"].append((float(q[0]), float(q[1]), b + HB_DECK_DY, (float(p[0]), float(p[1]))))
+    add_supports(sec["up"][0], sec["land"][1])
+    print("DIORAMA Containerterrasse: Abschnitte", {k: v for k, v in sec.items()}, "| Portalhubwagen", HB_LV["straddle"] is not None, "| Leuchten", len(HB_LV["masts"]))
+
+
+def hb_lv_containers(lists, rng_):
+    """Container unter Auffahrt und Terrasse: vier Reihen längs der Fahrbahn (Mitte ±1,235 und ±3,705 m), 40-Fuß auf Geraden, 20-Fuß in Kurven;
+    Lagen nach der Basis (oberste Lage höchstens 3 cm unter der Deckunterkante), keine Überlappung. Rückgabe: Liste (Viereck, Oberkante)."""
+    sec = HB_LV
+    idx = hb_lv_range(sec["up"][0], sec["gap"][0])
+    base = np.array([float(base_height(float(S_OF[k % N]))) for k in idx])
+    placed = []
+    n_c = 0
+    for off in (-3.705, -1.235, 1.235, 3.705):
+        P = np.array([[center[k % N].x + left[k % N].x * off, center[k % N].y + left[k % N].y * off] for k in idx])
+        arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(P, axis=0), axis=1))])
+        L_end = float(arc[-1])
+
+        def at(d):
+            j = int(np.clip(np.searchsorted(arc, d) - 1, 0, len(arc) - 2))
+            f = (d - arc[j]) / max(arc[j + 1] - arc[j], 1e-6)
+            return P[j] + (P[j + 1] - P[j]) * f
+        pos = 0.0
+        while pos < L_end - 2.0:
+            done = False
+            for L, dev_max in ((HB_L40, 0.30), (HB_L20, 0.75)):
+                if pos + L > L_end + 0.01:
+                    continue
+                pa, pb = at(pos), at(pos + L)
+                ch = pb - pa
+                ln = float(np.linalg.norm(ch))
+                if ln < L * 0.7:
+                    continue
+                u = ch / ln
+                sel = (arc >= pos) & (arc <= pos + L)
+                mids = P[sel]
+                dev = float(np.abs((mids - pa) @ np.array([-u[1], u[0]])).max()) if len(mids) else 0.0
+                if dev > dev_max:
+                    continue
+                b_min = float(base[sel].min()) if sel.any() else 0.0
+                tiers = int(math.floor((b_min + HB_DECK_DY - HB_GIRDER * 0.0 - 0.03 - 0.06) / HB_CH + 1e-6))
+                tiers = min(tiers, 2)
+                if tiers <= 0:
+                    break
+                c = (pa + pb) / 2.0
+                poly = hb_poly(float(c[0]), float(c[1]), float(u[0]), float(u[1]), ln / 2.0, HB_CW / 2.0, 0.0)
+                if any(hb_overlap(poly, q) for q, _ in placed):
+                    continue
+                col = hb_pick_color(rng_)
+                door = rng_.random() < 0.5
+                for tt in range(tiers):
+                    hb_container_one(lists, float(c[0]), float(c[1]), float(u[0]), float(u[1]), ln / 2.0, HB_CW / 2.0, 0.06 + tt * HB_CH,
+                                     col if tt == tiers - 1 else hb_pick_color(rng_), door_front=door, seed=rng_.randrange(1 << 20), top=(tt == tiers - 1))
+                    n_c += 1
+                placed.append((poly, 0.06 + tiers * HB_CH))
+                pos += L + 0.08
+                done = True
+                break
+            if not done:
+                pos += 0.5
+    print("DIORAMA Containerterrasse: Container", n_c, "in", len(placed), "Stapeln")
+    return placed
+
+
+def hb_lv_point_top(x, z, placed):
+    """Oberkante der Terrassen-Container an einem Punkt (sonst Boden)."""
+    best = GROUND_Y
+    for poly, top in placed:
+        inside_ = True
+        n = len(poly)
+        for i in range(n):
+            ax, az = poly[i]
+            bx, bz = poly[(i + 1) % n]
+            if (bx - ax) * (z - az) - (bz - az) * (x - ax) < 0:
+                inside_ = False
+                break
+        if inside_:
+            best = max(best, top)
+    return best
+
+
+def hb_lv_deck(parts, dec_yellow):
+    """Stahldeck (Riffelblech) über Auffahrt, Terrasse und Landerampe, gelbe Kante, Randträger (Stirnblech) und Unterseite."""
+    sec = HB_LV
+    rows = []
+    for s0, s1 in ((sec["up"][0], sec["gap"][0]), (sec["land"][0], sec["land"][1])):
+        rr = []
+        for k in hb_lv_range(s0, s1):
+            if in_gap(float(S_OF[k % N])):
+                continue
+            p, t, l, b = hb_lv_at(k)
+            rr.append((p, t, l, b + HB_DECK_DY))
+        rows.append(rr)
+    n = 0
+    for rr in rows:
+        for (pa, ta, la, ya), (pb, tb, lb, yb) in zip(rr, rr[1:]):
+            A = lambda o, dy=0.0: (float(pa[0] + la[0] * o), float(pa[1] + la[1] * o), ya + dy)
+            B = lambda o, dy=0.0: (float(pb[0] + lb[0] * o), float(pb[1] + lb[1] * o), yb + dy)
+            hw_ = HB_DECK_HW
+            q = [A(-hw_), B(-hw_), B(hw_), A(hw_)]
+            hb_quad(parts["riffel"], "riffel", q, [(c[0], c[1]) for c in q], None, [(0.92, 0.93, 0.95)] * 4)
+            for sg in (-1.0, 1.0):
+                o0, o1 = sg * (hw_ - 0.12), sg * hw_
+                hb_quad(dec_yellow, "linie_gelb", [A(o0, 0.004), B(o0, 0.004), B(o1, 0.004), A(o1, 0.004)], [(0, 0), (1, 0), (1, 1), (0, 1)])
+                face = (float(la[0] * sg), float(la[1] * sg))
+                hb_quad(parts["stahl_dunkel"], "stahl_dunkel", [A(o1, 0.0), B(o1, 0.0), B(o1, -HB_GIRDER), A(o1, -HB_GIRDER)],
+                        [(0, 0), (1, 0), (1, 0.4), (0, 0.4)], face, [(0.62, 0.62, 0.60)] * 2 + [(0.46, 0.46, 0.45)] * 2)
+                hb_quad(dec_yellow, "linie_gelb", [A(o1 + sg * 0.005, -0.01), B(o1 + sg * 0.005, -0.01), B(o1 + sg * 0.005, -0.09), A(o1 + sg * 0.005, -0.09)],
+                        [(0, 0), (1, 0), (1, 1), (0, 1)], face)
+            n += 1
+    HB_LV["deck_rows"] = rows
+    print("DIORAMA Stahldeck:", n, "Felder")
+
+
+def hb_lv_supports(parts, placed):
+    """Stützen der Auffahrt (über den Containertürmen bzw. vom Boden) und der Landerampe: je Joch zwei Stahlstützen (HEB 300) unter den
+    Randträgern, Querträger, bei hohen Jochen ein Mittelriegel; Fußplatten auf Boden oder Containerdach."""
+    sec = HB_LV
+    n = 0
+
+    def brace(pa, ya, pb, yb, sg, nrm):
+        """Diagonalstrebe (Flachstahl 12 cm) zwischen zwei Punkten, beidseitig sichtbar."""
+        d = np.array([pb[0] - pa[0], pb[1] - pa[1], yb - ya])
+        ln = float(np.linalg.norm(d)) or 1.0
+        up = np.array([0.0, 0.0, 1.0])
+        w = np.cross(d / ln, np.array([nrm[0], nrm[1], 0.0]))
+        w = w / (np.linalg.norm(w) or 1.0) * 0.06
+        q = [(pa[0] - w[0], pa[1] - w[1], ya - w[2]), (pb[0] - w[0], pb[1] - w[1], yb - w[2]), (pb[0] + w[0], pb[1] + w[1], yb + w[2]), (pa[0] + w[0], pa[1] + w[1], ya + w[2])]
+        for f in (1.0, -1.0):
+            hb_quad(parts["stahl"], "stahl", q if f > 0 else q[::-1], [(0, 0), (1, 0), (1, 1), (0, 1)], (nrm[0] * f * sg, nrm[1] * f * sg), [(0.72, 0.74, 0.77)] * 4)
+    for s0, s1 in ((sec["up"][0], sec["top"][0] + 6.0 / TOTAL), (sec["land"][0], sec["land"][1])):
+        ks = hb_lv_range(s0, s1)
+        prev = {}
+        for k in ks[2::9]:
+            p, t, l, b = hb_lv_at(k)
+            y_top = b + HB_DECK_DY - HB_GIRDER
+            if y_top - GROUND_Y < 0.35:
+                continue
+            feet = []
+            for sg in (-1.0, 1.0):
+                q = p + l * sg * 3.95
+                y0 = hb_lv_point_top(float(q[0]), float(q[1]), placed)
+                if y_top - y0 < 0.2:
+                    feet.append(None)
+                    prev[sg] = None
+                    continue
+                hb_cuboid(parts["stahl"], float(q[0]), float(q[1]), float(t[0]), float(t[1]), 0.15, 0.15, y0, y_top, "stahl", col=(0.78, 0.80, 0.82), tile=1.0,
+                          bottom_fade=False)
+                hb_cuboid(parts["stahl_dunkel"], float(q[0]), float(q[1]), float(t[0]), float(t[1]), 0.24, 0.24, y0, y0 + 0.03, "stahl_dunkel", col=(0.7, 0.7, 0.72),
+                          tile=1.0, bottom_fade=False)
+                feet.append((q, y0))
+                n += 1
+                pv = prev.get(sg)
+                if pv is not None and y_top - y0 > 1.4 and pv[2] - pv[1] > 1.4:          # Längsverband: Kreuz zwischen zwei Jochen
+                    q_l = (float(l[0] * sg), float(l[1] * sg))
+                    brace((float(pv[0][0]), float(pv[0][1])), pv[1] + 0.15, (float(q[0]), float(q[1])), y_top - 0.1, 1.0, q_l)
+                    brace((float(pv[0][0]), float(pv[0][1])), pv[2] - 0.1, (float(q[0]), float(q[1])), y0 + 0.15, 1.0, q_l)
+                prev[sg] = (q, y0, y_top)
+            if any(f is not None for f in feet):
+                hb_cuboid(parts["stahl_dunkel"], float(p[0]), float(p[1]), float(l[0]), float(l[1]), 4.2, 0.14, y_top - 0.3, y_top, "stahl_dunkel",
+                          col=(0.72, 0.72, 0.70), tile=1.0, bottom_fade=False)
+                if all(f is not None for f in feet) and y_top - max(f[1] for f in feet) > 2.2:
+                    ym = (y_top + max(f[1] for f in feet)) / 2.0
+                    hb_cuboid(parts["stahl"], float(p[0]), float(p[1]), float(l[0]), float(l[1]), 3.85, 0.06, ym - 0.08, ym + 0.08, "stahl",
+                              col=(0.7, 0.72, 0.75), tile=1.0, bottom_fade=False)
+    print("DIORAMA Stützen der Rampen:", n)
+
+
+def hb_lv_rails(parts):
+    """Gelbe Geländer entlang der Leitplanken der Streckendatei (Pfosten alle 2 m, Handlauf 1,1 m und Knieleiste) auf dem Deck, 4,2 m neben der Mitte."""
+    n = 0
+    for g in data.get("guardrails", []):
+        side = 1.0 if str(g.get("side")) == "left" else -1.0
+        ks = [k for k in hb_lv_range(float(g["from"]), float(g["to"])) if not in_gap(float(S_OF[k % N]))]
+        pts = []
+        for k in ks:
+            p, t, l, b = hb_lv_at(k)
+            q = p + l * side * 4.2
+            pts.append((float(q[0]), float(q[1]), b + HB_DECK_DY, t))
+        for j, (x, z, y, t) in enumerate(pts):
+            if j % 4 == 0 or j == len(pts) - 1:
+                hb_cuboid(parts["gelb"], x, z, float(t[0]), float(t[1]), 0.04, 0.04, y, y + 1.12, "gelb", col=(1.0, 1.0, 1.0), tile=1.0, bottom_fade=False)
+                n += 1
+        for (xa, za, ya, ta), (xb, zb, yb, tb) in zip(pts, pts[1:]):
+            nx_, nz_ = -ta[1] * 0.025, ta[0] * 0.025
+            for hy in (1.1, 0.55):
+                top = [(xa - nx_, za - nz_, ya + hy + 0.025), (xb - nx_, zb - nz_, yb + hy + 0.025), (xb + nx_, zb + nz_, yb + hy + 0.025), (xa + nx_, za + nz_, ya + hy + 0.025)]
+                hb_quad(parts["gelb"], "gelb", top, [(0, 0), (1, 0), (1, 1), (0, 1)], None, [(1.0, 1.0, 1.0)] * 4)
+                for sg in (-1.0, 1.0):
+                    fx, fz = nx_ * sg, nz_ * sg
+                    side_q = [(xa + fx, za + fz, ya + hy - 0.025), (xb + fx, zb + fz, yb + hy - 0.025), (xb + fx, zb + fz, yb + hy + 0.025), (xa + fx, za + fz, ya + hy + 0.025)]
+                    hb_quad(parts["gelb"], "gelb", side_q, [(0, 0), (1, 0), (1, 1), (0, 1)], (fx, fz), [(0.85, 0.85, 0.85)] * 4)
+    print("DIORAMA Geländer auf der Terrasse: Pfosten", n)
+
+
+def hb_lv_edge(parts, dec_black, dec_yellow):
+    """Schwarz-gelbe Absprungkante: Schrägstreifen quer über Fahrbahn und Deck (letzte 0,6 m vor der Gasse, Höhe der Laufzeit-Markierungen) und an der
+    Stirnseite der Terrasse (Blende 0,6 m) zur Gasse hin."""
+    sec = HB_LV
+    s_e = sec["gap"][0] - 0.35 / TOTAL
+    p, t, l, b = hb_lv_at(hb_lv_i(s_e))
+    a, c = p - l * HB_DECK_HW, p + l * HB_DECK_HW
+    hb_hatch(dec_black, dec_yellow, float(a[0]), float(a[1]), float(c[0]), float(c[1]), 0.6, b + 0.197, period=0.5, angle_deg=45.0)
+    # Stirnseite: abwechselnd gelbe und schwarze Schrägstreifen
+    k_e = hb_lv_i(sec["gap"][0])
+    while in_gap(float(S_OF[k_e % N])):
+        k_e -= 1
+    p, t, l, b = hb_lv_at(k_e)
+    y1, y0 = b + HB_DECK_DY, b + HB_DECK_DY - 0.6
+    face = (float(t[0]), float(t[1]))
+    w = 0.32
+    o = -HB_DECK_HW
+    k = 0
+    while o < HB_DECK_HW - 1e-6:
+        o1 = min(HB_DECK_HW, o + w)
+        sh = 0.6
+        q0 = p + l * o + t * 0.02
+        q1 = p + l * o1 + t * 0.02
+        q2 = p + l * min(HB_DECK_HW, o1 + sh) + t * 0.02
+        q3 = p + l * min(HB_DECK_HW, o + sh) + t * 0.02
+        pts = [(float(q0[0]), float(q0[1]), y1), (float(q1[0]), float(q1[1]), y1), (float(q2[0]), float(q2[1]), y0), (float(q3[0]), float(q3[1]), y0)]
+        key, out = ("linie_gelb", dec_yellow) if k % 2 == 0 else ("linie_schwarz", dec_black)
+        hb_quad(out, key, pts, [(0, 0), (1, 0), (1, 1), (0, 1)], face)
+        o = o1
+        k += 1
+    # Rest der Stirnseite links unten (Schräge) schwarz schließen
+    q0, q1 = p - l * HB_DECK_HW + t * 0.015, p - l * (HB_DECK_HW - 0.6) + t * 0.015
+    hb_quad(dec_black, "linie_schwarz", [(float(q0[0]), float(q0[1]), y1), (float(q0[0]), float(q0[1]), y0), (float(q1[0]), float(q1[1]), y0)],
+            [(0, 0), (1, 0), (1, 1)], face)
+    print("DIORAMA Absprungkante: Schrägstreifen", k)
+
+
+def hb_lv_lip(parts):
+    """Landerampe: Stirnwand zur Gasse aus Stahlblech (senkrechte Bahnen, Kratzer blank, Rostläufer) und eine verkratzte Lippe (Winkelstahl) oben."""
+    sec = HB_LV
+    rr = HB_LV.get("deck_rows", [[], []])[1]
+    if not rr:
+        return
+    p, t, l, y_top = rr[0]
+    rng_ = random.Random(61)
+    face = (float(-t[0]), float(-t[1]))
+    o = -HB_DECK_HW
+    while o < HB_DECK_HW - 1e-6:
+        o1 = min(HB_DECK_HW, o + 0.25)
+        v = rng_.random()
+        col = (0.30, 0.31, 0.33)
+        if v < 0.2:
+            col = (0.55, 0.56, 0.58)
+        elif v < 0.33:
+            col = (0.45, 0.30, 0.18)
+        q0, q1 = p + l * o - t * 0.03, p + l * o1 - t * 0.03
+        hb_quad(parts["stahl_dunkel"], "stahl_dunkel", [(float(q0[0]), float(q0[1]), GROUND_Y - 0.02), (float(q1[0]), float(q1[1]), GROUND_Y - 0.02),
+                                                         (float(q1[0]), float(q1[1]), y_top - 0.3), (float(q0[0]), float(q0[1]), y_top - 0.3)],
+                [(0, 0), (1, 0), (1, 1), (0, 1)], face, [tuple(c * 0.8 for c in col)] * 2 + [col] * 2)
+        lip = tuple(min(1.0, c * 1.5) for c in col)
+        hb_quad(parts["stahl_dunkel"], "stahl_dunkel", [(float(q0[0]), float(q0[1]), y_top - 0.3), (float(q1[0]), float(q1[1]), y_top - 0.3),
+                                                         (float(q1[0]), float(q1[1]), y_top + 0.01), (float(q0[0]), float(q0[1]), y_top + 0.01)],
+                [(0, 0), (1, 0), (1, 1), (0, 1)], face, [lip] * 4)
+        o = o1
+    print("DIORAMA Landerampe: Stirnwand und Lippe")
+
+
+def hb_lv_masts(parts):
+    """Leuchten auf der Terrasse: verzinkter Mast (7 m) auf dem Deck außerhalb des Geländers, Ausleger zur Fahrbahn, LED-Kopf; echte Lichtquelle und
+    Mast als Hindernis ab Deckhöhe (b)."""
+    for (x, z, y0, (tx, tz)) in HB_LV.get("masts", []):
+        dx, dz = tx - x, tz - z
+        n = math.hypot(dx, dz) or 1.0
+        ux, uz = dx / n, dz / n
+        hb_prism(parts["stahl"], x, z, 0.16, y0, y0 + 0.08, "stahl", (0.7, 0.72, 0.75), 8, tile=1.0)
+        hb_prism(parts["stahl"], x, z, 0.085, y0 + 0.08, y0 + 7.0, "stahl", (0.84, 0.86, 0.88), 8, r_top=0.06, tile=2.0)
+        hx, hz = x + ux * 1.6, z + uz * 1.6
+        hb_cuboid(parts["stahl"], (x + hx) / 2, (z + hz) / 2, ux, uz, 0.85, 0.04, y0 + 6.9, y0 + 6.98, "stahl", col=(0.84, 0.86, 0.88), tile=1.0, bottom_fade=False)
+        hb_cuboid(parts["stahl_dunkel"], hx, hz, ux, uz, 0.32, 0.14, y0 + 6.78, y0 + 6.92, "stahl_dunkel", col=(0.5, 0.52, 0.55), tile=1.0, bottom_fade=False)
+        add_light(hx, hz, y0 + 6.8, color=(1.0, 0.92, 0.78), energy=0.03, range=2.0, omni=False, glow=0.7)
+        add_light(hx + ux * 2.0, hz + uz * 2.0, y0 + 6.8, color=(1.0, 0.92, 0.78), energy=0.85, range=13.0, omni=False)
+        collide_circle(x, z, 0.16, 7.0, "mast", base=round(y0 - HB_DECK_DY, 3))
+    print("DIORAMA Leuchten auf der Terrasse:", len(HB_LV.get("masts", [])))
+
+
+def hb_lv_build(rng_, dec_black, dec_yellow):
+    """Alle Bauteile der Containerterrasse (Hook theme_scenery, vor den Hindernissen des Themas)."""
+    if not HB_LV:
+        return
+    parts = hb_new_parts("riffel", "stahl", "stahl_dunkel", "gelb")
+    cont = ([], [], [])
+    placed = hb_lv_containers(cont, random.Random(83))
+    hb_lv_deck(parts, dec_yellow)
+    hb_lv_supports(parts, placed)
+    hb_lv_rails(parts)
+    hb_lv_edge(parts, dec_black, dec_yellow)
+    hb_lv_lip(parts)
+    hb_lv_masts(parts)
+    for name, ps in zip(("Terrasse_container_seite", "Terrasse_container_tuer", "Terrasse_container_dach"), cont):
+        if ps:
+            mesh_object(name, ps)
+    for k, v in parts.items():
+        if v:
+            mesh_objects("Terrasse_" + k, v)

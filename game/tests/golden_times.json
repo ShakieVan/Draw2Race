@@ -1,0 +1,51 @@
+{
+	"note": "Solo ai_route(2.3, 0), trocken, ohne Turbo (tests/make_golden.gd)",
+	"physics": "bicycle-5",
+	"times": {
+		"arena": {
+			"crashed": false,
+			"s": 2.0002,
+			"time": 45.412446
+		},
+		"azure": {
+			"crashed": false,
+			"s": 2.0001,
+			"time": 25.999342
+		},
+		"city": {
+			"crashed": false,
+			"s": 2.001,
+			"time": 37.887655
+		},
+		"fair": {
+			"crashed": false,
+			"s": 2.0003,
+			"time": 48.727517
+		},
+		"forest": {
+			"crashed": false,
+			"s": 2.0007,
+			"time": 40.173338
+		},
+		"harbor": {
+			"crashed": false,
+			"s": 2.0004,
+			"time": 58.092681
+		},
+		"kids": {
+			"crashed": false,
+			"s": 2.0001,
+			"time": 64.265192
+		},
+		"quarry": {
+			"crashed": false,
+			"s": 2.0001,
+			"time": 75.531555
+		},
+		"serra": {
+			"crashed": false,
+			"s": 1.0,
+			"time": 29.133333
+		}
+	}
+}

@@ -7,6 +7,8 @@
   tapete.jpg                  Kinderzimmer-Tapete (nahtlos, 6 m je Kachel): Streifen, Sternchen
   zeichnung.jpg               Kinderzeichnung mit Wachsmalstiften auf Papier (Rennstrecke mit Auto, Sonne, Haus)
   lineal.jpg                  Holzlineal mit Skala
+  lineal_wippe_oben.jpg       Oberseite des Wippen-Lineals (24 x 4 m, 128 Bildpunkte je Meter): Buche, Zentimeterskala 0-60 an beiden Kanten, Ziffern
+  lineal_wippe_teile.png      Seiten- und Stirnflächen des Wippen-Lineals: Buchenkante (oben), rot-weiße Schraffur (unten)
   truhe.jpg                   Deckel der Spielzeugtruhe mit der Aufschrift TOY BOX
   spiel.jpg                   Atlas 4 x 4 Felder: Brettspiel, Kartenrücken, Herz-Ass, Pik-König, Heft, Stickerbogen, Bilderbuch, Puzzle
   sand(.jpg/_n.jpg)           Spielsand aus dem Sandkasten (nahtlos, 6 m je Kachel): warm, feine Körnung, Wellen, feuchte Flecken, Kiesel, Muschelsplitter
@@ -315,6 +317,67 @@ def make_ruler():
     img.save(os.path.join(OUT, "lineal.jpg"), quality=92)
 
 
+# ---------------------------------------------------------------- Lineal der Wippe (Abkürzung im Kinderzimmer, tools/make_kids_ruler.py)
+def beech(h, w, seed, base=(0.86, 0.70, 0.50)):
+    """Buchenholz (lackiert): feine, lange Fasern, schwache Jahresringe, Markstrahlen als kurze dunkle Striche."""
+    rng = np.random.default_rng(seed)
+    fibre = ndi.gaussian_filter(rng.standard_normal((h, w)), (0.8, 40))
+    fibre /= fibre.std() + 1e-9
+    warp = pnoise(160, seed + 1, (h, w)) * 0.5
+    rings = np.sin(2 * np.pi * (np.arange(h)[:, None] / h * 7.0 + warp))
+    rays = (ndi.gaussian_filter(rng.standard_normal((h, w)), (0.6, 2.0)) > 1.9).astype(np.float32)
+    t = 1.0 + 0.035 * fibre + 0.012 * rings - 0.05 * rays + 0.025 * pnoise(300, seed + 2, (h, w))
+    return np.array(base, np.float32)[None, None, :] * t[..., None]
+
+
+def make_ruler_seesaw():
+    W, H = 3072, 512                                   # 24 m x 4 m: 128 Bildpunkte je Meter; links = Ausfahrtsende (0 cm), rechts = Einfahrtsende (60 cm)
+    arr = beech(H, W, 71)
+    # Kanten etwas dunkler (Fase), Lack glänzt hell in der Mitte
+    yy = np.arange(H)[:, None] / H
+    arr *= (0.9 + 0.1 * np.clip(np.minimum(yy, 1 - yy) / 0.04, 0, 1))[..., None]
+    img = Image.fromarray((np.clip(arr, 0, 1) * 255).astype(np.uint8))
+    d = ImageDraw.Draw(img)
+    ink = (28, 22, 18)
+    x0, x1 = 64, W - 64                                # Skala 0 bis 60 cm (0,4 m je Zentimeter, 6 m Rand für die Endkappen)
+    font = ImageFont.truetype("C:/Windows/Fonts/BarlowCondensed-Bold.ttf", 66)
+    small = ImageFont.truetype("C:/Windows/Fonts/BarlowCondensed-Bold.ttf", 30)
+    for i in range(0, 601):
+        x = x0 + i * (x1 - x0) / 600
+        ln = 70 if i % 10 == 0 else (46 if i % 5 == 0 else 26)
+        wd = 4 if i % 10 == 0 else 2
+        d.line([(x, H - 1), (x, H - 1 - ln)], fill=ink, width=wd)       # Unterkante (Süden im Bild): Millimeter, Zentimeter länger
+        if i % 10 == 0:
+            d.line([(x, 0), (x, 40)], fill=ink, width=wd)                # Oberkante: nur Zentimeter
+        elif i % 5 == 0:
+            d.line([(x, 0), (x, 22)], fill=ink, width=2)
+    mid = ImageFont.truetype("C:/Windows/Fonts/BarlowCondensed-Bold.ttf", 38)
+    for k in range(0, 61):
+        x = x0 + k * 10 * (x1 - x0) / 600
+        txt = str(k)
+        f_ = font if k % 5 == 0 else mid                                   # volle Fünfer groß, die übrigen Zentimeter klein
+        tw = d.textlength(txt, font=f_)
+        d.text((x - tw / 2, H - 1 - 76 - (74 if k % 5 == 0 else 44)), txt, font=f_, fill=ink)
+    d.text((x0 + 12, 52), "cm", font=small, fill=ink)
+    # Aufdruck in der Mitte (wie auf Schullinealen), dezent
+    brand = ImageFont.truetype("C:/Windows/Fonts/BarlowCondensed-Bold.ttf", 92)
+    txt = "TOY BOX  ·  60 cm"
+    tw = d.textlength(txt, font=brand)
+    d.text(((W - tw) / 2, 150), txt, font=brand, fill=(120, 74, 40))
+    img = img.filter(ImageFilter.GaussianBlur(0.6))
+    img.save(os.path.join(OUT, "lineal_wippe_oben.jpg"), quality=92)
+    # Teile: oben Buchenkante (Seitenflächen, Maserung längs), unten links rot-weiße Schraffur (Stirn am Einfahrtsende)
+    T = 512
+    parts = np.ones((T, T, 3), np.float32)
+    parts[:T // 2] = beech(T // 2, T, 72, base=(0.80, 0.63, 0.43))
+    yy, xx = np.mgrid[0:T // 2, 0:T]
+    stripe = ((xx + yy) // 48) % 2 == 0
+    red = np.array((0.80, 0.10, 0.08), np.float32)
+    white = np.array((0.95, 0.94, 0.90), np.float32)
+    parts[T // 2:] = np.where(stripe[..., None], red, white)
+    Image.fromarray((np.clip(parts, 0, 1) * 255).astype(np.uint8)).save(os.path.join(OUT, "lineal_wippe_teile.png"))
+
+
 # ---------------------------------------------------------------- Truhendeckel
 def make_chest():
     W, H = 512, 320
@@ -516,7 +579,7 @@ def make_sand():
 
 
 if __name__ == "__main__":
-    which = sys.argv[1:] or ["parkett", "teppich", "wolle", "tapete", "zeichnung", "lineal", "truhe", "spiel", "sand"]
+    which = sys.argv[1:] or ["parkett", "teppich", "wolle", "tapete", "zeichnung", "lineal", "truhe", "spiel", "sand", "lineal_wippe"]
     if "parkett" in which:
         make_parkett()
     if "teppich" in which:
@@ -535,4 +598,6 @@ if __name__ == "__main__":
         make_spiel()
     if "sand" in which:
         make_sand()
+    if "lineal_wippe" in which:
+        make_ruler_seesaw()
     print("Texturen nach", OUT)

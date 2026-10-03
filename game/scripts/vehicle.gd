@@ -2,7 +2,7 @@ class_name RaceVehicle
 extends RefCounted
 
 # Dynamic bicycle model. World position is integrated ONLY here.
-const VERSION := "bicycle-4"
+const VERSION := "bicycle-5"   # 03.10.2026: Wandreibung skaliert mit dem Stoß, Höhenebenen und Wippe (alte Geister nicht mehr abspielen)
 # Fahrer-Regler; gemessen mit tests/tune_controller.gd.
 static var LOOK_BASE := 4.0
 static var LOOK_GAIN := 0.40
@@ -75,6 +75,8 @@ var loop_forward := Vector2.RIGHT
 var loop_entry := 0.0              # seitlicher Versatz bei der Einfahrt
 var loop_fall := false             # im Looping abgestürzt (jenseits der Senkrechten ohne Anpresskraft)
 var rolled_back := false           # im Looping vor der Senkrechten stehen geblieben und zurückgerollt
+var seesaws: Array = []            # Wippen dieses Rennens (RaceField; der Geist hat eigene)
+var loop_entered_at := -9.0        # Fortschritt bei der letzten Looping-Einfahrt
 
 func _init(circuit: Circuit, plan: Array[Dictionary], start_s := 0.0, lane := 0.0, car := 0) -> void:
 	track = circuit
@@ -98,7 +100,10 @@ func step(dt: float, boost: bool, time: float) -> void:
 		step_loop(dt)
 		return
 	var before := progress
+	var before_pos := pos
 	var speed := velocity.length()
+	# Sprintstrecke: Startplatz hinter der Linie (RaceField). Davor kein Rand-/Inselcheck und kein Erholungsdeckel.
+	var behind_line := track.open and progress < 0.0
 	# Only search forward through a bounded part of the drawn route.
 	while cursor < route.size() - 2 and float(route[cursor + 1].s) <= maxf(progress, 0.0):
 		cursor += 1
@@ -142,7 +147,7 @@ func step(dt: float, boost: bool, time: float) -> void:
 	steering = move_toward(steering, desired_steer, dt * STEER_RATE)
 	var desired_speed: float = route[cursor].speed
 	# Recover after an actual excursion; this never anticipates future curvature.
-	if absf(error)>0.85 or pos.distance_to(route[cursor].p)>3.0:
+	if not behind_line and (absf(error)>0.85 or pos.distance_to(route[cursor].p)>3.0):
 		desired_speed = minf(desired_speed,7.0)
 	var forward := Vector2.from_angle(heading)
 	var side := forward.orthogonal()
@@ -160,7 +165,7 @@ func step(dt: float, boost: bool, time: float) -> void:
 		# Regeneration is proportional to energy actually removed, never time alone.
 		turbo = minf(1.0, turbo + braking * u * dt * 0.00065 * turbo_factor)
 	# Untergrund: Erde/Matsch bremsen über Rollwiderstand und mindern die Haftung (Leitplanke 3).
-	var ground := str(track.surface_at(pos).kind)
+	var ground := str(track.surface_at(pos, previous_phase).kind)
 	var ground_grip: float = (1.0 - (1.0 - float(SURFACE_GRIP.get(ground, 1.0))) / offroad) * weather_grip
 	if landing > 0.0:
 		# Nach der Landung baut sich die Haftung erst wieder auf.
@@ -169,9 +174,16 @@ func step(dt: float, boost: bool, time: float) -> void:
 	var ground_drag: float = float(SURFACE_DRAG.get(ground, 0.0)) / offroad
 	var longitudinal := drive - braking - 0.010 * u * absf(u) - u * (0.09 + ground_drag)
 	if not airborne:
-		# Steigung/Gefälle (2,5D): Hangabtrieb entlang der Fahrtrichtung.
-		var ahead_s := previous_phase + signf(u) * 1.0 / track.length
-		var grade := (track.ground_height(ahead_s) - track.ground_height(previous_phase)) * signf(u)
+		# Steigung/Gefälle (2,5D): Hangabtrieb entlang der Fahrtrichtung. Auf dem Wippendeck aus dessen Neigung, auf einer
+		# Abkürzung aus dem Gelände bei pos ± 1 m, sonst aus der Fahrbahn der Hauptstrecke.
+		var grade: float
+		if deck != null:
+			grade = sin(deck.phi) * forward.dot(deck.u)
+		elif on_shortcut:
+			grade = (track.terrain_height(pos + forward * signf(u)) - track.terrain_height(pos)) * signf(u)
+		else:
+			var ahead_s := previous_phase + signf(u) * 1.0 / track.length
+			grade = (track.ground_height(ahead_s) - track.ground_height(previous_phase)) * signf(u)
 		if absf(grade) < 2.0:
 			longitudinal -= GRAVITY * grade / sqrt(1.0 + grade * grade)
 	var front_capacity := sqrt(maxf(1.0, pow(grip * ground_grip * (1.0 - rear_share), 2) - pow(longitudinal * 0.52, 2)))
@@ -195,25 +207,41 @@ func step(dt: float, boost: bool, time: float) -> void:
 	slip = maxf(absf(alpha_front), absf(alpha_rear))
 	max_slip = maxf(max_slip, slip)
 	# Harte Grenze erst am Inselrand; davor entscheidet der Untergrund.
-	if track.center_distance(pos) > ISLAND_LIMIT + track.hw(previous_phase) - Circuit.HALF_WIDTH:
-		var q := track.query(pos)
+	if not behind_line and track.center_distance(pos, previous_phase) > ISLAND_LIMIT + track.hw(previous_phase) - Circuit.HALF_WIDTH:
+		var q := track.query_branch(pos, previous_phase)
 		var normal: Vector2 = (pos - q.point).normalized()
 		pos = q.point + normal * (ISLAND_LIMIT + track.hw(previous_phase) - Circuit.HALF_WIDTH)
 		var outward := velocity.dot(normal)
 		if outward > 0.0:
 			velocity -= normal * outward * 1.35
 		velocity *= 0.84
+	if not seesaws.is_empty():
+		seesaw_contact(before_pos)
 	collide_obstacles(dt)
 	if track.mode == "drift":
 		score_drift(dt)
+	if behind_line:
+		# Vor der Startlinie: Fortschritt = −Abstand zur Linie entlang der Starttangente.
+		var along := (pos - track.at(0.0)).dot(track.tangent(0.0))
+		if along < 0.0:
+			progress = along / track.length
+			update_height(0.0, dt)
+			previous_phase = 0.0
+			return
+		progress = 0.0
+		previous_phase = 0.0
 	var ph := track.phase_near(pos, previous_phase, 0.08)
 	var ds := wrapf(ph - previous_phase, -0.5, 0.5)
 	if absf(ds) < 0.08:
 		progress += ds
+	on_shortcut = not track.shortcut_here(pos, ph).is_empty() if not track.shortcuts.is_empty() else false
 	update_height(ph, dt)
 	if not airborne and not crashed:
 		var loop := track.loop_between(previous_phase, ph)
-		if not loop.is_empty():
+		# Nach der Ausfahrt liegt das Auto wieder an der Einfahrtsstelle: dieselbe Einfahrt erst nach 3 m erneut zählen
+		# (sonst projiziert die Ausfahrtsspur gelegentlich knapp davor und das Auto fährt den Looping zweimal).
+		if not loop.is_empty() and absf(progress - loop_entered_at) * track.length > 3.0:
+			loop_entered_at = progress
 			enter_loop(loop)
 	previous_phase = ph
 	var goal := float(track.laps)
@@ -237,7 +265,7 @@ func score_drift(dt: float) -> void:
 		drift_time = maxf(0.0, drift_time - dt * 3.0)
 		if drift_time <= 0.0:
 			drift_multiplier = 1.0
-	var q := track.query(pos)
+	var q := track.query_branch(pos, previous_phase)
 	var touching := float(q.distance) > track.hw(float(q.s)) - 0.5
 	if touching and not wall_contact:
 		wall_hits += 1
@@ -249,22 +277,44 @@ func score_drift(dt: float) -> void:
 func update_height(ph: float, dt: float) -> void:
 	# Senkrechte Bewegung: am Boden folgt z der Fahrbahn; fällt der Boden schneller weg als der freie Fall
 	# (Schanzenkante, Kuppe, Lücke), hebt das Auto mit seiner senkrechten Geschwindigkeit ab.
-	var ground := track.ground_height(ph)
-	if not airborne and not in_loop and edge_check(ph, ground):
+	var was_deck := deck
+	deck = deck_under(pos)
+	var ground := deck.deck_y(deck.local(pos).x) if deck != null else (track.terrain_height(pos) if on_shortcut else track.ground_height(ph))
+	if not airborne and not in_loop and deck == null and not on_shortcut and edge_check(ph, ground):
 		return
 	if airborne:
 		vz -= GRAVITY * dt
 		z += vz * dt
 		air_time += dt
 		if z <= ground:
+			if deck == null and not on_shortcut and track.in_gap(previous_phase) and not track.in_gap(ph):
+				# Landelippe: erster Takt hinter der Lücke, die Fahrbahn liegt mehr als "lip" über dem Auto -> Stirnseite.
+				var lip := track.gap_lip(previous_phase)
+				if lip >= 0.0 and ground - z > lip:
+					lip_hit = velocity.length()
+					obstacle_hit = maxf(obstacle_hit, lip_hit)
+					obstacle_kind = "mauer"
+					crashed = true
+					velocity = Vector2.ZERO
+					return
 			airborne = false
 			landing = LANDING_TIME
-			# Harte Landung kostet etwas Tempo.
-			velocity *= clampf(1.0 + vz * 0.01, 0.85, 1.0)
+			# Harte Landung kostet etwas Tempo – gemessen an der senkrechten Geschwindigkeit relativ zur Fahrbahn (Gefälle!).
+			var vz_road := ground_rate(ph, dt)
+			velocity *= clampf(1.0 + (vz - vz_road) * 0.01, 0.85, 1.0)
 			z = ground
-			vz = 0.0
-		elif z < track.base_height(ph) - 3.0:
+			vz = vz_road
+		elif z < (track.terrain_height(pos) if on_shortcut or deck != null else track.base_height(ph)) - 3.0:
 			crashed = true
+		return
+	if deck != null and was_deck != deck:
+		# Auffahren aufs Deck (Kante <= edge_ok, seesaw_contact hat Höheres abgefangen): Höhe übernehmen, kein Katapult über die
+		# Steigratenregel; eine spürbare Stufe kostet etwas Tempo und Haftung.
+		if ground - z > 0.05:
+			velocity *= 0.96
+			landing = maxf(landing, 0.15)
+		z = ground
+		vz = deck.deck_vy(deck.local(pos).x)
 		return
 	var follow := (ground - z) / dt
 	# Abheben nur, wenn der Boden deutlich (> 5 cm) unter die Flugbahn wegfällt; kleinere Knicke schluckt die Federung.
@@ -279,11 +329,83 @@ func update_height(ph: float, dt: float) -> void:
 	z = ground
 
 var fall_speed := 0.0      # nur Darstellung: Absturz ins Tal / von der Brücke
+var deck: Seesaw = null    # Wippe, auf deren Deck das Auto gerade steht (Boden = Deck)
+var on_shortcut := false   # auf dem Pfad einer Abkürzung: Boden = Gelände, kein Randabsturz
+var edge_hit := 0.0        # Stoß an der Einfahrtskante einer Wippe (m/s; Ton/Funken)
+var lip_hit := 0.0         # an der Landelippe einer Lücke zerschellt (Tempo beim Aufprall), 0 = nein
+
+func ground_rate(ph: float, dt: float) -> float:
+	# Senkrechte Geschwindigkeit der Fahrbahn unter dem Auto bei seiner Bewegung (Landung auf Gefälle übernimmt sie).
+	if deck != null:
+		return sin(deck.phi) * velocity.dot(deck.u) + deck.deck_vy(deck.local(pos).x)
+	if on_shortcut:
+		return (track.terrain_height(pos + velocity * dt) - track.terrain_height(pos)) / dt
+	var u := velocity.dot(track.tangent(ph))
+	return (track.ground_height(ph + u * dt / track.length) - track.ground_height(ph)) / dt
+
+func deck_under(p: Vector2) -> Seesaw:
+	# Wippe, deren Deck an p die Bodenhöhe bildet: in der Grundfläche und das Auto nicht darunter (z ≥ y − LOAD_TOL).
+	for wv in seesaws:
+		var w: Seesaw = wv
+		if w.inside(p):
+			var y: float = w.deck_y(w.local(p).x)
+			if z >= y - Seesaw.LOAD_TOL:
+				return w
+	return null
+
+func seesaw_contact(before_pos: Vector2) -> void:
+	# Wippe als Körper: Einfahrtskante (Stoß bzw. Wrack je nach Kantenhöhe), Seiten und hohes Ende als festes Rechteck für Autos
+	# unterhalb der Deckhöhe. Auffahren (Kante <= edge_ok) übernimmt update_height.
+	var forward := Vector2.from_angle(heading)
+	for wv in seesaws:
+		var w: Seesaw = wv
+		var l: Vector2 = w.local(pos)
+		var lb: Vector2 = w.local(before_pos)
+		var front: Vector2 = w.local(pos + forward * CAR_REACH)
+		var in_rect := absf(l.x) <= w.half_len and absf(l.y) <= w.half_w
+		var front_hits := not in_rect and absf(front.x) <= w.half_len and absf(front.y) <= w.half_w and l.x < -w.half_len
+		if not in_rect and not front_hits:
+			continue
+		if in_rect and deck == w:
+			continue
+		var a := -w.half_len if front_hits else l.x
+		var step_up: float = w.deck_y(a) - z
+		if step_up <= w.edge_ok or (airborne and in_rect and step_up <= Seesaw.LOAD_TOL):
+			continue
+		var speed := velocity.length()
+		if not airborne and (front_hits or (lb.x < -w.half_len and absf(lb.y) <= w.half_w + 0.3)):
+			# Stirnkante an der Einfahrt: bis edge_wreck harter Stoß (Längstempo 0, das Lineal kommt durch das Gegengewicht zurück),
+			# darüber Wrack – der Crash für Nachfolger, die zu dicht hinter einem Vordermann einfahren.
+			edge_hit = speed
+			obstacle_hit = maxf(obstacle_hit, speed)
+			obstacle_kind = "lineal"
+			if step_up > w.edge_wreck:
+				wreck()
+				return
+			var back := (front.x + w.half_len + 0.02) if front_hits else (l.x + w.half_len + 0.02 + CAR_REACH)
+			pos -= w.u * back
+			var along := velocity.dot(w.u)
+			if along > 0.0:
+				velocity -= w.u * along
+			continue
+		# Seite oder hohes Ende: wie eine Mauer (Abprall, Wrack über WRECK_SPEED).
+		var dx := w.half_len - absf(l.x)
+		var dy := w.half_w - absf(l.y)
+		var n: Vector2 = w.u * signf(l.x if l.x != 0.0 else 1.0) if dx < dy else Vector2(-w.u.y, w.u.x) * signf(l.y if l.y != 0.0 else 1.0)
+		pos += n * (minf(dx, dy) + 0.02)
+		var vn := velocity.dot(n)
+		if vn < 0.0:
+			velocity -= n * vn * 1.3
+			obstacle_hit = maxf(obstacle_hit, -vn)
+			obstacle_kind = "lineal"
+			if -vn > WRECK_SPEED:
+				wreck()
+				return
 
 func edge_check(ph: float, road: float) -> bool:
 	# Neben der Fahrbahn fällt das Gelände steil ab (Brücke, Bergstraße, Steilküste)?
 	# Mit Leitplanke: Abprallen, ab BREAK_SPEED senkrecht zur Planke bricht sie -> Absturz. Ohne: Absturz.
-	var q := track.query(pos)
+	var q := track.query_branch(pos, previous_phase)
 	var distance := float(q.distance)
 	var edge := track.hw(float(q.s)) + 0.7
 	if distance <= edge:
@@ -354,21 +476,77 @@ func step_loop(dt: float) -> void:
 		velocity = forward * loop_speed
 		yaw = 0.0
 
+const AVOID_PREVIEW := 1.5     # s Vorausschau: Schwungzone oder Kurve so weit voraus -> Versatz schon zurücknehmen
+const AVOID_RETURN := 1.5      # m/s Rücknahme des Versatzes (Aufbau 3 m/s · Nässe)
+const AVOID_K0 := 1.0 / 40.0   # Krümmung, bis zu der voll ausgewichen wird (Radius 40 m) ...
+const AVOID_K1 := 1.0 / 18.0   # ... und ab der gar nicht mehr (Radius 18 m)
+const AVOID_EDGE := 1.3        # m: Zielspur bleibt so weit innerhalb des Fahrbahnrands
+const AVOID_USE0 := 0.45       # Anteil der Querhaftung, bis zu dem voll ausgewichen wird ...
+const AVOID_USE1 := 0.8        # ... und ab dem gar nicht mehr
+
 static func update_avoidance(cars: Array, dt: float) -> void:
 	# Gegner (Index > 0) weichen Autos aus, die schräg vor oder neben ihnen fahren.
+	# Kein Versatz gegen Autos auf einer anderen Ebene (|Δz| > 1 m), in Schwungzonen (Anlauf von Sprung und Looping), auf erhöhter
+	# Fahrbahn und auf Wippen-Abkürzungen: dort kostet jeder Schlenker Schwung oder führt über die Kante.
+	# Bei Nässe und Schnee kleinere und sanftere Schlenker (sonst schaukelt sich das Zurücklenken bis neben die Fahrbahn auf).
+	# Seit 03.10.2026 (Prüfung Nachtschicht): Versatz nur auf Geraden (in Kurven dreht der verschobene Zielpunkt das Auto über, am Kurvenausgang
+	# folgt mit Vollgas ein Heckrutscher bis an Wall oder Absperrung), nie über den Fahrbahnrand hinaus, und vor einer Schwungzone schon
+	# AVOID_PREVIEW s vorher sanft zurück auf 0 (abruptes Zurücksetzen am Zonenbeginn ließ das Auto bis zum Absprung pendeln).
+	var wet := weather_grip * weather_grip
 	for i in range(1, cars.size()):
 		var me: RaceVehicle = cars[i]
 		var goal := 0.0
 		var forward := Vector2.from_angle(me.heading)
+		var speed := me.velocity.length()
+		var ahead_s := me.progress + (speed * AVOID_PREVIEW + 3.0) / me.track.length
+		if me.track.calm_at(me.progress) or me.track.calm_at(ahead_s) or (not me.seesaws.is_empty() and me.on_seesaw_route()):
+			me.avoid_offset = move_toward(me.avoid_offset, 0.0, dt * AVOID_RETURN)
+			continue
+		var bend := 0.0
+		for k in range(3):
+			bend = maxf(bend, me.track.curvature(me.track.unit(lerpf(me.progress, ahead_s, k * 0.5))))
+		var straight := clampf(1.0 - (bend - AVOID_K0) / (AVOID_K1 - AVOID_K0), 0.0, 1.0)
+		# Haftungsreserve: braucht die Kurve schon einen großen Teil der Querhaftung (v²·k gegen Haftung des Autos auf Belag und Wetter),
+		# bleibt für einen Schlenker nichts übrig (Serra Regen, R 40 m mit 15 m/s: Schlenker -> Notbremsung -> Abflug).
+		var road_grip: float = float(SURFACE_GRIP.get(me.track.road, 1.0)) * weather_grip
+		var usage := speed * speed * bend / maxf(me.grip * road_grip * 0.8, 1.0)
+		straight = minf(straight, clampf((AVOID_USE1 - usage) / (AVOID_USE1 - AVOID_USE0), 0.0, 1.0))
 		for j in range(cars.size()):
 			if j == i or cars[j].finish_time >= 0.0:
+				continue
+			if absf(cars[j].z - me.z) > 1.0:
 				continue
 			var d: Vector2 = cars[j].pos - me.pos
 			var ahead := d.dot(forward)
 			var side := d.dot(forward.orthogonal())
 			if ahead > -0.6 and ahead < 4.5 and absf(side) < 1.9:
-				goal = -signf(side if absf(side) > 0.05 else 1.0) * 1.7
-		me.avoid_offset = move_toward(me.avoid_offset, goal, dt * 3.0)
+				var sgn := signf(side if absf(side) > 0.05 else 1.0)
+				# eingeklemmt (links und rechts je ein Auto): Spur halten statt in den anderen Nachbarn zu lenken
+				if goal != 0.0 and signf(goal) == sgn:
+					goal = 0.0
+					break
+				goal = -sgn * 1.7 * wet * straight
+		# Fahrbahnrand: +Versatz verschiebt das Ziel zur negativen Querlage (Circuit.at). Spur der Route − Versatz bleibt innerhalb hw − AVOID_EDGE.
+		var lane := float(me.route[me.cursor].get("o", 0.0))
+		var room := maxf(0.0, me.track.hw(me.track.unit(me.progress)) - AVOID_EDGE)
+		goal = clampf(goal, lane - room, lane + room)
+		me.avoid_offset = move_toward(me.avoid_offset, goal, dt * (3.0 * wet if absf(goal) > absf(me.avoid_offset) else AVOID_RETURN))
+
+func on_seesaw_route() -> bool:
+	# KI-Route nimmt in dieser Runde eine Wippen-Abkürzung und das Auto ist zwischen 12 m vor dem Abzweig und der Einmündung.
+	for wv in seesaws:
+		var w: Seesaw = wv
+		if w.shortcut < 0 or w.shortcut >= track.shortcuts.size():
+			continue
+		var sc: Dictionary = track.shortcuts[w.shortcut]
+		var x := track.unit(progress)
+		if x < float(sc.from) - Circuit.SHORTCUT_BLEND / track.length or x > float(sc.to):
+			continue
+		var lap := floorf(progress)
+		var idx := clampi(int((lap + float(sc.from)) * track.span()) + 2, 0, route.size() - 1)
+		if int(route[idx].get("sc", -1)) == w.shortcut:
+			return true
+	return false
 
 static func resolve_contact(a: RaceVehicle, b: RaceVehicle) -> float:
 	# Rückgabe: Aufprallgeschwindigkeit (m/s) für Funken/Geräusch; 0 = keine Berührung. Nur Information,
@@ -400,12 +578,14 @@ const CAR_RADIUS := 0.95
 const CAR_INERTIA := 1.8
 const STUCK_TIME := 3.0
 const WRECK_SPEED := 17.0      # m/s senkrecht in eine Wand oder ein Auto: Totalschaden
+const WALL_FRICTION := 0.6     # Reibbeiwert Auto–Hindernis (Tangentialstoß höchstens μ · Normalstoß)
 var obstacle_hit := 0.0         # stärkster Aufprall (m/s) seit dem letzten Abholen, für Geräusch/Funken (Aufrufer setzt zurück)
 var obstacle_kind := ""
 var stuck := 0.0
 var stuck_from := 0.0
 var last_touch := 9.0
 var wrecked := false
+var wreck_cause := ""       # nur Auswertung (Feldtest): Aufprall oder Festhängen und woran
 
 func collide_obstacles(dt: float) -> void:
 	if track.obstacles.is_empty():
@@ -416,7 +596,11 @@ func collide_obstacles(dt: float) -> void:
 		var c: Vector2 = pos + forward * off
 		for idx in track.obstacles_near(c):
 			var o: Dictionary = track.obstacles[idx]
-			if airborne and z > float(o.y):
+			if o.has("b"):
+				# Hindernis mit Unterkante (Bruchwand, Wall auf dem Damm, Stift): nur bei Höhenüberlappung, am Boden wie in der Luft.
+				if not Circuit.obstacle_reaches(o, z):
+					continue
+			elif airborne and z > float(o.y):
 				continue
 			var hit := track.obstacle_contact(o, c, CAR_RADIUS)
 			if hit.z <= 0.0:
@@ -436,14 +620,21 @@ func collide_obstacles(dt: float) -> void:
 			var j := -(1.0 + e) * vn / (1.0 + rn * rn / CAR_INERTIA)
 			velocity += n * j
 			yaw = clampf(yaw + rn * j / CAR_INERTIA, -3.0, 3.0)
+			# Reibung entlang der Wand nach Coulomb: höchstens μ·Normalstoß, gedeckelt auf den bisherigen Anteil der Tangentialgeschwindigkeit.
+			# Ein harter Treffer bremst wie bisher; ein Auto, das nur anliegt und weiterschiebt, schrammt entlang statt festzukleben (Prüfung
+			# 03.10.: mit dem festen Anteil je Takt und −10 % je Takt an weichen Hindernissen blieben Gegner mit Vollgas bei 0,2 m/s an
+			# Absperrung und Wall hängen und wurden nach STUCK_TIME zum Wrack).
 			var t := Vector2(-n.y, n.x)
-			velocity -= t * vc.dot(t) * (0.35 if soft else 0.22)
+			var vt := vc.dot(t)
+			velocity -= t * signf(vt) * minf(absf(vt) * (0.35 if soft else 0.22), WALL_FRICTION * j)
 			if soft:
-				velocity *= 0.9
+				# Weiche Hindernisse schlucken beim Aufprall Energie (bis 10 % ab 3 m/s Stoß), nicht beim bloßen Anliegen.
+				velocity *= 1.0 - 0.1 * clampf(-vn / 3.0, 0.0, 1.0)
 			if -vn > obstacle_hit:
 				obstacle_hit = -vn
 				obstacle_kind = str(o.k)
 			if not soft and -vn > WRECK_SPEED and str(o.k) in ["mauer", "auto"]:
+				wreck_cause = "Aufprall " + str(o.k)
 				wreck()
 				return
 	# Festgefahren: berührt (oder eben noch berührt) und kaum Fortschritt entlang der Strecke.
@@ -455,6 +646,7 @@ func collide_obstacles(dt: float) -> void:
 		if (progress - stuck_from) * track.length > 2.0:
 			stuck = 0.0
 		elif stuck > STUCK_TIME:
+			wreck_cause = "fest " + obstacle_kind
 			wreck()
 	else:
 		stuck = 0.0

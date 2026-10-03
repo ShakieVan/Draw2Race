@@ -55,3 +55,13 @@ Höhenstrecken eine eigene Aufnahme mit `camera_target.y = track.surface_z(s)` n
 - Findlinge sind flach schattiert (kantig) und wirken aus der Nähe polygonal.
 - Nachts leuchtet die Felswand nahe dem Leuchtturm (30 m Reichweite) kräftig warm; die Lichtkarte kennt keinen schmalen Strahl.
 - Keine Freileitung (siehe oben); Strommasten wären ein guter Zusatz für Hütte und Kapelle.
+
+## Nachtrag 03.10.2026 (Höhen-Paket, C3): Startvorfeld und Nutzungsspuren
+
+- **Startvorfeld:** Seit dem Sprint-Start (HOEHEN_PLAN A2 h) stehen die Gegner 4,5 m je Platz hinter der Linie auf einem 15 m langen Laufzeit-Vorfeld (`world.gd`
+  `build_sprint_apron`). Geprüft mit Draufsicht (`dio_shot.gd`, `AT=0`, Tag `_sp1`) und einer Rennaufnahme während des Countdowns (Kamera 7 m hinter der Linie,
+  Bild `dio_serra_day_sp_grid.png`): Das Gelände des Dioramas (Schotterplatz) liegt überall unter dem Vorfeld, alle drei Gegner stehen sichtbar darauf, nichts verdeckt.
+  `mountain.py` und das Diorama bleiben deshalb **unverändert** (kein Neubau). Das Vorfeld hat keine Randsteine und keine Spurenkarte (UV 0, liegt auf der ausgesparten
+  Startzeile); es wirkt wie eine asphaltierte Haltebucht vor dem Torbogen.
+- **Nutzungsspuren:** `game/assets/wear/serra.png` (120 × 1284 px, README Abschnitt 9): Gummistriche in den Bremszonen vor den Kehren, Politur der Ideallinie, keine
+  Rinnen (Asphalt). Start- und Ziellinie ±1 m frei.

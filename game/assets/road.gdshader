@@ -24,6 +24,16 @@ uniform vec4 albedo_tint : source_color = vec4(1.0);
 uniform float albedo_scale = 6.0;
 uniform sampler2D ao_tex : hint_default_white, filter_linear, repeat_disable;
 uniform bool use_ao = false;
+// Spurenkarte der Laufzeit-Fahrbahn (world.gd apply_wear_map; UV = Seitenversatz m, Bogenlänge m): R Gummi, G Politur, B Spurrinne
+// (Erzeuger tests/make_wear.gd, docs/dioramen/README.md „Nutzungsspuren“). Unbunt: Gummi alt = weich, gräulich, höchstens 30 % dunkler
+// (frische Laufzeitspuren liegen dunkler und scharf darüber); Politur höchstens 8 % glatter; Rinnen auf Schotter verdichtet (weniger
+// Körnung, dunkler, falsche Normale ≤ 3 cm – nachts wirkt nur die Abdunklung, das Laternenlicht hängt nicht an der Normale);
+// Regen: Gummi glänzt etwas, Pfützen sammeln sich in Rinnen; Schnee bleibt in Rinnen und auf der Politur weniger liegen.
+// wear_strength 0 = keine Karte (alles wie ohne Spuren).
+uniform sampler2D wear_map : hint_default_black, filter_linear_mipmap, repeat_enable;
+uniform float wear_strength = 0.0;
+uniform float wear_lat = 6.0;
+uniform float wear_len = 1.0;
 
 #include "res://assets/lamp_light.gdshaderinc"
 
@@ -40,7 +50,13 @@ void fragment() {
 	if (use_albedo) {
 		base = texture(albedo_tex, world_xz / albedo_scale).rgb * albedo_tint.rgb;
 	}
-	vec3 col = base * (1.0 - grain_strength * 0.5 + grain_strength * (0.6 * g1 + 0.4 * g2));
+	vec3 used = vec3(0.0);
+	if (wear_strength > 0.001) {
+		used = texture(wear_map, vec2((UV.x + wear_lat) / (2.0 * wear_lat), UV.y / max(wear_len, 0.001))).rgb * wear_strength;
+	}
+	// Verdichtete Rinne: feinere Oberfläche (weniger Körnung).
+	float grain_k = grain_strength * (1.0 - 0.6 * used.b);
+	vec3 col = base * (1.0 - grain_k * 0.5 + grain_k * (0.6 * g1 + 0.4 * g2));
 	if (wear > 0.001) {
 		// Abgenutzter Asphalt: Ausbesserungsflecken mit scharfer Kante, feine Risse entlang von Höhenlinien der Rauschtextur,
 		// vereinzelt dunkle Ölflecken. Alles in Weltkoordinaten, ohne zusätzliche Geometrie.
@@ -55,6 +71,19 @@ void fragment() {
 	}
 	// Pfützen: viele kleine, unregelmäßige Lachen (Rauschlagen 9 m, 3 m und 1 m), in den Fahrspuren länglich; um jede Lache bleibt
 	// der Asphalt feucht und dunkel.
+	if (wear_strength > 0.001) {
+		// Alter Gummiabrieb: leicht entsättigt (gräulich) und höchstens 30 % dunkler; Rinne bis 16 % dunkler.
+		float lum = dot(col, vec3(0.299, 0.587, 0.114));
+		col = mix(col, mix(col, vec3(lum), 0.4) * 0.70, used.r);
+		col *= 1.0 - 0.16 * used.b;
+	}
+	// Falsche Normale der Rinnen (Höhe −3 cm·B) aus Bildschirmableitungen; immer gerechnet (Ableitungen nicht in Verzweigungen),
+	// ohne Karte ist B 0 und die Normale bleibt unverändert.
+	float rut_h = -0.03 * used.b;
+	vec3 dpdx = dFdx(VERTEX);
+	vec3 dpdy = dFdy(VERTEX);
+	float dhx = dFdx(rut_h);
+	float dhy = dFdy(rut_h);
 	float rut = 0.0;
 	if (COLOR.r < 0.5) {
 		float lat = UV.x * 6.0;     // Hauptband: Querabstand zur Mittellinie (m)
@@ -62,7 +91,7 @@ void fragment() {
 	}
 	vec2 pc = world_xz;
 	float pn = texture(puddle_tex, pc * 0.09).r * 0.5 + texture(puddle_tex, pc * 0.29 + vec2(0.31, 0.17)).r * 0.32 + texture(puddle_tex, pc * 0.83 + vec2(0.6, 0.4)).r * 0.18;
-	pn += rut * 0.07;
+	pn += rut * 0.07 + used.b * 0.12;
 	float puddle = smoothstep(puddle_cover, puddle_cover + 0.028, pn) * puddles;
 	float damp = smoothstep(puddle_cover - 0.07, puddle_cover, pn) * puddles;
 	float wet = clamp(max(max(wetness * 0.65, puddle), damp * 0.8), 0.0, 1.0);
@@ -84,13 +113,23 @@ void fragment() {
 		}
 		rings *= rain * mix(0.35, 1.0, puddle);
 	}
-	col = mix(col, vec3(0.88, 0.91, 0.95), snow * (0.82 + 0.14 * g2));      // starker Schneefall: die Straße ist kaum noch zu erkennen
+	// Schnee bleibt in Rinnen und auf der Politur (Ideallinie) weniger liegen.
+	float snow_k = snow * (1.0 - 0.5 * used.b) * (1.0 - 0.35 * used.g);
+	col = mix(col, vec3(0.88, 0.91, 0.95), snow_k * (0.82 + 0.14 * g2));      // starker Schneefall: die Straße ist kaum noch zu erkennen
 	ALBEDO = col;
+	if (used.b > 0.002) {
+		vec3 r1 = cross(dpdy, NORMAL);
+		vec3 r2 = cross(NORMAL, dpdx);
+		float det = dot(dpdx, r1);
+		if (abs(det) > 1e-10) {
+			NORMAL = normalize(abs(det) * NORMAL - sign(det) * (dhx * r1 + dhy * r2));
+		}
+	}
 	if (use_ao) {
 		AO = texture(ao_tex, UV2).r;
 		AO_LIGHT_AFFECT = 0.85;
 	}
-	ROUGHNESS = mix(mix(0.88, 0.06, wet), 0.8, snow);
+	ROUGHNESS = max(0.04, mix(mix(0.88, 0.06, wet), 0.8, snow_k) - 0.08 * used.g - 0.10 * used.r * wetness);
 	SPECULAR = mix(0.4, 0.6, wet);
 	if (use_reflection && wet > 0.01) {
 		vec2 ripple = (vec2(texture(grain_tex, world_xz * 0.9 + vec2(TIME * 0.21, TIME * 0.13)).r,
@@ -103,7 +142,7 @@ void fragment() {
 		// Spiegelbild neutraler halten: der Himmel der Dämmerung färbt sonst ganze Pfützen violett.
 		refl = mix(vec3(dot(refl, vec3(0.299, 0.587, 0.114))), refl, 0.55);
 		// Pfützen spiegeln fast wie ein Spiegel, der nasse Film nur schwach.
-		float strength = mix(wetness * 0.2, 0.62, puddle);
+		float strength = mix(wetness * 0.2, 0.62, puddle) + 0.06 * used.r * wetness * (1.0 - puddle);
 		EMISSION = refl * strength;
 		ALBEDO *= 1.0 - strength * 0.6;
 	}

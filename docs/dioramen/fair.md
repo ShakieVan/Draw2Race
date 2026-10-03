@@ -66,3 +66,10 @@ Der Jahrmarkt ist der Nachtbild-Vorzeigefall: bunte Lichter sind die Lichtquelle
 - Zwei Orte der ersten Planung ohne Treffer: Sonnenschirm bei -39 | -8,5 und der dritte Tieflader bei -97 | 24 (belegt).
 - Das Riesenrad, das Karussell, der Autoscooter und das Zelt sind die vorhandenen KI-Modelle (unverändert); ihre Lichter sind Punktlichter und Flecken, keine
   Leuchtflächen am Modell.
+
+## Nachtrag 03.10.2026 (Höhen-Paket, C3)
+
+- Streckendatei und Diorama unverändert (kein Neubau). Kontrolle nach den Änderungen am Fahrbahn-Shader: Tag, Nacht und Regen (`dio_shot.gd`, Tag `_c3w1`/`_c3w2`, `AT` 0,192)
+  ohne Fehler, Pfützen und Spiegelung wie vorher.
+- **Nutzungsspuren:** `game/assets/wear/fair.png` (120 × 1258 px, README Abschnitt 9): Gummistriche vor den Haarnadeln, Politur der Ideallinie; Schanze (s 0,387, 7 m) und Lücke
+  0,4093–0,4475 sind ausgespart, an der ebenen Acht-Kreuzung liegt jede Spur auf ihrem eigenen Ast (Fahrbahn-UV des Asts).

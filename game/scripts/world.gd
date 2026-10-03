@@ -190,7 +190,10 @@ func build(circuit: Circuit) -> void:
 	var half := track.bounds.size*0.5 + Vector2(Circuit.HALF_WIDTH+9.0, Circuit.HALF_WIDTH+9.0)
 	shape("box", Vector3(c.x,-2.5,c.y), Vector3(half.x*2+160,0.4,half.y*2+160), Color(theme.sea))
 	var fancy_ground := premium_rendering()
-	diorama = premium_rendering() and ResourceLoader.exists(DIORAMA_PATH % track.id)
+	# Veraltete Begleitdatei (Hash/rev passt nicht zur Streckendatei): Laufzeitgrafik statt eines still falschen Dioramas.
+	diorama = premium_rendering() and ResourceLoader.exists(DIORAMA_PATH % track.id) and track.layout_ok
+	if premium_rendering() and ResourceLoader.exists(DIORAMA_PATH % track.id) and not track.layout_ok:
+		push_warning("Diorama %s ist veraltet (track_hash/rev): Laufzeitgrafik" % track.id)
 	if diorama:
 		# Gebackenes Diorama (Blender, tools/diorama.py): Boden, Straße, Häuser, Bäume, Umgebungsverdeckung.
 		build_diorama()
@@ -262,20 +265,26 @@ func build(circuit: Circuit) -> void:
 		pass      # Fahrbahn, Randsteine und Linien stecken im Diorama (Begleitdatei "runtime_road": das Spiel baut sie wie ohne Diorama)
 	elif track.road == "gravel":
 		build_gravel_road()
+		build_sprint_apron()
 	else:
 		build_asphalt_road()
+		build_sprint_apron()
 	# Start/Ziel-Karo quer über die Fahrbahn und Startplätze dahinter.
 	var t0 := track.tangent(0.0)
 	var n0 := Vector2(-t0.y, t0.x)
+	var start_y := track.base_height(0.0)
 	for row in range(2):
 		for k in range(10):
 			var lateral := -3.15 + k*0.7
 			var p := track.at(0.0, lateral) + t0*(row*0.36 - 0.18)
-			shape("box", Vector3(p.x,0.205,p.y), Vector3(0.36,0.018,0.7), CREAM if (row+k)%2==0 else DARK, -t0.angle())
+			shape("box", Vector3(p.x,0.205 + start_y,p.y), Vector3(0.36,0.018,0.7), CREAM if (row+k)%2==0 else DARK, -t0.angle())
 	if track.road == "asphalt":
 		for k in range(4):
-			var p := track.at(-(2.0+k*2.1)/track.length, (1.5 if k%2 else -1.5))
-			shape("box", Vector3(p.x,0.20,p.y), Vector3(1.3,0.018,0.06), CREAM, -t0.angle())
+			var ks := -(2.0+k*2.1)/track.length
+			var p := track.at(ks, (1.5 if k%2 else -1.5))
+			if track.open:
+				p = track.at(0.0, (1.5 if k%2 else -1.5)) - t0 * (2.0 + k * 2.1)
+			shape("box", Vector3(p.x,0.20 + track.base_height(ks),p.y), Vector3(1.3,0.018,0.06), CREAM, -t0.angle())
 	for s in [0.04,0.25,0.50,0.75]:
 		var p := track.at(s)
 		if track.other_branch_distance(p, s) < Circuit.HALF_WIDTH + 1.0:
@@ -285,9 +294,10 @@ func build(circuit: Circuit) -> void:
 		var arrow_color := Color("d9d1bd") if track.road == "gravel" else Color("b8bfb1")
 		for sign_value in [-1.0,1.0]:
 			var center: Vector2 = p-track.tangent(s)*0.34+track.tangent(s).orthogonal()*sign_value*0.22
-			shape("box", Vector3(center.x,0.20+s*0.004,center.y), Vector3(0.85,0.02,0.16), arrow_color, angle-sign_value*0.55)
+			shape("box", Vector3(center.x,0.20+s*0.004+track.base_height(s),center.y), Vector3(0.85,0.02,0.16), arrow_color, angle-sign_value*0.55)
 	build_stunts()
 	build_shortcuts()
+	build_seesaw_nodes()
 	var layout_world := not diorama and track.obstacle_source == "layout"
 	for prop in track.props:
 		if diorama and (track.is_baked(prop) or diorama_blocks(prop)):
@@ -297,6 +307,10 @@ func build(circuit: Circuit) -> void:
 		build_prop(prop)
 	if layout_world:
 		build_obstacle_blocks()
+	elif not diorama:
+		build_collider_blocks()
+	if not premium_rendering() and not track.guardrails.is_empty():
+		build_guardrail_bands()
 	for lamp in diorama_lamps:
 		var lamp_prop := {"type": "lamp", "x": lamp.x, "z": lamp.z, "toward": lamp.toward}
 		if lamp.has("model"):
@@ -321,6 +335,12 @@ func build(circuit: Circuit) -> void:
 		# Premium: Asphalt-/Schotter-Shader mit Nässe, Pfützen und Spiegelung statt Einfarbfläche.
 		atmosphere.road_shader = premium_road(road_color)
 		road_mesh.material_override = atmosphere.road_shader
+		apply_wear_map()
+	if apron_mesh != null and road_mesh != null:
+		apron_mesh.material_override = road_mesh.material_override
+	for part in deck_roads:
+		if road_mesh != null:
+			part.material_override = road_mesh.material_override
 	build_puddles()
 	marker = Node3D.new()
 	add_child(marker)
@@ -334,15 +354,19 @@ func build(circuit: Circuit) -> void:
 	add_child(open_mesh)
 	ghost_mesh = MeshInstance3D.new()
 	add_child(ghost_mesh)
+	under_mesh = MeshInstance3D.new()
+	under_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(under_mesh)
 	skid_mesh = MeshInstance3D.new()
 	skid_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(skid_mesh)
 	sort_layers(self)
-	for flat in [line_mesh, open_mesh, ghost_mesh, skid_mesh]:
+	for flat in [line_mesh, open_mesh, ghost_mesh, skid_mesh, under_mesh]:
 		flat.layers = LAYER_FLAT
 
 func build_asphalt_road() -> void:
-	road_mesh = road_strip(-3.5, 3.5, 0.17, Color("394950"), 0.0, 1.0, true, false, false)
+	road_mesh = road_strip(-3.5, 3.5, 0.17, Color("394950"), 0.0, 1.0, true, false, false, ROAD_NO_DECK)
+	build_deck_road(Color("394950"))
 	road_strip(-3.37, -3.29, 0.185, Color("e8dfc8"), 0.0, 1.0, true, true)
 	road_strip(3.29, 3.37, 0.185, Color("e8dfc8"), 0.0, 1.0, true, true)
 	# Randsteine als durchgehendes Band je Seite: Segmentgrenzen quer zur Strecke, daher innen kürzer und außen
@@ -354,8 +378,8 @@ func build_asphalt_road() -> void:
 		var s := float(i) / curb_count
 		if i % 4 == 0:
 			var p := track.at(s)
-			if track.other_branch_distance(p, s) > Circuit.HALF_WIDTH + 0.2:
-				shape("box", Vector3(p.x,0.182+s*0.004,p.y), Vector3(0.8,0.016,0.06), Color("8b9390"), -track.tangent(s).angle())
+			if track.other_branch_distance(p, s) > Circuit.HALF_WIDTH + 0.2 and not track.in_gap(s):
+				shape("box", Vector3(p.x,0.182+s*0.004+track.base_height(s),p.y), Vector3(0.8,0.016,0.06), Color("8b9390"), -track.tangent(s).angle())
 
 func build_terrain(theme: Dictionary, fancy: bool) -> void:
 	var tr: Dictionary = track.terrain
@@ -439,24 +463,40 @@ func shortcut_material(surface: String) -> Material:
 
 func build_shortcuts() -> void:
 	# Fahrbahn der Abkürzungen (schmaler, eigener Belag) entlang ihres Pfads.
-	for sc in track.shortcuts:
+	for k in range(track.shortcuts.size()):
+		var sc: Dictionary = track.shortcuts[k]
 		var trail: Array = sc.path
 		var half := float(sc.width) * 0.5
 		var st := SurfaceTool.new()
 		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var decks: Array = []
+		for w in track.rest_seesaws():
+			if w.shortcut == k:
+				decks.append(w)
 		for i in range(trail.size() - 1):
-			var a: Vector2 = trail[i]
-			var b: Vector2 = trail[i + 1]
-			# Querrichtung wie Circuit.at (-t.y, t.x), nicht Vector2.orthogonal() (t.y, -t.x): sonst läuft die Umlaufrichtung der Dreiecke
-			# gegen die der Hauptstraße, die Fläche blickt nach unten und der Fahrbahn-Shader (cull_disabled) beleuchtet sie als Rückseite (schwarz).
-			var dir := (b - a).normalized()
-			var nrm := Vector2(-dir.y, dir.x) * half
-			var ya := 0.165 + track.terrain_height(a)
-			var yb := 0.165 + track.terrain_height(b)
-			var q := [Vector3(a.x - nrm.x, ya, a.y - nrm.y), Vector3(a.x + nrm.x, ya, a.y + nrm.y), Vector3(b.x + nrm.x, yb, b.y + nrm.y), Vector3(b.x - nrm.x, yb, b.y - nrm.y)]
-			for j in [0, 2, 1, 0, 3, 2]:
-				st.set_normal(Vector3.UP)
-				st.add_vertex(q[j])
+			# Unter einem Lineal kein Streifen: dort ist das Lineal die Fahrbahn (sonst deckt der Streifen das tiefe Einfahrtsende samt
+			# rot-weißer Warnkante in Ruhelage zu). Mit Wippe in Stücke ≤ 0,5 m geteilt, ohne Wippe wie bisher ein Viereck je Pfadstück.
+			var pa: Vector2 = trail[i]
+			var pb: Vector2 = trail[i + 1]
+			var pieces := 1 if decks.is_empty() else maxi(1, ceili(pa.distance_to(pb) / 0.5))
+			for m in range(pieces):
+				var a := pa.lerp(pb, float(m) / pieces)
+				var b := pa.lerp(pb, float(m + 1) / pieces)
+				var under := false
+				for w in decks:
+					under = under or w.inside((a + b) * 0.5)
+				if under:
+					continue
+				# Querrichtung wie Circuit.at (-t.y, t.x), nicht Vector2.orthogonal() (t.y, -t.x): sonst läuft die Umlaufrichtung der Dreiecke
+				# gegen die der Hauptstraße, die Fläche blickt nach unten und der Fahrbahn-Shader (cull_disabled) beleuchtet sie als Rückseite (schwarz).
+				var dir := (pb - pa).normalized()
+				var nrm := Vector2(-dir.y, dir.x) * half
+				var ya := 0.165 + track.terrain_height(a)
+				var yb := 0.165 + track.terrain_height(b)
+				var q := [Vector3(a.x - nrm.x, ya, a.y - nrm.y), Vector3(a.x + nrm.x, ya, a.y + nrm.y), Vector3(b.x + nrm.x, yb, b.y + nrm.y), Vector3(b.x - nrm.x, yb, b.y - nrm.y)]
+				for j in [0, 2, 1, 0, 3, 2]:
+					st.set_normal(Vector3.UP)
+					st.add_vertex(q[j])
 		var node := MeshInstance3D.new()
 		node.mesh = st.commit()
 		node.material_override = shortcut_material(str(sc.surface))
@@ -469,12 +509,13 @@ func build_stunts() -> void:
 	for i in range(steps):
 		var s := float(i) / steps
 		var h := track.base_height(s)
-		if h > 1.2 and not track.in_gap(s):
+		if h > 1.2 and not track.in_gap(s) and not track.supported(s):
 			for side in [-1.0, 1.0]:
 				var p := track.at(s, side * (Circuit.HALF_WIDTH - 0.6))
-				# Pfeiler nur, wo die Fahrbahn wirklich über dem Gelände liegt (Brücke), nicht am Berg.
+				# Pfeiler nur, wo die Fahrbahn wirklich über dem Gelände liegt (Brücke), nicht am Berg, nicht auf einem anderen Ast
+				# (Hohlweg, Sohlenweg unter dem Sprung) und nicht, wo das Diorama die Fahrbahn trägt (Container, Brücke: "supports").
 				var ground := track.terrain_height(p)
-				if h - ground > 1.2:
+				if h - ground > 1.2 and track.other_branch_distance(p, s) >= track.hw(s) + 1.0:
 					shape("box", Vector3(p.x, (h + ground) * 0.5, p.y), Vector3(0.6, h - ground, 0.6), pillar)
 	var wood := Color("a0764a")
 	var dark_wood := Color("6e4d2e")
@@ -652,7 +693,8 @@ func curb_band(inner: float, outer: float) -> void:
 
 func build_gravel_road() -> void:
 	# Schotterpiste: braune Fahrbahn mit Körnung, keine Randlinien; Holzpfosten und Feldsteine statt Randsteinen.
-	road_mesh = road_strip(-3.5, 3.5, 0.17, Color("8b6f4e"), 0.0, 1.0, true, false, false)
+	road_mesh = road_strip(-3.5, 3.5, 0.17, Color("8b6f4e"), 0.0, 1.0, true, false, false, ROAD_NO_DECK)
+	build_deck_road(Color("8b6f4e"))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 23
 	for i in range(int(track.length*7.0)):
@@ -664,7 +706,7 @@ func build_gravel_road() -> void:
 		if track.in_gap(s):
 			continue
 		var tone := Color("a88c65") if rng.randf() < 0.6 else Color("6e5639")
-		shape("box", Vector3(p.x,0.176+s*0.004,p.y), Vector3(rng.randf_range(0.08,0.2),0.012,rng.randf_range(0.08,0.2)), tone, rng.randf()*TAU)
+		shape("box", Vector3(p.x,0.176+s*0.004+track.base_height(s),p.y), Vector3(rng.randf_range(0.08,0.2),0.012,rng.randf_range(0.08,0.2)), tone, rng.randf()*TAU)
 	var post_count := int(track.length/3.2)
 	for i in range(post_count):
 		var s := float(i) / post_count
@@ -672,11 +714,20 @@ func build_gravel_road() -> void:
 			var p := track.at(s, edge * 4.3)
 			if track.other_branch_distance(p, s) < Circuit.HALF_WIDTH + 1.0:
 				continue
+			# Pfosten stehen auf dem Gelände neben der Fahrbahn; auf erhöhter Fahrbahn (Brücke, Damm) gibt es keine.
+			var base := track.base_height(s)
+			var y0 := base
+			if not track.terrain.is_empty():
+				y0 = track.terrain_height(p)
+				if base - y0 > 1.0:
+					continue
+			elif base > 1.0 or track.in_gap(s):
+				continue
 			if i % 5 == 2:
-				shape("cone", Vector3(p.x,0.3,p.y), Vector3(0.8,0.6,0.7), Color("8a8f8c"), s*40.0)
+				shape("cone", Vector3(p.x,0.3 + y0,p.y), Vector3(0.8,0.6,0.7), Color("8a8f8c"), s*40.0)
 			else:
-				shape("box", Vector3(p.x,0.55,p.y), Vector3(0.16,1.0,0.16), Color("6b4a32"))
-				shape("box", Vector3(p.x,0.98,p.y), Vector3(0.2,0.06,0.2), Color("f1dfb7"))
+				shape("box", Vector3(p.x,0.55 + y0,p.y), Vector3(0.16,1.0,0.16), Color("6b4a32"))
+				shape("box", Vector3(p.x,0.98 + y0,p.y), Vector3(0.2,0.06,0.2), Color("f1dfb7"))
 
 func light_pool(head: Vector3, reach: float, color: Color, kind := "") -> void:
 	# Lichtkegel am Boden (nur abends/nachts sichtbar) plus leuchtender Kopf; ohne echte Lichtquelle, mobil-tauglich.
@@ -741,7 +792,10 @@ func build_puddles() -> void:
 		puddle.material_override = glossy
 		puddle.scale = Vector3(rng.randf_range(1.4,3.2),1,rng.randf_range(0.8,1.8))
 		puddle.rotation.y = rng.randf()*TAU
-		puddle.position = Vector3(p.x,0.176+s*0.004+0.003,p.y)
+		puddle.position = Vector3(p.x,0.176+s*0.004+0.003+track.base_height(s),p.y)
+		if track.in_gap(s):
+			puddle.free()
+			continue
 		puddle.visible = false
 		add_child(puddle)
 		atmosphere.puddles.append(puddle)
@@ -1237,7 +1291,7 @@ func build_obstacle_blocks() -> void:
 				shape("cylinder", Vector3(c.x, height * 0.5, c.y), Vector3(0.16, height, 0.16), DARK)
 			_:
 				if o.has("r"):
-					shape("cylinder", Vector3(c.x, height * 0.5, c.y), Vector3(float(o.r) * 2.0, height, float(o.r) * 2.0), Color("9a9a96"))
+					shape("cylinder", Vector3(c.x, float(o.get("b", 0.0)) + height * 0.5, c.y), Vector3(float(o.r) * 2.0, height, float(o.r) * 2.0), Color("9a9a96"))
 					continue
 				var u: Vector2 = o.u
 				var half: Vector2 = o.h
@@ -1250,7 +1304,8 @@ func build_obstacle_blocks() -> void:
 					"auto":
 						color = Color.from_hsv(fposmod(c.x * 0.13 + c.y * 0.07, 1.0), 0.45, 0.75)
 				k += 1
-				shape("box", Vector3(c.x, 0.17 + height * 0.5, c.y), Vector3(half.x * 2.0, height, half.y * 2.0), color, -atan2(u.y, u.x))
+				# Klotz ab der Unterkante (Hindernis mit "b": Wall auf dem Damm, Container unter der Terrasse), sonst auf dem Boden.
+				shape("box", Vector3(c.x, (float(o.b) if o.has("b") else 0.17) + height * 0.5, c.y), Vector3(half.x * 2.0, height, half.y * 2.0), color, -atan2(u.y, u.x))
 
 func diorama_blocks(prop: Dictionary) -> bool:
 	# Liegt ein Laufzeit-Bauteil (Laterne, Tafel …) auf einer Diorama-Straße? Dann entfällt es.
@@ -1456,6 +1511,8 @@ func build_diorama() -> void:
 		elif node_name.begins_with("Haus_"):
 			mi.set_meta("keep_layer", true)
 			mi.layers = LAYER_TALL if node_name.begins_with("Haus_nah") else LAYER_FLAT
+		if node_name.begins_with("Deck_"):
+			deck_nodes.append(mi)      # über einem anderen Ast (Brückenträger, Geländer): im Zeichenmodus durchscheinend
 		for i in range(mi.mesh.get_surface_count()):
 			var mat := mi.mesh.surface_get_material(i) as StandardMaterial3D
 			if mat == null:
@@ -1840,8 +1897,13 @@ func label3d(text: String, pos: Vector3, font_size: int, color: Color, flat := f
 		label.rotation_degrees.x = -90
 	add_child(label)
 
-func road_strip(inner: float, outer: float, y: float, color: Color, start_s := 0.0, end_s := 1.0, stagger := false, skip_crossing := false, lit := true) -> MeshInstance3D:
+const ROAD_ALL := 0
+const ROAD_NO_DECK := 1      # ohne Stücke, die über einem anderen Ast liegen (Brückendeck: eigenes Netz)
+const ROAD_ONLY_DECK := 2
+
+func road_strip(inner: float, outer: float, y: float, color: Color, start_s := 0.0, end_s := 1.0, stagger := false, skip_crossing := false, lit := true, part := ROAD_ALL) -> MeshInstance3D:
 	# lit = false für die Fahrbahn selbst: Sie bekommt in der Premium-Stufe den Fahrbahn-Shader, der das Laternenlicht schon enthält.
+	# UV = (Seitenversatz m, Bogenlänge m): Anschluss der Spurenkarte (apply_wear_map).
 	var surface := SurfaceTool.new()
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var count := maxi(1,ceili(track.length/0.5*(end_s-start_s)))
@@ -1857,11 +1919,16 @@ func road_strip(inner: float, outer: float, y: float, color: Color, start_s := 0
 		# 2,5D: Fahrbahn folgt dem Höhenprofil; in Lücken (Sprung über eine andere Straße) keine Fahrbahn.
 		if track.in_gap((a + b) * 0.5):
 			continue
+		if part != ROAD_ALL and (track.deck_over((a + b) * 0.5) != (part == ROAD_ONLY_DECK)):
+			continue
 		ya += track.base_height(a)
 		yb += track.base_height(b)
 		var heights := [ya,ya,yb,yb]
+		var uvs := [Vector2(track.edge_offset(a,inner), a*track.length), Vector2(track.edge_offset(a,outer), a*track.length),
+			Vector2(track.edge_offset(b,outer), b*track.length), Vector2(track.edge_offset(b,inner), b*track.length)]
 		for j in [0,2,1,0,3,2]:
 			surface.set_normal(Vector3.UP)
+			surface.set_uv(uvs[j])
 			surface.add_vertex(Vector3(points[j].x,heights[j],points[j].y))
 	var mesh := MeshInstance3D.new()
 	mesh.mesh = surface.commit()
@@ -1889,6 +1956,16 @@ static func line_color(speed: float) -> Color:
 func draw_route(route: Array[Dictionary], subdued := false, open_from := -1, ghost: Array[Dictionary] = []) -> void:
 	# open_from: Routenindex, ab dem die Linie offen ist (schimmert); ghost: alter Rest während einer Probe.
 	var split := route.size() if open_from < 0 else clampi(open_from, 0, route.size())
+	set_draw_mode(not subdued)
+	# Im Rennen kippt das Linienstück auf einem Lineal mit (Kindknoten der Wippe); hier ohne diese Stücke.
+	route_on_seesaw = subdued and not seesaw_nodes.is_empty()
+	if route_on_seesaw:
+		build_seesaw_lines(route)
+	else:
+		for node in seesaw_lines:
+			if is_instance_valid(node):
+				node.queue_free()
+		seesaw_lines.clear()
 	var line_mat := line_material(subdued)
 	if subdued:
 		# Im Rennen: Linie zu 70 % durchsichtig, damit Fahrbahn, Pfützen und Autos darunter sichtbar bleiben.
@@ -1906,6 +1983,9 @@ func draw_route(route: Array[Dictionary], subdued := false, open_from := -1, gho
 	var ghost_mat := line_material(false)
 	ghost_mat.albedo_color = Color(0.5, 0.5, 0.5)
 	ghost_mesh.mesh = route_mesh(ghost, 0, ghost.size(), true, ghost_mat)
+	# Zeichenmodus: Linienstücke unter einem höheren Ast (Brücke) zusätzlich gestrichelt ohne Tiefentest, damit sie durch das Deck scheinen.
+	if under_mesh != null:
+		under_mesh.mesh = under_route_mesh(route) if not subdued else null
 
 func line_material(transparent: bool) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
@@ -1945,14 +2025,18 @@ func route_mesh(route: Array[Dictionary], from: int, to: int, subdued: bool, mat
 		if (float(route[-1].s)>1.02 and float(route[i].s)<1.0) or subdued:
 			color_a = color_a.darkened(0.30)
 			color_b = color_b.darkened(0.30)
+		if route_on_seesaw and subdued and (on_seesaw_deck(route[i-1]) or on_seesaw_deck(route[i])):
+			continue
 		var corners := [a-side_a,b+side_b,a+side_a,a-side_a,b-side_b,b+side_b]
+		var ha := track.draw_height(float(route[i-1].s), int(route[i-1].get("sc", -1)), a)
+		var hb := track.draw_height(float(route[i].s), int(route[i].get("sc", -1)), b)
 		for vertex in range(6):
 			var at_end := vertex in [1,4,5]
 			var p: Vector2 = corners[vertex]
 			st.set_color(color_b if at_end else color_a)
 			st.set_normal(Vector3.UP)
 			var s: float = route[i].s if at_end else route[i-1].s
-			st.add_vertex(Vector3(p.x,0.27+s*0.006+track.surface_z(s),p.y))
+			st.add_vertex(Vector3(p.x,0.27+s*0.006+(hb if at_end else ha),p.y))
 	st.set_material(mat)
 	return st.commit()
 
@@ -2416,3 +2500,256 @@ func update_tracks(time: float) -> void:
 	track_seen = tyre_tracks.total
 	track_material.set_shader_parameter("now", time)
 	tyre_tracks.prune(time)
+
+# ---------- Höhenniveaus (docs/dioramen/HOEHEN_PLAN.md, A4/A5): Vorfeld, Brückendeck, Wippe, Klötze, Spurenkarte ----------
+var apron_mesh: MeshInstance3D           # Sprintstrecke: Fahrbahn-Vorfeld hinter der Startlinie (Startplätze der Gegner)
+var deck_roads: Array[MeshInstance3D] = []   # Laufzeit-Fahrbahn über einem anderen Ast (im Zeichenmodus durchscheinend)
+var deck_nodes: Array[MeshInstance3D] = []   # Diorama-Knoten Deck_* (dito)
+var under_mesh: MeshInstance3D           # Zeichenmodus: Linie unter einem höheren Ast, gestrichelt ohne Tiefentest
+var draw_mode := false
+var seesaw_nodes: Array[Node3D] = []     # je Wippe der Strecke ein Knoten am Drehpunkt (Deckoberseite in Ruhelage = lokale Ebene y 0)
+var seesaw_lines: Array[MeshInstance3D] = []
+var route_on_seesaw := false
+const SEESAW_MODEL := "res://assets/props/kinder_lineal.glb"
+const SEESAW_LIFT := 0.17       # Lineal wie jede Laufzeit-Fahrbahn 0,17 über der Simulationshöhe (Autos + 0,2); vorher schwebten Autos 0,2 m darüber
+const DECK_ALPHA := 0.35
+
+func build_sprint_apron() -> void:
+	# Offene Strecke: 15 m Fahrbahn hinter s 0 entlang der Starttangente (dort stehen die Gegner, RaceField.SPRINT_SLOT).
+	if not track.open:
+		return
+	var t0 := track.tangent(0.0)
+	var n0 := Vector2(-t0.y, t0.x) * track.hw(0.0)
+	var a := track.at(0.0)
+	var b := a - t0 * 15.0
+	var y := 0.17 + track.base_height(0.0)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var q := [Vector3(b.x - n0.x, y, b.y - n0.y), Vector3(b.x + n0.x, y, b.y + n0.y), Vector3(a.x + n0.x, y, a.y + n0.y), Vector3(a.x - n0.x, y, a.y - n0.y)]
+	for j in [0, 2, 1, 0, 3, 2]:
+		st.set_normal(Vector3.UP)
+		st.add_vertex(q[j])
+	apron_mesh = MeshInstance3D.new()
+	apron_mesh.mesh = st.commit()
+	var mat := material(main_road_color)
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	apron_mesh.material_override = mat
+	add_child(apron_mesh)
+
+func build_deck_road(color: Color) -> void:
+	# Fahrbahnstücke über einem anderen Ast als eigenes Netz (gleiches Material wie die Fahrbahn, im Zeichenmodus durchscheinend).
+	var any := false
+	for i in range(track.span()):
+		if track.deck_over(float(i) / track.span()):
+			any = true
+			break
+	if not any:
+		return
+	var part := road_strip(-3.5, 3.5, 0.17, color, 0.0, 1.0, true, false, false, ROAD_ONLY_DECK)
+	deck_roads.append(part)
+
+func set_draw_mode(on: bool) -> void:
+	# Zeichenmodus: Teile über einem anderen Ast (Brückendeck) zu 35 % deckend, damit die Linie darunter sichtbar bleibt; im Rennen deckend.
+	if on == draw_mode:
+		return
+	draw_mode = on
+	for node in deck_nodes:
+		if is_instance_valid(node):
+			node.transparency = 1.0 - DECK_ALPHA if on else 0.0
+	# Laufzeit-Fahrbahn über dem anderen Ast: Der Fahrbahn-Shader schreibt kein ALPHA (Instanz-Transparenz wirkt dort nicht), daher im
+	# Zeichenmodus ein durchscheinendes Ersatzmaterial in der Fahrbahnfarbe.
+	for part in deck_roads:
+		if not is_instance_valid(part):
+			continue
+		if on:
+			if not part.has_meta("race_material"):
+				part.set_meta("race_material", part.material_override)
+			var glass := StandardMaterial3D.new()
+			glass.albedo_color = Color(main_road_color.r, main_road_color.g, main_road_color.b, DECK_ALPHA)
+			glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			glass.cull_mode = BaseMaterial3D.CULL_DISABLED
+			glass.roughness = 0.9
+			part.material_override = glass
+		elif part.has_meta("race_material"):
+			part.material_override = part.get_meta("race_material")
+
+func under_route_mesh(route: Array[Dictionary]) -> Mesh:
+	# Linienstücke unter einem höheren Ast: jedes zweite 0,6-m-Stück, eigenes Material ohne Tiefentest.
+	if route.size() < 2 or not track.has_decks():
+		return null
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var count := 0
+	var walked := 0.0
+	for i in range(1, route.size()):
+		var a: Vector2 = route[i - 1].p
+		var b: Vector2 = route[i].p
+		walked += a.distance_to(b)
+		if int(route[i].get("sc", -1)) >= 0 or not track.under_deck(float(route[i].s)) or int(walked / 0.6) % 2 == 1:
+			continue
+		var dir := (b - a).normalized().orthogonal() * line_half_width(float(route[i].speed))
+		var y := 0.29 + track.surface_z(float(route[i].s))
+		var col := line_color(float(route[i].speed))
+		var q := [Vector3(a.x - dir.x, y, a.y - dir.y), Vector3(b.x - dir.x, y, b.y - dir.y), Vector3(b.x + dir.x, y, b.y + dir.y), Vector3(a.x + dir.x, y, a.y + dir.y)]
+		for j in [0, 1, 2, 0, 2, 3]:
+			st.set_color(col)
+			st.set_normal(Vector3.UP)
+			st.add_vertex(q[j])
+		count += 1
+	if count == 0:
+		return null
+	var mat := line_material(true)
+	mat.no_depth_test = true
+	mat.albedo_color = Color(1, 1, 1, 0.85)
+	mat.render_priority = 2
+	st.set_material(mat)
+	return st.commit()
+
+func build_seesaw_nodes() -> void:
+	# Wippen der Strecke in Ruhelage (Zeichnen); im Rennen kippt update_seesaws sie mit dem Simulationszustand.
+	for w in track.rest_seesaws():
+		var node := Node3D.new()
+		node.name = "Wippe_%d" % seesaw_nodes.size()
+		add_child(node)
+		node.position = Vector3(w.c.x, w.pivot_h + track.terrain_height(w.c) + SEESAW_LIFT, w.c.y)
+		node.set_meta("yaw", -w.u.angle())
+		var length: float = w.half_len * 2.0
+		var width: float = w.half_w * 2.0
+		if ResourceLoader.exists(SEESAW_MODEL) and premium_rendering():
+			# Modell normiert: 1 m entlang +x, Oberseite bei y 0, Mitte am Drehpunkt; hier auf Länge, Dicke und Breite skaliert.
+			var model: Node3D = load(SEESAW_MODEL).instantiate()
+			model.scale = Vector3(length, w.thickness, width)
+			node.add_child(model)
+		else:
+			var beech := Color("d9b382")
+			var body := shape("box", Vector3(0, -w.thickness * 0.5, 0), Vector3(length, w.thickness, width), beech, 0.0, node)
+			body.position = Vector3(0, -w.thickness * 0.5, 0)
+			# Zentimeterskala: dunkle Striche alle 0,5 m an beiden Kanten (jeder zweite länger).
+			for k in range(int(length / 0.5) + 1):
+				var x := -length * 0.5 + k * 0.5
+				var long := k % 2 == 0
+				for side in [-1.0, 1.0]:
+					var m := shape("box", Vector3.ZERO, Vector3(0.04, 0.01, 0.5 if long else 0.25), Color("2a2622"), 0.0, node)
+					m.position = Vector3(x, 0.006, side * (width * 0.5 - (0.25 if long else 0.125)))
+			# Einfahrtsende rot-weiß (Stirnseite, die angehoben zur Gefahr wird)
+			for k in range(4):
+				var face := shape("box", Vector3.ZERO, Vector3(0.05, w.thickness, width / 4.0), CORAL if k % 2 == 0 else CREAM, 0.0, node)
+				face.position = Vector3(-length * 0.5 - 0.02, -w.thickness * 0.5, -width * 0.5 + (k + 0.5) * width / 4.0)
+		if not diorama:
+			# Stift (Drehachse) unter dem Lineal, falls das Diorama ihn nicht gebacken hat.
+			# Durchmesser = Unterseite des Lineals am Drehpunkt (mit SEESAW_LIFT).
+			var pen_r := maxf(0.4, (w.pivot_h + SEESAW_LIFT - w.thickness) * 0.5)
+			var axis := Basis(Vector3(w.u.x, 0.0, w.u.y) * pen_r * 2.0, Vector3(-w.u.y, 0.0, w.u.x) * (width + 3.0), Vector3(0.0, -pen_r * 2.0, 0.0))
+			shape_transform("cylinder", Transform3D(axis, Vector3(w.c.x, pen_r + track.terrain_height(w.c), w.c.y)), Color("2f8f4e"))
+		seesaw_nodes.append(node)
+	clear_seesaws()
+
+func pose_seesaw(i: int, phi: float) -> void:
+	var node := seesaw_nodes[i]
+	node.basis = Basis(Vector3.UP, float(node.get_meta("yaw", 0.0))) * Basis(Vector3.BACK, phi)
+
+func clear_seesaws() -> void:
+	var rest := track.rest_seesaws() if track != null else []
+	for i in range(mini(seesaw_nodes.size(), rest.size())):
+		pose_seesaw(i, rest[i].theta)
+
+func build_seesaws(list: Array) -> void:
+	for i in range(mini(seesaw_nodes.size(), list.size())):
+		pose_seesaw(i, list[i].phi)
+
+func update_seesaws(list: Array, alpha: float) -> void:
+	# Nur Darstellung: Neigung zwischen Vor- und Ist-Takt der Simulation interpoliert.
+	for i in range(mini(seesaw_nodes.size(), list.size())):
+		pose_seesaw(i, lerpf(list[i].prev_phi, list[i].phi, alpha))
+
+func on_seesaw_deck(e: Dictionary) -> bool:
+	var sc := int(e.get("sc", -1))
+	if sc < 0:
+		return false
+	for w in track.rest_seesaws():
+		if w.shortcut == sc and w.inside(e.p):
+			return true
+	return false
+
+func build_seesaw_lines(route: Array[Dictionary]) -> void:
+	# Im Rennen: Linienstück auf jedem Lineal als Kindknoten der Wippe (lokale Koordinaten, Oberseite y 0), kippt mit ihr.
+	for node in seesaw_lines:
+		if is_instance_valid(node):
+			node.queue_free()
+	seesaw_lines.clear()
+	var rest := track.rest_seesaws()
+	for wi in range(mini(rest.size(), seesaw_nodes.size())):
+		var w: Seesaw = rest[wi]
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var count := 0
+		for i in range(1, route.size()):
+			if not (on_seesaw_deck(route[i - 1]) and on_seesaw_deck(route[i])):
+				continue
+			var la := w.local(route[i - 1].p)
+			var lb := w.local(route[i].p)
+			var half := line_half_width(float(route[i].speed))
+			var col := line_color(float(route[i].speed)).darkened(0.30)
+			var q := [Vector3(la.x, 0.07, -(la.y - half)), Vector3(lb.x, 0.07, -(lb.y - half)), Vector3(lb.x, 0.07, -(lb.y + half)), Vector3(la.x, 0.07, -(la.y + half))]
+			for j in [0, 1, 2, 0, 2, 3]:
+				st.set_color(col)
+				st.set_normal(Vector3.UP)
+				st.add_vertex(q[j])
+			count += 1
+		if count == 0:
+			continue
+		var mat := line_material(true)
+		mat.albedo_color = Color(1, 1, 1, 0.3)
+		st.set_material(mat)
+		var mi := MeshInstance3D.new()
+		mi.mesh = st.commit()
+		mi.layers = LAYER_FLAT
+		seesaw_nodes[wi].add_child(mi)
+		seesaw_lines.append(mi)
+
+func build_collider_blocks() -> void:
+	# Bausteine "collider" mit visible: einfacher Klotz ab der Unterkante b (Wall, Absperrung); unsichtbare Begrenzer bleiben unsichtbar.
+	for o in track.obstacles:
+		if not o.has("b") or not bool(o.get("v", true)) or not o.has("u"):
+			continue
+		var c: Vector2 = o.c
+		var u: Vector2 = o.u
+		var half: Vector2 = o.h
+		var color := CORAL if str(o.k) == "absperrung" else Color("9a948a")
+		shape("box", Vector3(c.x, float(o.b) + float(o.y) * 0.5, c.y), Vector3(half.x * 2.0, float(o.y), half.y * 2.0), color, -atan2(u.y, u.x))
+
+func build_guardrail_bands() -> void:
+	# Einfache Grafikstufe: Leitplanken als schmales helles Band an der Fahrbahnkante (Premium: Diorama/Bausteine).
+	for g in track.guardrails:
+		var a := float(g.from)
+		var b := float(g.to)
+		if b < a:
+			b += 1.0
+		var side := 1.0 if str(g.side) == "left" else -1.0
+		var steps := maxi(2, int((b - a) * track.length / 1.0))
+		for k in range(steps):
+			var s := a + (b - a) * (k + 0.5) / steps
+			var p := track.at(s, side * (track.hw(s) + 0.45))
+			shape("box", Vector3(p.x, track.base_height(s) + 0.55, p.y), Vector3((b - a) * track.length / steps + 0.05, 0.3, 0.1), Color("c9ccce"), -track.tangent(s).angle())
+
+const WEAR_DIR := "res://assets/wear/%s"
+
+func apply_wear_map() -> void:
+	# Spurenkarte der Strecke (game/assets/wear/<id>.png + .json, docs/dioramen/HOEHEN_PLAN.md 2.3) im Fahrbahn-Shader: nur Premium,
+	# nur bei passendem Hash; die Simulation liest sie nie. Ohne Karte bleibt wear_strength 0 (keine Wirkung).
+	var shader := atmosphere.road_shader
+	if shader == null:
+		return
+	shader.set_shader_parameter("wear_strength", 0.0)
+	var meta_path := (WEAR_DIR % track.id) + ".json"
+	var png_path := (WEAR_DIR % track.id) + ".png"
+	if not FileAccess.file_exists(meta_path) or not ResourceLoader.exists(png_path):
+		return
+	var meta = JSON.parse_string(FileAccess.get_file_as_string(meta_path))
+	if not meta is Dictionary or str(meta.get("hash", "")) != track.file_hash:
+		push_warning("Spurenkarte %s passt nicht zur Streckendatei (make_wear neu erzeugen)" % track.id)
+		return
+	shader.set_shader_parameter("wear_map", load(png_path))
+	shader.set_shader_parameter("wear_strength", 1.0)
+	shader.set_shader_parameter("wear_lat", float(meta.get("lat", 6.0)))
+	shader.set_shader_parameter("wear_len", float(meta.get("length", track.length)))

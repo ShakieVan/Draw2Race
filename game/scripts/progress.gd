@@ -30,6 +30,21 @@ func migrate() -> void:
 	data.gold = unique
 	data.version = 2
 
+# Bestzeit und Bestenliste gelten je Fassung der Strecke ("rev" der Streckendatei; Fassung 1 = bisheriger Schlüssel). Gold bleibt
+# über Fassungen hinweg erhalten (Schlüssel ohne Fassung).
+static var rev_cache := {}
+
+static func track_rev(track_id: String) -> int:
+	if not rev_cache.has(track_id):
+		var path := "res://tracks/%s.json" % track_id
+		var data = JSON.parse_string(FileAccess.get_file_as_string(path)) if FileAccess.file_exists(path) else null
+		rev_cache[track_id] = int(data.get("rev", 1)) if data is Dictionary else 1
+	return rev_cache[track_id]
+
+static func board_key(track_id: String) -> String:
+	var r := track_rev(track_id)
+	return track_id if r <= 1 else "%s@r%d" % [track_id, r]
+
 func has_gold(track_id: String, stage: int) -> bool:
 	return "%s/%d" % [track_id, stage] in data.gold
 
@@ -47,7 +62,7 @@ func save() -> bool:
 	return DirAccess.rename_absolute(path + ".tmp", path) == OK
 
 func result(track_id: String, stage: int, car: int, time: float, won: bool) -> bool:
-	var key := "%s/%s/%d/%d" % [track_id, RaceVehicle.VERSION, stage, car]
+	var key := "%s/%s/%d/%d" % [board_key(track_id), RaceVehicle.VERSION, stage, car]
 	var record: bool = not data.best.has(key) or time < float(data.best[key])
 	if record:
 		data.best[key] = time
@@ -65,7 +80,7 @@ func result_drift(track_id: String, stage: int, car: int, score: int, won: bool)
 		data.gold.append(gold)
 	if not data.has("times") or not data.times is Dictionary:
 		data.times = {}
-	var key := "%s/%d" % [track_id, stage]
+	var key := "%s/%d" % [board_key(track_id), stage]
 	var list: Array = data.times.get(key, [])
 	var best := 0 if list.is_empty() else int(list[0].get("score", 0))
 	var entry := {"score": score, "time": 0.0, "car": car, "date": Time.get_date_string_from_system(), "physics": RaceVehicle.VERSION}
@@ -82,12 +97,12 @@ const BOARD_SIZE := 10
 var last_place := 0
 
 func board(track_id: String, stage: int) -> Array:
-	return data.get("times", {}).get("%s/%d" % [track_id, stage], [])
+	return data.get("times", {}).get("%s/%d" % [board_key(track_id), stage], [])
 
 func add_time(track_id: String, stage: int, car: int, time: float) -> int:
 	if not data.has("times") or not data.times is Dictionary:
 		data.times = {}
-	var key := "%s/%d" % [track_id, stage]
+	var key := "%s/%d" % [board_key(track_id), stage]
 	var list: Array = data.times.get(key, [])
 	var entry := {"time": snappedf(time, 0.001), "car": car, "date": Time.get_date_string_from_system(), "physics": RaceVehicle.VERSION}
 	list.append(entry)

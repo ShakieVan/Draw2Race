@@ -6,6 +6,8 @@ Gebacken: Parkett aus einzelnen Dielen mit Fugen (Atlas), Spielteppich mit Frans
 Bettecke mit Nachttisch und Lampe, Spielzeugtruhe, verstreute Bausteine, Murmeln, Buntstifte, Zeichnung und Lineal, Fensterlicht auf dem Boden.
 Die KI-Bauteile der Streckendatei (Teddy, Ball, Bauklötze, Bausteinturm, Bücher, Buntstifte, Holzeisenbahn, Kreisel) bleiben Laufzeit-Bauteile;
 ihren Kontaktschatten backt kids_ao(). Nachts leuchtet nur die Nachttischlampe (K_lampe).
+Seit 03.10.2026 (rev 2): Abkürzung über ein Lineal als Wippe. Das Lineal ist Laufzeit (game/assets/props/kinder_lineal.glb aus tools/make_kids_ruler.py);
+das Diorama backt den Filzstift darunter, legt die Abkürzung als Straßen-Spielteppich aus und hält ihren Korridor frei (Abschnitt "Lineal-Wippe").
 """
 _GEOM = os.path.join(os.path.dirname(os.path.abspath(__file__)), "make_fair_kids_geom.py")
 with open(_GEOM, encoding="utf-8") as _fh:
@@ -1348,13 +1350,205 @@ def build_sand_props(zone, sign, pb, to_road, ang_b, rr):
 
 
 # ---------------------------------------------------------------- Hooks
+# ---------------------------------------------------------------- Lineal-Wippe (Höhenplan 4.4/7): Filzstift, Straßen-Spielteppich, Kratzspuren
+# Das Lineal selbst ist ein Laufzeit-Bauteil: world.gd (build_seesaw_nodes) lädt game/assets/props/kinder_lineal.glb (tools/make_kids_ruler.py)
+# am Drehpunkt und kippt es mit dem Simulationszustand. Das Diorama backt darunter den Filzstift (Drehachse, mit Umgebungsverdeckung; seine Enden
+# sind die Collider "mauer" der Streckendatei), legt die Abkürzung als Straßen-Spielteppich aus (graue Filzbahn mit weißen Randlinien; die
+# dunkle Laufzeit-Fahrbahn der Abkürzung liegt mittig darauf), hält einen Korridor frei und zeichnet Abriebspuren, wo die Linealenden aufschlagen.
+K_SEESAW_LIFT = 0.17    # Darstellung: das Lineal liegt wie jede Laufzeit-Fahrbahn 0,17 m über der Simulationshöhe (world.gd SEESAW_LIFT; Autos + 0,2)
+K_PEN_R = 0.36          # Filzstift: Mindestradius; build_pen rechnet ihn so, dass die Oberkante die Unterseite des Lineals am Drehpunkt trägt
+                        # (pivot_h + K_SEESAW_LIFT − Dicke = 0,97 m über dem Boden -> Radius 0,445 m bei GROUND_Y 0,08)
+K_LANE = 3.5            # Korridor ohne Spielzeug: Abstand (m) zur Pfadmitte der Abkürzung
+K_MAT_HALF = 2.45       # halbe Breite des Straßen-Spielteppichs (Laufzeit-Fahrbahn: 2,0)
+K_MAT_LIFT = 0.022     # Filzbahn über dem Parkett (GROUND_Y)
+
+
+def k_path():
+    sc = data.get("shortcuts", [])
+    return [Vector((float(p[0]), float(p[1]))) for p in sc[0]["path"]] if sc else []
+
+
+def k_path_at(path, m):
+    """Punkt und Richtung bei Pfadmeter m (wie Circuit.path_pose)."""
+    acc = 0.0
+    for a, b in zip(path, path[1:]):
+        seg = (b - a).length
+        if acc + seg >= m or b is path[-1]:
+            t = max(0.0, min(1.0, (m - acc) / seg)) if seg > 1e-9 else 0.0
+            return a.lerp(b, t), (b - a).normalized()
+        acc += seg
+    return path[-1], (path[-1] - path[-2]).normalized()
+
+
+def k_seesaw():
+    """Erste Wippe: (Drehpunkt, Achse u zur Ausfahrt, Querachse v = links von u, Eintrag) oder None."""
+    ws, path = data.get("seesaws", []), k_path()
+    if not ws or len(path) < 2:
+        return None
+    c, u = k_path_at(path, float(ws[0].get("at", 0.0)))
+    return c, u, Vector((-u.y, u.x)), ws[0]
+
+
+def reserve_shortcut():
+    """Korridor der Abkürzung (K_LANE beiderseits der Pfadmitte) und Filzstift für Spielzeug sperren."""
+    path = k_path()
+    for a, b in zip(path, path[1:]):
+        d = b - a
+        if d.length < 1e-6:
+            continue
+        m = (a + b) * 0.5
+        u = d.normalized()
+        keep_out(m.x, m.y, u.x, u.y, d.length / 2 + 0.6, K_LANE)
+    w = k_seesaw()
+    if w:
+        c, u, v, _ = w
+        keep_out(c.x, c.y, v.x, v.y, 3.9, 0.9)
+
+
+def k_tube(fr, a0, a1, r0, r1, yc, col, n=16, key="k:farbe"):
+    """Liegender Kegelstumpf mit fester Achse (Höhe yc, längs fr.u von a0 bis a1, Radius r0 bis r1): Flanken und Oberseite, ohne Unterseite."""
+    P = []
+
+    def ring(a, k):
+        r = r0 + (r1 - r0) * (a - a0) / (a1 - a0)
+        ph = 2 * math.pi * k / n
+        q = fr.pt(a, math.cos(ph) * r)
+        return (q.x, q.y, yc + math.sin(ph) * r)
+
+    for k in range(n):
+        phm = 2 * math.pi * (k + 0.5) / n
+        if math.sin(phm) < -0.45:
+            continue
+        hv = math.cos(phm)
+        face = (fr.v.x * hv, fr.v.y * hv) if abs(hv) > 0.3 else None
+        P.append(poly(key, [ring(a0, k), ring(a0, k + 1), ring(a1, k + 1), ring(a1, k)], col, face, 1.0, [(0, 0), (1, 0), (1, 1), (0, 1)]))
+    return P
+
+
+def build_pen():
+    """Grüner Filzstift (7 m, Durchmesser 0,89 m) quer unter dem Drehpunkt: Schaft, aufgesteckte Kappe mit Clip am einen Ende, Griffzone,
+    Konus und Filzspitze am anderen. Liegt auf dem Parkett; seine Oberkante trägt das Lineal. Die Hindernisse sind die Collider der Streckendatei."""
+    w = k_seesaw()
+    if not w:
+        return
+    c, u, v, spec = w
+    fr = Frame((c.x, c.y), (v.x, v.y), (u.x, u.y))                 # a längs des Stifts (quer zum Lineal)
+    y0 = GROUND_Y
+    r = max(K_PEN_R, (float(spec.get("pivot_h", 1.1)) + K_SEESAW_LIFT - float(spec.get("thickness", 0.3)) - y0) / 2.0)
+    green, dark, light = lin("2f9a4c"), lin("1d6b33"), lin("6fc48a")
+    P = KIDS
+    yc = y0 + r
+    P += k_tube(fr, -2.1, 2.45, r, r, yc, green)                                     # Schaft
+    P += k_tube(fr, -1.0, 0.9, r + 0.006, r + 0.006, yc, lin("f1ede2"))               # weißes Etikett (unter dem Lineal, von der Seite sichtbar)
+    P += k_tube(fr, 2.45, 2.95, r, r * 0.86, yc, light)                               # Griffzone
+    P += k_tube(fr, 2.95, 3.22, r * 0.86, r * 0.42, yc, lin("e8e4da"), 14)            # Konus (weißer Kunststoff)
+    P += k_tube(fr, 3.22, 3.5, r * 0.42, r * 0.16, yc, dark, 10)                      # Filzspitze
+    P += k_tube(fr, -3.5, -2.0, r + 0.05, r + 0.05, yc, dark)                         # aufgesteckte Kappe
+    P += cbox(fr, "k:farbe", -3.25, -2.35, -0.07, 0.07, yc + r + 0.03, yc + r + 0.1, dark, 1.0, grad=(0.9, 1.0))   # Clip
+    ring = []
+    for k in range(16):                                                                     # Kappenboden
+        ph = 2 * math.pi * k / 16
+        q = fr.pt(-3.5, math.cos(ph) * (r + 0.05))
+        ring.append((q.x, q.y, yc + math.sin(ph) * (r + 0.05)))
+    P.append(poly("k:farbe", ring, shade(dark, 0.9), (-fr.u.x, -fr.u.y)))
+    print("DIORAMA kids: Filzstift unter dem Lineal bei", round(c.x, 2), round(c.y, 2), "Oberkante", round(y0 + 2 * r, 3),
+          "(Lineal-Unterseite am Drehpunkt", round(float(spec.get("pivot_h", 1.1)) + K_SEESAW_LIFT - float(spec.get("thickness", 0.3)), 3), ")")
+
+
+def ruler_ao():
+    """Kontaktschatten des Lineals in Ruhelage (Einfahrt unten): schräge Platte als AO-Stellvertreter (nur beim Backen)."""
+    w = k_seesaw()
+    if not w:
+        return
+    c, u, v, spec = w
+    half, hw_ = float(spec.get("length", 24.0)) / 2, float(spec.get("width", 4.0)) / 2
+    ph = math.asin(min(1.0, float(spec.get("pivot_h", 1.1)) / half))
+    th = float(spec.get("thickness", 0.3))
+    pts = {}
+    for sa in (-1, 1):
+        for sb in (-1, 1):
+            q = c + u * (sa * half) + v * (sb * hw_)
+            top = float(spec.get("pivot_h", 1.1)) + K_SEESAW_LIFT + sa * half * math.sin(ph)
+            pts[(sa, sb, 1)] = (q.x, q.y, top)
+            pts[(sa, sb, 0)] = (q.x, q.y, top - th)
+    F = lambda *k: [pts[i] for i in k]
+    parts = [poly("ao", F((-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1))), poly("ao", F((-1, -1, 0), (-1, 1, 0), (1, 1, 0), (1, -1, 0))),
+             poly("ao", F((-1, -1, 0), (1, -1, 0), (1, -1, 1), (-1, -1, 1)), None, (-v.x, -v.y)), poly("ao", F((-1, 1, 0), (-1, 1, 1), (1, 1, 1), (1, 1, 0)), None, (v.x, v.y)),
+             poly("ao", F((1, -1, 0), (1, 1, 0), (1, 1, 1), (1, -1, 1)), None, (u.x, u.y))]
+    add_ao_parts(parts)
+
+
+def build_road_mat():
+    """Straßen-Spielteppich unter der Abkürzung: graue Filzbahn (K_MAT_HALF), weiße Randlinien knapp außerhalb der Laufzeit-Fahrbahn, helle
+    Steppnaht am Rand; unter dem Lineal keine Linien (dort liegt das Lineal), an den Enden unter der Spielzeugbahn. Bodenauflage mit AO."""
+    path = k_path()
+    if len(path) < 2:
+        return
+    w = k_seesaw()
+    pts = resample_path([(p.x, p.y) for p in path], 1.0)
+    cum = [0.0]
+    for a, b in zip(pts, pts[1:]):
+        cum.append(cum[-1] + (b - a).length)
+    m_lo, m_hi = -1.0, -1.0
+    if w:
+        at, half = float(w[3].get("at", 0.0)), float(w[3].get("length", 24.0)) / 2
+        m_lo, m_hi = at - half - 0.3, at + half + 0.3
+    felt, edge, line = lin("5b6168"), lin("8a9096"), lin("f2f0e8")
+    KFLOOR.extend(ribbon_poly([(p.x, p.y) for p in pts], 2 * K_MAT_HALF, GROUND_Y + K_MAT_LIFT, "k_wolle", felt, 2.0))
+    for sgn in (1.0, -1.0):
+        for off, wid, col, dy in ((2.17, 0.16, line, 0.006), (K_MAT_HALF - 0.06, 0.05, edge, 0.006)):
+            run = []
+            for i, p in enumerate(pts):
+                a = pts[max(i - 1, 0)]
+                b = pts[min(i + 1, len(pts) - 1)]
+                t = (b - a).normalized()
+                n = Vector((-t.y, t.x))
+                inside = m_lo <= cum[i] <= m_hi and col is line
+                if inside:
+                    if len(run) > 1:
+                        KFLOOR.extend(ribbon_poly(run, wid, GROUND_Y + K_MAT_LIFT + dy, "k_wolle", col, 1.0))
+                    run = []
+                    continue
+                q = p + n * (sgn * off)
+                run.append((q.x, q.y))
+            if len(run) > 1:
+                KFLOOR.extend(ribbon_poly(run, wid, GROUND_Y + K_MAT_LIFT + dy, "k_wolle", col, 1.0))
+    # Abrieb, wo die Linealenden auf den Teppich schlagen (Ruhelage: Einfahrtsende; gekippt: Ausfahrtsende): hellere, aufgeraute Filzflecken
+    # neben der Laufzeit-Fahrbahn und feine helle Kratzer im Parkett dahinter
+    if w:
+        c, u, v, spec = w
+        rr = random.Random(9)
+        half, hw_ = float(spec.get("length", 24.0)) / 2, float(spec.get("width", 4.0)) / 2
+        for sa in (-1.0, 1.0):
+            for sb in (-1.0, 1.0):
+                base = c + u * (sa * (half - 0.3)) + v * (sb * (hw_ + 0.22))
+                for k in range(3):
+                    q = base + u * rr.uniform(-0.6, 0.6) + v * (sb * rr.uniform(-0.1, 0.12))
+                    ring = []
+                    for j in range(10):
+                        ang = 2 * math.pi * j / 10
+                        rq = q + u * (math.cos(ang) * rr.uniform(0.35, 0.6)) + v * (math.sin(ang) * rr.uniform(0.08, 0.16))
+                        ring.append((rq.x, rq.y, GROUND_Y + K_MAT_LIFT + 0.011))
+                    KFLOOR.append(poly("k_wolle", ring, lin("9aa0a6"), None, 1.0))
+                for k in range(5):                                      # Kratzer im Parkett jenseits des Teppichs
+                    q = c + u * (sa * (half - rr.uniform(-0.2, 0.9))) + v * (sb * (K_MAT_HALF + rr.uniform(0.15, 0.7)))
+                    d = (u * rr.uniform(0.7, 1.6) + v * rr.uniform(-0.25, 0.25))
+                    nn = Vector((-d.y, d.x)).normalized() * rr.uniform(0.015, 0.03)
+                    a, b = q - d * 0.5, q + d * 0.5
+                    KFLOOR.append(poly("k_parkett", [(a.x - nn.x, a.y - nn.y, GROUND_Y + 0.006), (b.x - nn.x, b.y - nn.y, GROUND_Y + 0.006),
+                                                     (b.x + nn.x, b.y + nn.y, GROUND_Y + 0.006), (a.x + nn.x, a.y + nn.y, GROUND_Y + 0.006)],
+                                       lin("f6e2c0"), None, 1.0))
+    print("DIORAMA kids: Straßen-Spielteppich der Abkürzung", round(cum[-1], 1), "m, Lineal von Pfadmeter", round(m_lo, 1), "bis", round(m_hi, 1))
+
+
 def theme_ground():
     objs_ground.append(mesh_object("Boden_parkett", floor_rect("k_parkett", x0, x1, z0, z1, GROUND_Y)))
 
 
 def theme_scenery():
     reserve_runtime()
-    for name, fn in (("Teppich", build_rug), ("Wände", build_walls), ("Regal", build_shelf), ("Bett", build_bed), ("Truhe", build_chest), ("Fensterlicht", build_light_patch),
+    reserve_shortcut()
+    for name, fn in (("Filzstift", build_pen), ("Spielteppich-Straße", build_road_mat), ("Teppich", build_rug), ("Wände", build_walls), ("Regal", build_shelf), ("Bett", build_bed), ("Truhe", build_chest), ("Fensterlicht", build_light_patch),
                      ("Zeichnung", paper_and_ruler), ("Mondlampe", build_moon_lamp), ("Lichterkette", build_fairy_lights), ("Sand", build_sand), ("Spielzeug", build_toys), ("Streugut", build_scatter)):
         try:
             fn()
@@ -1366,6 +1560,7 @@ def theme_scenery():
         objs_ground.append(mesh_object("Boden_teppich", KFLOOR))
     mesh_objects("Zimmer", KIDS)
     kids_ao()
+    ruler_ao()
     print("DIORAMA kids: Flächen", len(KIDS), "Hindernisse", len(colliders), "Lichter", len(extra_lights))
 
 

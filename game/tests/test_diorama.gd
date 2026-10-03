@@ -81,6 +81,14 @@ func run() -> void:
 	quit(1 if failures > 0 else 0)
 
 func check_track(app: Node, id: String) -> void:
+	# Höhen-Kern: Eine Begleitdatei, die nicht zur Streckendatei passt (track_hash, oder ohne Hash bei rev > 1), benutzt das Spiel nicht
+	# (Laufzeitgrafik). Solche Strecken werden gemeldet und übersprungen, bis ihr Diorama neu gebaut ist.
+	var probe := Circuit.load_track(id)
+	var raw = JSON.parse_string(FileAccess.get_file_as_string("res://dioramas/%s_layout.json" % id))
+	if raw is Dictionary and not probe.layout_valid(raw):
+		check(not probe.layout_ok and probe.obstacle_source == "props", "%s: veraltete Begleitdatei wird ignoriert" % id)
+		print("WARN: %s: Diorama veraltet (track_hash/rev passt nicht zur Streckendatei) – übersprungen, tools/dio_build.ps1 neu bauen" % id)
+		return
 	app.select_track(id)
 	app.start_drawing()
 	for i in range(5):
@@ -104,6 +112,7 @@ func check_track(app: Node, id: String) -> void:
 		and float(ext[3]) >= track.bounds.end.y, "%s: Diorama-Fläche deckt die Strecke ab" % id)
 	check(track.obstacle_source == "layout", "%s: Hindernisse aus der Begleitdatei (%d)" % [id, track.obstacles.size()])
 	check_layout_extras(world, track, layout, id)
+	check_heights_core(world, scene, track, layout, id)
 	check_lighting(world, scene, track, id)
 	# Straßenart: Laufzeit-Fahrbahn hybrid (Spiel baut die Straße) oder gebackene Fahrbahn (keine zweite darüber)
 	var runtime_road := bool(layout.get("runtime_road", false))
@@ -415,6 +424,28 @@ func check_layout_extras(world: Diorama, track: Circuit, layout: Dictionary, id:
 		check(shortcut_nodes == track.shortcuts.size(), "%s: Abkürzungen mit Fahrbahn-Shader gebaut (%d)" % [id, shortcut_nodes])
 		check(same_side, "%s: Abkürzungsfläche blickt wie die Hauptfahrbahn nach oben (nicht schwarz)" % id)
 
+func check_heights_core(world: Node3D, scene: Node, track: Circuit, layout: Dictionary, id: String) -> void:
+	# Höhen-Kern (docs/dioramen/README.md „Höhen (Kern)“): track_hash, supports, Deck_*-Knoten, Unterkanten.
+	if layout.has("track_hash"):
+		check(str(layout.track_hash) == track.file_hash, "%s: track_hash der Begleitdatei passt zur Streckendatei" % id)
+	var supports: Array = layout.get("supports", [])
+	var ok := true
+	for r in supports:
+		ok = ok and r is Array and r.size() == 2 and float(r[0]) >= 0.0 and float(r[1]) <= 1.0 and float(r[0]) < float(r[1])
+	check(ok, "%s: supports gültig (%d Abschnitte)" % [id, supports.size()])
+	var bases_ok := true
+	for o in layout.obstacles:
+		if o.has("b"):
+			bases_ok = bases_ok and float(o.b) > -50.0 and float(o.y) > 0.0
+	check(bases_ok, "%s: Unterkanten der Hindernisse plausibel" % id)
+	if scene != null:
+		var decks := scene.find_children("Deck_*", "MeshInstance3D", true, false)
+		if not decks.is_empty():
+			var translucent := true
+			for d in decks:
+				translucent = translucent and absf((d as GeometryInstance3D).transparency - 0.65) < 0.01
+			check(translucent and world.deck_nodes.size() == decks.size(), "%s: %d Deck_*-Knoten im Zeichenmodus durchscheinend" % [id, decks.size()])
+
 func in_zone(s: float, zone: Array) -> bool:
 	# Zone [von, bis] in Streckenanteilen (zyklisch)
 	return fposmod(s - float(zone[0]), 1.0) <= fposmod(float(zone[1]) - float(zone[0]), 1.0)
@@ -431,6 +462,13 @@ func air_zones(track: Circuit) -> Array:
 	for l in track.loops:
 		zones.append([float(l.s) - 20.0 * meter, float(l.s) + 40.0 * meter, 0.5])
 	return zones
+
+func reaches_road(o: Dictionary, road: float) -> bool:
+	# Hindernis mit Unterkante zählt im Fahrschlauch nur, wenn es die Fahrbahn erreicht: nicht, wenn seine Oberkante mindestens 5 cm unter
+	# der Fahrbahn liegt (Container unter der Terrasse) oder seine Unterkante mindestens 1,4 m darüber (Brückenträger über dem Hohlweg).
+	if not o.has("b"):
+		return true
+	return float(o.b) + float(o.y) > road - 0.05 and float(o.b) < road + 1.4
 
 func clearance(o: Dictionary) -> float:
 	# Abstand, den ein Hindernis zum Rand der Fahrbahn (bzw. Abkürzung) mindestens halten muss: feste Hindernisse (Mauer, Baum, Mast,
@@ -452,6 +490,8 @@ func corridor_offenders(track: Circuit) -> Dictionary:
 				radius += float(z[2])
 				break
 		for k in range(track.obstacles.size()):
+			if not reaches_road(track.obstacles[k], track.surface_z(s)):
+				continue
 			var depth: float = track.obstacle_contact(track.obstacles[k], p, radius + clearance(track.obstacles[k])).z
 			if depth > 0.0:
 				bad[k] = maxf(float(bad.get(k, 0.0)), depth)
@@ -465,6 +505,8 @@ func corridor_offenders(track: Circuit) -> Dictionary:
 			for j in range(steps + 1):
 				var p := a.lerp(b, float(j) / steps)
 				for k in range(track.obstacles.size()):
+					if not reaches_road(track.obstacles[k], track.terrain_height(p)):
+						continue
 					var depth: float = track.obstacle_contact(track.obstacles[k], p, half + clearance(track.obstacles[k])).z
 					if depth > 0.0:
 						bad[k] = maxf(float(bad.get(k, 0.0)), depth)

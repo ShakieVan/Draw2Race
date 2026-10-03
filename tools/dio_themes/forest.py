@@ -12,6 +12,10 @@ Schornstein, Fenster mit Läden) mit echten Lichtquellen (Fensterlicht, Türlamp
 Zeitnahmeturm und der liegende Stamm bleiben Laufzeit-Bauteile und bekommen über ao_proxies() ihren Kontaktschatten. Alle zusätzlichen
 festen Teile (Findlinge, Stümpfe, Holzstapel, Hochsitz ...) haben Hindernisse in der Begleitdatei; Unterholz unter etwa 0,4 m (Farne, Gras)
 ist körperlos.
+
+Höhen (seit 03.10.2026, Streckenfassung rev 2): Alles steht auf dem Dioramaboden f_level (Gelände der Streckendatei, am Fahrbahnrand auf
+Fahrbahnhöhe, Erdwand im Hohlweg, Böschung an Dämmen); die Holzbrücke über den Hohlweg (Widerlager, Träger, Bohlen, Geländer, Laternen) baut
+f_bridge, den Hohlweg f_hollow_way. Teile über dem unteren Ast heißen Deck_*. Beschreibung: docs/dioramen/forest.md.
 """
 from mathutils import noise
 
@@ -85,6 +89,169 @@ def f_nearest_center(P):
 
 def f_dc(x, z):
     return float(dist_to_center(np.array([(x, z)]))[0])
+
+
+# ---------------------------------------------------------------- Höhen: Gelände der Streckendatei, Bodenhöhe des Dioramas
+# Die Fahrphysik kennt neben der Fahrbahn keine Geländehöhe (ein Auto neben der Piste fährt auf der Höhe seines Asts), das Höhenraster
+# "terrain" (2-m-Zellen, bilinear) verschmiert zudem die Fahrbahnkante um bis zu 0,2 m. Der Boden des Dioramas folgt deshalb nicht roh
+# dem Raster, sondern f_level: am Fahrbahnrand genau die Fahrbahnhöhe des nächsten Asts, liegt das Gelände höher (Einschnitt, Hohlweg),
+# bleibt eine 1,5 m breite ebene Schulter und dahinter steigt eine Erdwand mit F_WALL (2,4 : 1) bis zum Gelände; liegt es tiefer (Damm),
+# fällt die Böschung über F_BLEND Meter weich ins Gelände. Ab dort gilt das Raster. Brückenstücke (Fahrbahn mehr als F_BRIDGE_GAP über dem
+# Gelände) zählen dabei nicht als Ast: unter der Brücke gilt der untere Ast.
+F_WALL = 2.4
+F_SHOULDER = 1.5
+F_BLEND = 2.5
+F_BRIDGE_GAP = 1.0                             # Fahrbahn so weit über dem Gelände: Brücke (zählt nicht als Ast, Diorama trägt sie)
+_F_LV = {}
+
+
+def f_ty(P):
+    """Gelände der Streckendatei (wie Circuit.terrain_height, bilinear, am Rand geklemmt) für viele Punkte P (n x 2)."""
+    P = np.asarray(P, float).reshape(-1, 2)
+    if not TERRAIN:
+        return np.zeros(len(P))
+    if "H" not in _F_LV:
+        _F_LV["H"] = np.array(TERRAIN["heights"], float).reshape(int(TERRAIN["h"]), int(TERRAIN["w"]))
+    H = _F_LV["H"]
+    h_, w_ = H.shape
+    cell = float(TERRAIN["cell"])
+    fx = (P[:, 0] - float(TERRAIN["origin"][0])) / cell
+    fz = (P[:, 1] - float(TERRAIN["origin"][1])) / cell
+    ix = np.clip(np.floor(fx).astype(int), 0, w_ - 2)
+    iz = np.clip(np.floor(fz).astype(int), 0, h_ - 2)
+    tx = np.clip(fx - ix, 0.0, 1.0)
+    tz = np.clip(fz - iz, 0.0, 1.0)
+    a = H[iz, ix] + (H[iz, ix + 1] - H[iz, ix]) * tx
+    b = H[iz + 1, ix] + (H[iz + 1, ix + 1] - H[iz + 1, ix]) * tx
+    return a + (b - a) * tz
+
+
+def f_lv_setup():
+    """Fahrbahnhöhe je Mittellinienpunkt, Brückenmaske, gültige Stücke und Ecken der Mittellinie (einmal)."""
+    if "base" in _F_LV:
+        return
+    base = np.array([base_height(float(s)) for s in S_OF])
+    br = (base - f_ty(C)) > F_BRIDGE_GAP
+    nseg = len(SEG_A)
+    nxt = np.array([(i + 1) % N for i in range(nseg)])
+    keep = ~(br[:nseg] | br[nxt])
+    _F_LV.update(base=base, bridge=br, seg_keep=keep, seg_b0=base[:nseg], seg_b1=base[nxt])
+    # Ecken zwischen zwei gültigen Stücken (am Brückenkopf endet die Kette ohne Ecke: dahinter zählt dieser Ast nicht)
+    vi = [i for i in range(N) if keep[i % nseg] and keep[(i - 1) % nseg] and (not OPEN or 0 < i < N - 1)]
+    vi = np.array(vi, int)
+    t_in = SEG_B[(vi - 1) % nseg] - SEG_A[(vi - 1) % nseg]
+    t_out = SEG_B[vi % nseg] - SEG_A[vi % nseg]
+    _F_LV.update(v_idx=vi, v_in=t_in, v_out=t_out)
+
+
+def f_nearest_branch(P):
+    """Abstand (m), Fahrbahnhöhe und Index der nächsten Mittellinienstütze für Punkte P (n x 2), ohne Brückenstücke. Nächster Punkt einer
+    Kette = senkrechte Projektion auf ein Stück oder eine Ecke, in deren Keil der Punkt liegt (über ein Kettenende hinaus zählt nichts)."""
+    f_lv_setup()
+    P = np.asarray(P, float).reshape(-1, 2)
+    keep = _F_LV["seg_keep"]
+    A, B = SEG_A[keep], SEG_B[keep]
+    b0, b1 = _F_LV["seg_b0"][keep], _F_LV["seg_b1"][keep]
+    ids = np.nonzero(keep)[0]
+    V, vin, vout, vids = C[_F_LV["v_idx"]], _F_LV["v_in"], _F_LV["v_out"], _F_LV["v_idx"]
+    vb = _F_LV["base"][vids]
+    dd = B - A
+    ll = np.maximum((dd ** 2).sum(1), 1e-9)
+    dist_ = np.full(len(P), 1e6)
+    base_ = np.zeros(len(P))
+    idx_ = np.zeros(len(P), int)
+    for k in range(0, len(P), 1200):
+        q = P[k:k + 1200, None, :]
+        r = np.arange(q.shape[0])
+        t = ((q - A) * dd).sum(2) / ll
+        proj = A + np.clip(t, 0, 1)[..., None] * dd
+        d2 = np.where((t >= 0.0) & (t <= 1.0), ((q - proj) ** 2).sum(2), np.inf)
+        j = d2.argmin(1)
+        ds, tt = d2[r, j], np.clip(t[r, j], 0, 1)
+        rel = q - V
+        inside = ((rel * vin).sum(2) >= 0.0) & ((rel * vout).sum(2) <= 0.0)
+        dv = np.where(inside, (rel ** 2).sum(2), np.inf)
+        jv = dv.argmin(1)
+        dvs = dv[r, jv]
+        use_v = dvs < ds
+        dist_[k:k + 1200] = np.sqrt(np.minimum(np.minimum(ds, dvs), 1e12))
+        base_[k:k + 1200] = np.where(use_v, vb[jv], b0[j] * (1 - tt) + b1[j] * tt)
+        idx_[k:k + 1200] = np.where(use_v, vids[jv], ids[j])
+    return dist_, base_, idx_
+
+
+def f_level(P):
+    """Bodenhöhe des Dioramas (ohne GROUND_Y) für Punkte P (n x 2), siehe oben."""
+    P = np.asarray(P, float).reshape(-1, 2)
+    T = f_ty(P)
+    dist_, b, _ = f_nearest_branch(P)
+    e = dist_ - HW
+    up = np.minimum(T, b + F_WALL * np.maximum(e - F_SHOULDER, 0.0))
+    t = np.clip(e / F_BLEND, 0.0, 1.0)
+    down = b + (T - b) * t * t * (3.0 - 2.0 * t)
+    return np.where(T >= b, up, down)
+
+def f_gy(x, z):
+    """Bodenhöhe des Dioramas (mit GROUND_Y) an einem Punkt."""
+    return GROUND_Y + float(f_level(np.array([(x, z)]))[0])
+
+
+F_RING = np.array([(math.cos(2 * math.pi * k / 8), math.sin(2 * math.pi * k / 8)) for k in range(8)] + [(0.0, 0.0)])
+
+
+def f_gy_min(x, z, r=0.3):
+    """Tiefste Bodenhöhe unter einer runden Grundfläche (Mitte und acht Randpunkte): ein Teil, das dort aufsitzt, schwebt nirgends."""
+    return GROUND_Y + float(f_level(np.array([(x, z)]) + F_RING * r).min())
+
+
+def f_slope(P, h=0.5):
+    """Steigung (Betrag des Gradienten) des Dioramabodens an Punkten P (n x 2)."""
+    P = np.asarray(P, float).reshape(-1, 2)
+    gx_ = (f_level(P + [h, 0.0]) - f_level(P - [h, 0.0])) / (2 * h)
+    gz_ = (f_level(P + [0.0, h]) - f_level(P - [0.0, h])) / (2 * h)
+    return np.sqrt(gx_ ** 2 + gz_ ** 2)
+
+
+class FLift:
+    """Alles, was im with-Block neu entsteht (Netze, Punktlichter, Lichtblocker), auf den Dioramaboden setzen. Gebaut wird wie auf ebenem
+    Boden (GROUND_Y). mode "lift": ein starres Teil (Hütte, Hochsitz) um die tiefste Bodenhöhe unter seinen Ecken anheben (nichts schwebt,
+    bergseitig steht es etwas im Boden); "drape": jeden Eckpunkt um die Bodenhöhe an seinem Ort (lange, flache oder dünne Teile:
+    Holzpolter, Strohballenreihe, Pfosten). Modelle aus f_put (Namen "Prop_") setzt f_put selbst."""
+
+    def __init__(self, mode="lift"):
+        self.mode = mode
+
+    def __enter__(self):
+        self.before = set(o.name for o in scene.objects)
+        self.n_light, self.n_occ = len(extra_lights), len(occluder_polys)
+        return self
+
+    def __exit__(self, *exc):
+        if exc[0] is not None:
+            return False
+        new = [o for o in scene.objects if o.name not in self.before and o.type == "MESH" and not o.name.startswith("Prop_")]
+        co_all = []
+        for o in new:
+            co = np.empty(len(o.data.vertices) * 3, np.float64)
+            o.data.vertices.foreach_get("co", co)
+            co_all.append(co.reshape(-1, 3))
+        dy = 0.0
+        if self.mode == "lift" and co_all:
+            pts = np.concatenate(co_all)
+            dy = float(f_level(np.stack([pts[:, 0], -pts[:, 1]], 1)).min())
+        for o, co in zip(new, co_all):
+            if self.mode == "lift":
+                co[:, 2] += dy
+            else:
+                co[:, 2] += f_level(np.stack([co[:, 0], -co[:, 1]], 1))
+            o.data.vertices.foreach_set("co", co.ravel())
+            o.data.update()
+        for e in extra_lights[self.n_light:]:
+            e["y"] = round(e["y"] + (dy if self.mode == "lift" else float(f_level(np.array([(e["x"], e["z"])]))[0])), 2)
+        for e in occluder_polys[self.n_occ:]:
+            e[1] = round(e[1] + (dy if self.mode == "lift" else float(f_level(np.array(e[0], float)).min())), 2)
+        self.dy = dy
+        return False
 
 
 def f_pond_sdf(X, Z):
@@ -216,10 +383,11 @@ def f_bm_object(name, bm, materials, link=True):
     return obj
 
 
-def f_put(name, x, z, ang, height=None, footprint=None, y=None, label="Prop", anchor="bbox", scale=None):
+def f_put(name, x, z, ang, height=None, footprint=None, y=None, label="Prop", anchor="bbox", scale=None, foot=0.3):
     """Modell aus LIB (KI-Modell oder selbst gebautes Teil) wie world.gd place_ai setzen: Mitte der Grundfläche auf (x, z), Unterkante auf y
-    (Vorgabe Boden), gleichmäßig auf Höhe bzw. Grundfläche (footprint = (Breite entlang u, Tiefe)) skaliert. Drehung ang (Bogenmaß) wie das
-    Feld "rot" der Strecke. anchor "origin": Ursprung des Modells ist der Fußpunkt. Kein Kollisionseintrag. Rückgabe: Objekt."""
+    (absolut; Vorgabe: tiefste Bodenhöhe im Umkreis foot, f_gy_min), gleichmäßig auf Höhe bzw. Grundfläche (footprint = (Breite entlang u,
+    Tiefe)) skaliert. Drehung ang (Bogenmaß) wie das Feld "rot" der Strecke. anchor "origin": Ursprung des Modells ist der Fußpunkt. Kein
+    Kollisionseintrag. Rückgabe: Objekt."""
     obj, ext = model(name)
     vs = np.array([(v.co.x, v.co.y, v.co.z) for v in obj.data.vertices])
     lo, hi = vs.min(0), vs.max(0)
@@ -235,7 +403,7 @@ def f_put(name, x, z, ang, height=None, footprint=None, y=None, label="Prop", an
     inst = obj.copy()
     inst.name = "%s_%s" % (label, name.replace("@", "_").replace(".", "_"))
     scene.collection.objects.link(inst)
-    inst.matrix_world = (Matrix.Translation((x, -z, GROUND_Y if y is None else y)) @ Matrix.Rotation(-ang, 4, "Z")
+    inst.matrix_world = (Matrix.Translation((x, -z, f_gy_min(x, z, foot) if y is None else y)) @ Matrix.Rotation(-ang, 4, "Z")
                          @ Matrix.Scale(s, 4) @ Matrix.Translation((-cx, -cy, -zmin)))
     return inst
 
@@ -342,6 +510,15 @@ def f_plan():
         P["clear"].append((tower["x"], tower["z"], 3.5, 3.5, 0.0))
     if log:
         P["rects"].append((log["x"], log["z"], math.radians(log.get("rot", 0.0)), 1.6, 0.35))
+    # Brücke: Widerlager (je 2 x 12,4 m) und Brückenköpfe frei von Bäumen und festen Teilen (f_bridge baut sie später)
+    f_lv_setup()
+    bi = np.nonzero(_F_LV["bridge"])[0]
+    if len(bi):
+        D = np.array(dist[:N])
+        for i_e, sgn in ((int(bi.min()) - 1, 1.0), (int(bi.max()) + 1, -1.0)):
+            q, t, lf = f_tpos(float(D[i_e % N]) + sgn * 0.4)
+            P["rects"].append((float(q[0]), float(q[1]), math.atan2(t[1], t[0]), 1.4, 6.6))
+            P["clear"].append((float(q[0]), float(q[1]), 3.0, 8.0, math.atan2(t[1], t[0])))
     for p in data["props"]:
         if p["type"] == "lantern":
             P["circles"].append((p["x"], p["z"], 0.3))
@@ -416,6 +593,26 @@ def f_tree_sites():
     return keep
 
 
+F_RUNOFF_K = 1.0 / 16.0       # Kehren enger als Radius 16 m ...
+F_RUNOFF = 7.0                 # ... bekommen außen bis hw + 7 m eine Auslaufzone ohne Zusatzbäume (bis 12 m hinter dem Scheitel)
+
+
+def f_in_runoff(x, z):
+    """Auslaufzone (seit 03.10.2026, Prüfung: Übertempo in der Talkehre endete immer festgeklemmt an einem Zusatzbaum, den die Streckendatei
+    dort gar nicht hat – sie hält die Kehre außen bis hw + 6 m frei): außen an engen Kehren und bis 12 m dahinter keine Zusatzbäume."""
+    idx, lat = f_nearest_center(np.array([(x, z)]))
+    i, la = int(idx[0]), float(lat[0])
+    if abs(la) >= HW + F_RUNOFF:
+        return False
+    for back in range(0, 25, 2):                       # 0,5-m-Stützen: aktuelle Stelle und bis 12 m zurück
+        j = nb(i, -back)
+        a, b = tang[nb(j, -2)], tang[nb(j, 2)]
+        k = math.atan2(a.x * b.y - a.y * b.x, a.dot(b)) / 2.0   # vorzeichenbehaftet: + Linkskurve
+        if abs(k) > F_RUNOFF_K and la * k < 0.0:        # außen = Seite gegen die Kurvenrichtung (links positiv)
+            return True
+    return False
+
+
 def f_extra_tree_sites(existing):
     """Zusätzliche Bäume in Lücken des Bestands (ein Mischwald soll dicht sein): Abstand zum nächsten Stamm mindestens 4,4 m, Kronen
     nie über Fahrbahn, Teich, Lichtungen oder feste Teile."""
@@ -432,7 +629,8 @@ def f_extra_tree_sites(existing):
         cr = F_CROWN[kind] * sc
         if dc[i] < HW + cr * 0.8 + 0.8 or sd[i] < 1.0 + cr * 0.55:
             continue
-        if f_in_clearing(x, z, cr * 0.4) or f_solid_blocked(x, z, cr * 0.45):
+        if f_in_clearing(x, z, cr * 0.4) or f_solid_blocked(x, z, cr * 0.45) or f_in_runoff(x, z):
+            f_stats["runoff"] = f_stats.get("runoff", 0) + (1 if f_in_runoff(x, z) else 0)
             continue
         if min(math.hypot(x - tx, z - tz) for tx, tz in taken) < 4.4:
             continue
@@ -540,15 +738,50 @@ def f_wet_fields(P, dc, s, lat, n_mid, n_fine):
         side_ok = 1.0 if zone["side"] == "both" else ((lat > 0) == (zone["side"] == "outer"))
         reach = HW + 2.0 + 2.6 * n_mid + 0.8 * n_fine
         mud = np.maximum(mud, fade * side_ok * (1.0 - f_smooth((dc - (HW + 0.3)) / (reach - HW))))
+    # Sohle des Hohlwegs unter der Brücke: feucht und dunkel bis an den Fuß der Erdwände (Schulter F_SHOULDER neben der Fahrbahn)
+    hz = f_hollow_range()
+    if hz is not None:
+        fade = np.clip(np.minimum((s - hz[0]) / 0.012, (hz[1] - s) / 0.012), 0.0, 1.0)
+        e = dc - HW
+        mud = np.maximum(mud, fade * (e > -0.6) * (1.0 - f_smooth((e - (0.75 + 0.6 * n_mid + 0.2 * n_fine)) / 0.55)))
     sd = f_pond_sdf(P[:, 0], P[:, 1])
     shore = 1.0 - f_smooth((sd - 0.1) / (1.5 + 0.8 * n_mid))
+    near = shore > 0.01
+    if near.any():                                                   # kein Uferschlamm am steilen Hang (Nordufer unter der oberen Fahrbahn)
+        shore[near] *= 1.0 - f_smooth((f_slope(P[near]) - 0.35) / 0.3)
     return mud, shore, sd
+
+
+def f_branch_info(P):
+    """Abstand zur Mittellinie, Index der nächsten Stütze und Seitenabstand (links positiv) je Punkt, bezogen auf den nächsten Ast ohne
+    Brückenstücke (unter der Brücke zählt der untere Ast: Saum, Schlamm und Wegerde gehören auf den Boden des Hohlwegs)."""
+    P = np.asarray(P, float).reshape(-1, 2)
+    dc, _, idx = f_nearest_branch(P)
+    lat = ((P - C[idx]) * f_left()[idx]).sum(1)
+    return dc, idx, lat
+
+
+def f_hollow_range():
+    """s-Bereich des unteren Asts unter der Brücke (Hohlweg): Stützen ohne Brücke, die näher als 14 m an einem Brückenstück liegen und im
+    Streckenverlauf weit davon entfernt sind. None ohne Brücke."""
+    if "hollow" not in _F_LV:
+        f_lv_setup()
+        bi = np.nonzero(_F_LV["bridge"])[0]
+        out = None
+        if len(bi):
+            sb = S_OF[bi].mean()
+            dmin = np.sqrt(((C[:, None, :] - C[bi][None, :, :]) ** 2).sum(2)).min(1)
+            far = np.abs(((S_OF - sb + 0.5) % 1.0) - 0.5) > 0.12
+            hi = np.nonzero((dmin < 14.0) & far & ~_F_LV["bridge"])[0]
+            if len(hi):
+                out = (float(S_OF[hi].min()), float(S_OF[hi].max()))
+        _F_LV["hollow"] = out
+    return _F_LV["hollow"]
 
 
 def f_mud_at(P):
     """Schlammfeld (0..1) an den Punkten P (n x 2)."""
-    dc = dist_to_center(P)
-    idx, lat = f_nearest_center(P)
+    dc, idx, lat = f_branch_info(P)
     n_mid = f_fbm(P[:, 0], P[:, 1], 3.2, 2, 5.0)
     n_fine = f_noise(P[:, 0], P[:, 1], 1.1, 9.0)
     return f_wet_fields(P, dc, idx / float(N), lat, n_mid, n_fine)[0]
@@ -558,8 +791,7 @@ def f_ground_fields(X, Z):
     """Gewichte des Bodens je Punkt: (Helligkeit, Nadelstreu, Schlamm/Erde). Die Gewichte sind um 0,5 verdichtet, damit der Übergang im Shader
     (Schwelle 0,42 bis 0,58) über etwa einen Meter weich verläuft."""
     P = np.stack([X.ravel(), Z.ravel()], 1)
-    dc = dist_to_center(P)
-    idx, lat = f_nearest_center(P)
+    dc, idx, lat = f_branch_info(P)
     s = idx / float(N)
     shape = X.shape
     n_big = f_fbm(P[:, 0], P[:, 1], 11.0, 3)
@@ -592,8 +824,22 @@ def f_ground_fields(X, Z):
     # Sonnenflecken und Schatten des Blätterdachs (zeitlos eingebacken: sanfte Helligkeitsflecken)
     dapple = f_smooth((f_fbm(P[:, 0], P[:, 1], 2.6, 2, 21.0) - 0.40) * 5.0)
     bright = (0.74 + 0.20 * (n_big - 0.5) + 0.34 * dapple) * (1.0 - 0.52 * wet)
+    # Steile Hänge (Erdwände des Hohlwegs, Böschungen der Dämme, Ufer am Hang): offene, dunklere Erde statt Moos und Nadeln
+    steep = f_smooth((f_slope(P) - 0.55 - 0.25 * (n_mid - 0.5)) / 0.45)
+    dirt = np.maximum(dirt, 0.92 * steep)
+    needles = needles * (1.0 - steep)
+    bright = bright * (1.0 - 0.24 * steep)
     comp = lambda w: 0.5 + (np.clip(w, 0.0, 1.0) - 0.5) * 0.62
     return (bright.reshape(shape), comp(needles).reshape(shape), comp(dirt).reshape(shape))
+
+
+def f_ground_h(X, Z):
+    """Höhe des Bodennetzes: Dioramaboden (f_level), unter der Laufzeit-Fahrbahn höchstens so hoch, wie der Kern es zulässt (branch_floor:
+    tiefste Fahrbahn in HW + 0,3 m; im Gefälle liegt sie bis zu einige Dezimeter unter der Fahrbahn an dieser Stelle; dort deckt der Saum)."""
+    P = np.stack([np.asarray(X, float).ravel(), np.asarray(Z, float).ravel()], 1)
+    H = GROUND_Y + f_level(P)
+    H = np.minimum(H, branch_floor(P) + ROAD_Y - 0.012)
+    return H.reshape(np.shape(X))
 
 
 def f_build_ground():
@@ -609,7 +855,7 @@ def f_build_ground():
         cxm, czm = (gx[:-1] + gx[1:]) / 2, (gz[:-1] + gz[1:]) / 2
         skip = ((czm[:, None] > bz0) & (czm[:, None] < bz1) & (cxm[None, :] > bx0) & (cxm[None, :] < bx1))
     bright, needles, dirt = f_ground_fields(X, Z)
-    H = np.full(X.shape, GROUND_Y)
+    H = f_ground_h(X, Z)
     COL = np.stack([bright, needles, dirt], -1)
     far_fac = 1.0 + 1.3 * f_smooth((dist_to_center(np.stack([X.ravel(), Z.ravel()], 1)).reshape(X.shape) - 9.0) / 12.0)
     objs_ground.append(f_grid_mesh_quad("Gelaende", "gelaende", gx, gz, H, COL, skip, tol_scale=far_fac))
@@ -618,24 +864,33 @@ def f_build_ground():
         fz = np.arange(pond_box[2], pond_box[3] + 0.001, 0.5)
         FX, FZ = np.meshgrid(fx, fz)
         br2, nd2, dt2 = f_ground_fields(FX, FZ)
-        H2 = GROUND_Y + f_pond_height(FX, FZ)
+        H2 = f_ground_h(FX, FZ) + f_pond_height(FX, FZ)
         objs_ground.append(f_grid_mesh("Gelaende_Teich", "gelaende", fx, fz, H2, np.stack([br2, nd2, dt2], -1)))
-    # Weite: Waldboden bis weit hinter den Bildrand (Neigung der Rennkamera)
+    # Weite: Waldboden bis weit hinter den Bildrand (Neigung der Rennkamera); folgt dem Gelände (am Rand des Rasters geklemmt), damit am
+    # Übergang zum Bodennetz keine Stufe entsteht
     far = 140.0
     for k, (ax0, az0, ax1, az1) in enumerate(((x0 - far, z0 - far, x1 + far, z0), (x0 - far, z1, x1 + far, z1 + far),
                                               (x0 - far, z0, x0, z1), (x1, z0, x1 + far, z1))):
-        objs_ground.append(f_grid_mesh("Weite_%d" % k, "gelaende", np.array([ax0, ax1]), np.array([az0, az1]), np.full((2, 2), GROUND_Y),
-                                       np.tile(np.array([0.62, 0.55, 0.55]), (2, 2, 1)), tile=8.0))
+        wx = np.unique(np.concatenate([np.arange(ax0, ax1, 8.0), gx[(gx > ax0) & (gx < ax1)][::8], [ax1]]))
+        wz = np.unique(np.concatenate([np.arange(az0, az1, 8.0), gz[(gz > az0) & (gz < az1)][::8], [az1]]))
+        WX, WZ = np.meshgrid(wx, wz)
+        objs_ground.append(f_grid_mesh("Weite_%d" % k, "gelaende", wx, wz, f_ground_h(WX, WZ),
+                                       np.tile(np.array([0.62, 0.55, 0.55]), (len(wz), len(wx), 1)), tile=8.0))
+
+
+def f_water_y():
+    """Wasserspiegel des Teichs (absolut): 0,13 m unter dem Boden der Teichmulde (das Gelände legt sie als ebene Senke an)."""
+    return f_gy(F_POND["x"], F_POND["z"]) - 0.13 if F_POND else GROUND_Y - 0.13
 
 
 def f_build_pond_water():
     if not F_POND:
         return
-    water_y = GROUND_Y - 0.13
+    water_y = f_water_y()
     fx = np.arange(math.floor(F_POND["x"] - F_POND["w"] / 2 - 3), math.ceil(F_POND["x"] + F_POND["w"] / 2 + 3) + 0.001, 0.5)
     fz = np.arange(math.floor(F_POND["z"] - F_POND["d"] / 2 - 3), math.ceil(F_POND["z"] + F_POND["d"] / 2 + 3) + 0.001, 0.5)
     FX, FZ = np.meshgrid(fx, fz)
-    h = GROUND_Y + f_pond_height(FX, FZ)
+    h = f_ground_h(FX, FZ) + f_pond_height(FX, FZ)
     depth = np.clip((water_y - h) / 0.5, 0.0, 1.0)
     parts = []
     for j in range(len(fz) - 1):
@@ -685,9 +940,10 @@ def f_verge_mask(P):
 
 
 def f_verge_height(P, dc=None):
-    """Höhe des Saums (m) und Abstand e zum Fahrbahnrand (m) für Punkte P (n x 2)."""
+    """Höhe des Saums (m, absolut: Dioramaboden f_level plus Saumprofil) und Abstand e zum Fahrbahnrand (m) für Punkte P (n x 2); dc =
+    Abstand zum nächsten Ast ohne Brückenstücke (f_nearest_branch)."""
     if dc is None:
-        dc = dist_to_center(P)
+        dc = f_nearest_branch(P)[0]
     e = dc - HW
     ec = np.maximum(e, -0.3)
     x, z = P[:, 0], P[:, 1]
@@ -695,7 +951,7 @@ def f_verge_height(P, dc=None):
     sockel = 0.003 + (F_VERGE_RAISE - 0.003) * (1.0 - f_smooth((ec - 1.0) / 1.0))
     rough = 0.005 * (f_noise(x, z, 1.3, 7.0) * 2.0 - 1.0) * f_smooth(ec / 0.5)
     groove = 0.011 * np.exp(-((ec - 0.52) / 0.2) ** 2) * f_verge_mask(P)
-    h = np.minimum(GROUND_Y + sockel + berm + rough - groove, F_VERGE_MAXH)
+    h = np.minimum(GROUND_Y + sockel + berm + rough - groove, F_VERGE_MAXH) + f_level(P)
     return h, e
 
 
@@ -706,7 +962,8 @@ def f_verge_points(rng_, n, e_lo, e_hi, power=1.0):
     side = rng_.choice([-1.0, 1.0], n)
     e = e_lo + (e_hi - e_lo) * rng_.random(n) ** power
     P = C[i] + f_left()[i] * (side * (HW + e))[:, None]
-    ok = np.abs(dist_to_center(P) - (HW + e)) < 0.15
+    f_lv_setup()
+    ok = (np.abs(dist_to_center(P) - (HW + e)) < 0.15) & ~_F_LV["bridge"][i]          # nicht neben der Brücke (dort ist kein Saum)
     return P[ok], e[ok], side[ok], i[ok]
 
 
@@ -722,16 +979,18 @@ def f_build_verge():
     for side, name in ((1.0, "Saum_L"), (-1.0, "Saum_R")):
         G = C[rows_i][:, None, :] + f_left()[rows_i][:, None, :] * (side * (HW + E))[None, :, None]
         flat = G.reshape(-1, 2)
-        dc = dist_to_center(flat)
+        dc, base_n, _ = f_nearest_branch(flat)
         h, e_real = f_verge_height(flat, dc)
-        near_max = max(near_max, float(h[e_real < 0.3].max()))
+        near_max = max(near_max, float((h - base_n)[e_real < 0.3].max()))
         bright, needles, dirt = f_ground_fields(G[..., 0], G[..., 1])
         H = h.reshape(R, K)
         COL = np.stack([bright, needles, dirt], -1)
         Pc = ((G[:-1, :-1] + G[1:, 1:]) / 2).reshape(-1, 2)
-        idx_c, _ = f_nearest_center(Pc)
+        _, _, idx_c = f_nearest_branch(Pc)
         diff = (idx_c.reshape(R - 1, K - 1) - rows_i[:-1, None] + N // 2) % N - N // 2
         own = np.abs(diff) <= 14                     # Viereck gehört der Strecke, die ihm am nächsten liegt (Kreuzung: kein Doppelsaum)
+        brg = _F_LV["bridge"][rows_i]
+        own &= ~(brg[:-1] | brg[1:])[:, None]        # auf der Brücke kein Erdsaum (dort liegen Bohlen und Geländer)
         bm = bmesh.new()
         uv0 = bm.loops.layers.uv.new("UVMap")
         uv1 = bm.loops.layers.uv.new("Licht")        # wie der Kern die Licht-UV legt: dieselbe Verdeckung wie der Boden darunter
@@ -773,7 +1032,7 @@ def f_build_verge():
         obj = bpy.data.objects.new(name, me)
         scene.collection.objects.link(obj)
     f_stats["saum_tris"] = tris
-    print("DIORAMA Wegsaum:", tris, "Dreiecke, höchste Stelle nahe der Fahrbahn %.3f m (Fahrbahn %.2f)" % (near_max, ROAD_Y))
+    print("DIORAMA Wegsaum:", tris, "Dreiecke, höchste Stelle nahe der Fahrbahn %.3f m über deren Basis (Fahrbahn %.2f)" % (near_max, ROAD_Y))
     if near_max > ROAD_Y - 0.012:
         raise ValueError("Wegsaum überdeckt die Laufzeit-Fahrbahn (%.3f m)" % near_max)
 
@@ -789,6 +1048,10 @@ def f_build_mud():
         if zone.get("kind") == "mud":
             ids = [i % N for i in range(int(zone["from"] * N) - 14, int(zone["to"] * N) + 15)]
             regions.append(("zone", C[ids][:, 0].min() - HW - 9.0, C[ids][:, 0].max() + HW + 9.0, C[ids][:, 1].min() - HW - 9.0, C[ids][:, 1].max() + HW + 9.0))
+    hz = f_hollow_range()
+    if hz is not None:
+        ids = [i % N for i in range(int(hz[0] * N) - 6, int(hz[1] * N) + 7)]
+        regions.append(("hohlweg", C[ids][:, 0].min() - HW - 3.0, C[ids][:, 0].max() + HW + 3.0, C[ids][:, 1].min() - HW - 3.0, C[ids][:, 1].max() + HW + 3.0))
     if F_POND:
         regions.append(("ufer", F_POND["x"] - F_POND["w"] / 2 - 4.5, F_POND["x"] + F_POND["w"] / 2 + 4.5, F_POND["z"] - F_POND["d"] / 2 - 4.5, F_POND["z"] + F_POND["d"] / 2 + 4.5))
     tris = 0
@@ -797,15 +1060,15 @@ def f_build_mud():
         gz = np.arange(math.floor(za), math.ceil(zb) + 0.001, cell)
         X, Z = np.meshgrid(gx, gz)
         P = np.stack([X.ravel(), Z.ravel()], 1)
-        dc = dist_to_center(P)
-        idx, lat = f_nearest_center(P)
+        dc, idx, lat = f_branch_info(P)
         n_mid = f_fbm(P[:, 0], P[:, 1], 3.2, 2, 5.0)
         n_fine = f_noise(P[:, 0], P[:, 1], 1.1, 9.0)
         mud, shore, sd = f_wet_fields(P, dc, idx / float(N), lat, n_mid, n_fine)
         m = np.maximum(mud, shore * (sd > -0.15)).reshape(X.shape)
-        hv, _ = f_verge_height(P, dc)
+        lv = f_level(P)
+        hv = f_verge_height(P, dc)[0] - lv                                                         # Saumprofil relativ zum Dioramaboden
         rough = 0.006 * (f_noise(P[:, 0], P[:, 1], 0.9, 23.0).reshape(X.shape) - 0.5)
-        base = np.minimum(np.maximum(hv, GROUND_Y + 0.004).reshape(X.shape) + 0.004, 0.148) + f_pond_height(X, Z)
+        base = (np.minimum(np.maximum(hv, GROUND_Y + 0.004) + 0.004, 0.148) + lv).reshape(X.shape) + f_pond_height(X, Z)
         H = base + np.minimum(0.05 * (m - 0.5), 0.010) + rough * (m > 0.4)                         # stetig im Feld: die Schnittlinie mit dem Boden (m etwa 0,42) ist glatt; höchstens 0,16 m
         corner_max = np.maximum.reduce([m[:-1, :-1], m[1:, :-1], m[:-1, 1:], m[1:, 1:]])
         skip = corner_max < 0.34
@@ -984,6 +1247,10 @@ def f_verge_puddles(rng_):
             ring.append((x + math.cos(ang) * math.cos(th) * a * rr - math.sin(ang) * math.sin(th) * b * rr,
                          z + math.sin(ang) * math.cos(th) * a * rr + math.cos(ang) * math.sin(th) * b * rr))
         ys = f_verge_height(np.array(ring + [(x, z)]))[0] + 0.006
+        if float(ys.max() - ys.min()) > 0.10:
+            continue                                                             # kein Wasser im steilen Gefälle
+        if float(ys.max() - ys.min()) > 0.02:
+            ys = np.full(len(ys), float(ys.min()) + 0.45 * float(ys.max() - ys.min()))     # ebener Wasserspiegel im Gefälle: bergseitig taucht der Rand ein
         for m in range(14):
             m2 = (m + 1) % 14
             parts.append(("farbe_p", [(x, z, float(ys[14])), (ring[m][0], ring[m][1], float(ys[m])), (ring[m2][0], ring[m2][1], float(ys[m2]))][::-1],
@@ -1014,7 +1281,7 @@ def f_build_tracks():
     for side, name in ((1.0, "Saum_Spur_L"), (-1.0, "Saum_Spur_R")):
         G = C[rows_i][:, None, :] + f_left()[rows_i][:, None, :] * (side * (HW + E))[None, :, None]
         flat = G.reshape(-1, 2)
-        dc = dist_to_center(flat)
+        dc = f_nearest_branch(flat)[0]
         hv, e_real = f_verge_height(flat, dc)
         bonus = np.where(side * turn[rows_i] < 0, np.clip(cv[rows_i] / 0.03, 0.0, 1.0), 0.0)           # Außenseite enger Kurven
         bonus_f = np.repeat(bonus, K)
@@ -1030,9 +1297,10 @@ def f_build_tracks():
         M2 = mf.reshape(R, K)
         corner_max = np.maximum.reduce([M2[:-1, :-1], M2[1:, :-1], M2[:-1, 1:], M2[1:, 1:]])
         Pc = ((G[:-1, :-1] + G[1:, 1:]) / 2).reshape(-1, 2)
-        idx_c, _ = f_nearest_center(Pc)
+        _, _, idx_c = f_nearest_branch(Pc)
         diff = (idx_c.reshape(R - 1, K - 1) - rows_i[:-1, None] + N // 2) % N - N // 2
-        skip = (corner_max < 0.34) | (np.abs(diff) > 14)
+        brg = _F_LV["bridge"][rows_i]
+        skip = (corner_max < 0.34) | (np.abs(diff) > 14) | (brg[:-1] | brg[1:])[:, None]
         if skip.all():
             continue
         bm = bmesh.new()
@@ -1286,10 +1554,10 @@ def f_trees():
         lod = f_lod_of(x, z)
         counts[lod] += 1
         key = f_build_tree(kind, variant, lod)
-        f_put(key, x, z, f_spin(x, z), h0 * sc, label="Prop", anchor="origin")
+        f_put(key, x, z, f_spin(x, z), h0 * sc, label="Prop", anchor="origin", foot=0.45 * sc)
         F_SOLIDS.append((x, z, F_CROWN[kind] * sc * 0.45))
         collide_circle(x, z, rad * sc, 4.0, "baum")
-    print("DIORAMA Wald: Bäume (gesetzt, versetzt, entfallen)", f_stats.get("trees"), "Detailstufen", counts)
+    print("DIORAMA Wald: Bäume (gesetzt, versetzt, entfallen)", f_stats.get("trees"), "Zusatzbäume", f_stats.get("extra"), "davon Auslaufzone verworfen", f_stats.get("runoff", 0), "Detailstufen", counts)
 
 
 def f_rocks():
@@ -1314,7 +1582,7 @@ def f_rocks():
             else:
                 continue
         h = 1.0 * sc
-        f_put(f_decimated("wald_felsen", 0.27), x, z, f_spin(p["x"], p["z"]), h, y=GROUND_Y - 0.1 * h)
+        f_put(f_decimated("wald_felsen", 0.27), x, z, f_spin(p["x"], p["z"]), h, y=f_gy_min(x, z, 0.6 * sc) - 0.1 * h)
         f_solid(x, z, 0.9 * sc, 1.2, "mauer")
         n += 1
     print("DIORAMA Findlinge der Streckendatei:", n, "versetzt", moved)
@@ -1605,7 +1873,7 @@ def f_scatter_understory():
     ws = np.where(land & (dc > HW + 0.9), np.where(shoulder, 0.5, 0.12), 0.0)
     stones = f_pick(P, ws, 90, rng_, 1.1, 0.0, core_pad=-0.8)
     for x, z in stones:
-        f_put(f_stone(int(abs(x * 1.9 + z * 6.1)) % 3), x, z, pr.uniform(0, 6.28), scale=pr.uniform(0.35, 0.8), anchor="origin", y=GROUND_Y - 0.03)
+        f_put(f_stone(int(abs(x * 1.9 + z * 6.1)) % 3), x, z, pr.uniform(0, 6.28), scale=pr.uniform(0.35, 0.8), anchor="origin", y=f_gy_min(x, z, 0.25) - 0.03)
     count["stein"] = len(stones)
     wa = np.where(land & (dc > HW + 1.6), 0.05 + 0.9 * (td < 3.3), 0.0)
     sticks = f_pick(P, wa, 46, rng_, 2.0, 0.0)
@@ -1628,14 +1896,14 @@ def f_scatter_solids():
     rocks = f_pick(P, wr, 12, rng_, 6.0, 1.6)
     for x, z in rocks:
         h = pr.uniform(0.85, 1.5)
-        f_put(f_decimated("wald_felsen", 0.27), x, z, pr.uniform(0, 6.28), h, y=GROUND_Y - 0.1 * h)
+        f_put(f_decimated("wald_felsen", 0.27), x, z, pr.uniform(0, 6.28), h, y=f_gy_min(x, z, 0.6 * h) - 0.1 * h)
         f_solid(x, z, 0.8 * h, 1.2, "mauer")
     # Baumstümpfe
     ws = np.where(land & (dc > HW + 2.0) & (dc < 15.0), 0.15 + 0.7 * (td < 4.0), 0.0)
     stumps = f_pick(P, ws, 9, rng_, 7.0, 0.8)
     for x, z in stumps:
         h = pr.uniform(0.5, 0.85)
-        f_put("wald_baumstumpf_lo", x, z, pr.uniform(0, 6.28), h, y=GROUND_Y - 0.03)
+        f_put("wald_baumstumpf_lo", x, z, pr.uniform(0, 6.28), h, y=f_gy_min(x, z, 0.45 * h) - 0.03)
         f_solid(x, z, 0.45 * h + 0.15, 0.9, "baum")
     # Liegende Stämme, längs zur nächsten Fahrbahn gerichtet oder quer
     wl = np.where(land & (dc > HW + 2.4) & (dc < 15.0), 0.15 + 0.6 * (td < 3.5), 0.0)
@@ -1643,7 +1911,7 @@ def f_scatter_solids():
     for x, z in logs:
         ang = pr.uniform(0, math.pi)
         s = pr.uniform(0.8, 1.15)
-        f_put("wald_baumstamm_lo", x, z, ang, footprint=(2.9 * s, 0.9 * s), y=GROUND_Y - 0.04)
+        f_put("wald_baumstamm_lo", x, z, ang, footprint=(2.9 * s, 0.9 * s), y=f_gy_min(x, z, 1.0 * s) - 0.04)
         f_solid_rect(x, z, ang, 1.35 * s, 0.38 * s, 0.7, "baum")
     print("DIORAMA Findlinge, Stümpfe, Stämme:", len(rocks), len(stumps), len(logs))
 
@@ -1717,7 +1985,10 @@ def f_puddles():
                         rr_ = r.uniform(0.82, 1.12)
                         ring.append((c.x + math.cos(ang) * math.cos(th) * a * rr_ - math.sin(ang) * math.sin(th) * b * rr_,
                                      c.y + math.sin(ang) * math.cos(th) * a * rr_ + math.cos(ang) * math.sin(th) * b * rr_))
-                    y = GROUND_Y + 0.03                                  # über dem Matsch (f_build_mud, bis 0,1 m)
+                    ys = f_level(np.array(ring + [(c.x, c.y)])) + GROUND_Y
+                    if float(ys.max() - ys.min()) > 0.14:
+                        continue                                         # kein Wasser im steilen Hang
+                    y = float(ys.min()) + 0.03 + 0.5 * float(ys.max() - ys.min())     # ebener Wasserspiegel; bergseitig taucht der Rand in den Boden
                     for k in range(14):
                         k2 = (k + 1) % 14
                         parts.append(("pfuetze", [(c.x, c.y, y), (ring[k][0], ring[k][1], y), (ring[k2][0], ring[k2][1], y)][::-1],
@@ -1777,7 +2048,7 @@ def f_pond_decor():
     if not F_POND:
         return
     pr = random.Random(21)
-    water_y = GROUND_Y - 0.13
+    water_y = f_water_y()
     # Schilf in Gruppen am Ufer, eine Lücke am Steg im Süden
     n_reed = 0
     for k in range(26):
@@ -2145,18 +2416,21 @@ def f_cabin_yard():
 
     def at(a, b):
         return cx + ux * a + vx * b, cz + uz * a + vz * b
-    f_cabin_build()
+    with FLift("lift") as lift:                     # Hütte starr auf ihre Terrasse (das Gelände legt sie eben an)
+        f_cabin_build()
+    F_CAB["y0"] = F_CAB.get("y0", GROUND_Y) + lift.dy
     # Brennholzstapel rechts und links der Hütte, längs zur Wand
     for a, b in ((3.35, -0.3), (-3.3, 0.6)):
         x, z = at(a, b)
-        f_put("wald_holzstapel_lo", x, z, ang + math.pi / 2 + (0.0 if a > 0 else math.pi), footprint=(2.1, 0.95), y=GROUND_Y - 0.02)
+        f_put("wald_holzstapel_lo", x, z, ang + math.pi / 2 + (0.0 if a > 0 else math.pi), footprint=(2.1, 0.95), y=f_gy_min(x, z, 1.0) - 0.02)
         f_solid_rect(x, z, ang + math.pi / 2, 1.0, 0.45, 1.0, "mauer")
     # Hackklotz mit Stumpf vor der linken Seite
     x, z = at(-2.3, 3.5)
-    f_put("wald_baumstumpf_lo", x, z, 0.4, 0.55, y=GROUND_Y - 0.02)
+    f_put("wald_baumstumpf_lo", x, z, 0.4, 0.55, y=f_gy_min(x, z, 0.3) - 0.02)
     f_solid(x, z, 0.4, 0.6, "baum")
     # Regentonne unter dem Fallrohr der Regenrinne (Ecke vorn rechts)
     x, z = at(F_CAB.get("A", 2.15) + 0.28, F_CAB.get("B", 1.65) + 0.56)
+    tonne = FLift("lift").__enter__()
     parts = []
     r_, h_ = 0.42, 0.9
     sides = 14
@@ -2173,13 +2447,14 @@ def f_cabin_yard():
     parts.append(("f_holz_grau", [(x + math.cos(2 * math.pi * k / sides) * r_ * 0.98, z + math.sin(2 * math.pi * k / sides) * r_ * 0.98, GROUND_Y + h_ - 0.05) for k in range(sides)],
                   [(0.5 + 0.5 * math.cos(2 * math.pi * k / sides), 0.5 + 0.5 * math.sin(2 * math.pi * k / sides)) for k in range(sides)]))
     mesh_objects("Regentonne", parts)
+    tonne.__exit__(None, None, None)
     f_solid(x, z, 0.45, 0.9, "baum")
     # Geländewagen des Försters neben der Hütte (erster freier Platz)
     for ca, cb in ((-5.0, 4.4), (5.2, 4.8), (-6.0, -3.2), (5.8, -3.6)):
         ax, az = at(ca, cb)
         if f_solid_blocked(ax, az, 2.2) or f_dc(ax, az) < HW + 2.6 or f_in_rect(ax, az, cx, cz, ang, 2.5, 2.0, 2.0):
             continue
-        parts_c = kit_car.car_parts(ax, az, math.cos(ang + 0.5), math.sin(ang + 0.5), "gelaendewagen", (0.022, 0.07, 0.04), base_y=GROUND_Y)
+        parts_c = kit_car.car_parts(ax, az, math.cos(ang + 0.5), math.sin(ang + 0.5), "gelaendewagen", (0.022, 0.07, 0.04), base_y=f_gy_min(ax, az, 2.3))
         mesh_objects("Foersterauto", parts_c)
         collide_rect(ax, az, math.cos(ang + 0.5), math.sin(ang + 0.5), 2.3, 0.95, 1.5, "auto")
         F_SOLIDS.append((ax, az, 2.4))
@@ -2358,7 +2633,7 @@ def f_signpost():
     """Wegweiser an der Kreuzung (KI-Modell) im oberen Keil zwischen den Fahrbahnen."""
     for zz in np.arange(5.5, 14.0, 0.5):
         if f_dc(0.0, zz) >= HW + 1.8 and not f_solid_blocked(0.0, zz, 0.5):
-            f_put("wald_wegweiser_lo", 0.0, zz, math.radians(200), 2.3, y=GROUND_Y - 0.02)
+            f_put("wald_wegweiser_lo", 0.0, zz, math.radians(200), 2.3, y=f_gy_min(0.0, zz, 0.3) - 0.02)
             f_solid(0.0, zz, 0.28, 2.3, "mast")
             print("DIORAMA Wegweiser bei", 0.0, zz)
             return
@@ -2448,24 +2723,349 @@ def f_strohballen():
         mesh_objects("Strohballen", parts)
 
 
+# ---------------------------------------------------------------- Holzbrücke über den Hohlweg (Höhenplan 4.3/7): Widerlager, Träger, Bohlen, Geländer
+# Die Fahrbahn der Brücke (Schotter) baut das Spiel zur Laufzeit; das Diorama trägt sie ("supports": keine Laufzeit-Pfeiler). Brückenstücke
+# sind die Mittellinienstützen, deren Fahrbahn mehr als F_BRIDGE_GAP über dem Gelände liegt; an ihren Enden (Brückenköpfen) stehen die
+# Widerlager. Alles über dem unteren Ast heißt "Deck_*" (im Zeichenmodus durchscheinend, damit die Linie darunter sichtbar bleibt).
+F_BR = {}
+F_RAIL_LAT = 4.85                  # Geländer (Pfosten) neben der Mittellinie: Die Leitplanken-Physik hält die Wagenmitte bei HW + 0,7 = 4,2 m
+F_DECK_HALF = 5.05                 # halbe Länge der Querbohlen
+
+
+def f_tpos(a, lat=0.0):
+    """Punkt (x, z), Tangente und Linksnormale an Bogenlänge a (m) der Mittellinie mit Seitenabstand lat (links positiv)."""
+    D = np.array(dist[:N])
+    fi = float(np.interp(a % TOTAL, D, np.arange(N)))
+    i = int(fi) % N
+    f = fi - int(fi)
+    j = (i + 1) % N
+    p = C[i] * (1 - f) + C[j] * f
+    lf = f_left()[i] * (1 - f) + f_left()[j] * f
+    lf = lf / np.linalg.norm(lf)
+    return p + lf * lat, np.array([lf[1], -lf[0]]), lf
+
+
+def f_runtime_posts():
+    """Holzpfosten und Feldsteine, die das Spiel neben der Schotterpiste setzt (world.gd build_gravel_road, gleiche Regeln): (a, Seite, x, z)."""
+    out = []
+    count = int(TOTAL / 3.2)
+    f_lv_setup()
+    for i in range(count):
+        s = i / count
+        b = base_height(s)
+        for edge in (-1.0, 1.0):
+            p, _, _ = f_tpos(s * TOTAL, edge * 4.3)
+            far = np.abs(((S_OF - s + 0.5) % 1.0) - 0.5) > 0.12            # Abstand zu fernen Streckenteilen (other_branch_distance)
+            if far.any() and float(np.sqrt(((C[far] - p) ** 2).sum(1)).min()) < HW + 1.0:
+                continue
+            if b - float(f_ty(np.array([p]))[0]) > 1.0:
+                continue
+            out.append((s * TOTAL, edge, float(p[0]), float(p[1])))
+    return out
+
+
+def f_bridge():
+    f_lv_setup()
+    bi = np.nonzero(_F_LV["bridge"])[0]
+    if not len(bi):
+        return
+    if bi.max() - bi.min() + 1 != len(bi):
+        print("DIORAMA Warnung: Brücke nicht zusammenhängend, kein Brückenbau")
+        return
+    D = np.array(dist[:N])
+    i_a, i_b = int(bi.min()) - 1, int(bi.max()) + 1
+    a_A, a_B = float(D[i_a]), float(D[i_b])
+    base_of = lambda a: float(np.interp(a, D, _F_LV["base"]))
+    b_mid = base_of((a_A + a_B) / 2)
+    rr = random.Random(77)
+    F_BR.update(a_A=a_A, a_B=a_B, s_A=a_A / TOTAL, s_B=a_B / TOTAL, b=b_mid)
+    PLANK_TOP = 0.15                                  # Oberkante der Bohlen über der Fahrbahnbasis (die Laufzeit-Schotterbahn liegt bei 0,17)
+    PLANK_T = 0.11
+    R_IN, R_OUT = 0.29, 0.25
+    SEAT = PLANK_TOP - PLANK_T - 2 * R_IN             # Auflager der Träger (Unterkante) relativ zur Fahrbahnbasis
+    SILL_H = 0.28
+    TOP = SEAT - SILL_H                               # Oberkante der Widerlager
+    AB_FRONT, AB_BACK, AB_HALF = 1.4, 0.6, 6.2        # Widerlager: Stirn 1,4 m vor dem Brückenkopf (im Hang), 0,6 m dahinter, halbe Breite
+    LAT_IN, LAT_OUT = 1.5, 3.9
+    # Pfosten des Spiels im Bereich der Brücke: keine Bohle an ihrer Stelle
+    posts = [(a, e) for a, e, x, z in f_runtime_posts() if a_A - AB_BACK - 1.5 < a < a_B + AB_BACK + 1.5]
+
+    def post_clash(a0, a1, side):
+        return any(e == side and a0 - 0.14 < a < a1 + 0.14 for a, e in posts)
+
+    # --- Widerlager (Feldsteinmauerwerk, nicht durchscheinend): Stirn zum Hohlweg, Flanken, Hintermauerung dunkel (Fugen)
+    stones = FBuild()
+    for face, sgn in ((a_A, 1.0), (a_B, -1.0)):
+        a_front = face + sgn * AB_FRONT
+        a_back = face - sgn * AB_BACK
+        y_top = base_of(face) + TOP
+        p_c, t_c, l_c = f_tpos((a_front + a_back) / 2)
+        g = Frame(Vector(p_c), Vector(t_c * sgn), Vector(l_c))                       # a zeigt zum Hohlweg
+        half_a = (AB_FRONT + AB_BACK) / 2
+        corners = np.array([tuple(g.pt(aa, bb)) for aa in (-half_a, 0.0, half_a) for bb in np.linspace(-AB_HALF, AB_HALF, 7)])
+        y_bot = float(f_level(corners).min()) + GROUND_Y - 0.45
+        f_fbox(stones, g, -half_a + 0.06, half_a - 0.06, -AB_HALF + 0.06, AB_HALF - 0.06, y_bot, y_top - 0.02, (0.10, 0.09, 0.08), top=(0.24, 0.25, 0.19))
+        # Steinlagen auf Stirn (a = +half_a) und Flanken (b = +-AB_HALF)
+        for wall_ in ("stirn", "links", "rechts"):
+            length = 2 * AB_HALF if wall_ == "stirn" else 2 * half_a
+            y = y_top
+            course = 0
+            while y > y_bot + 0.1:
+                hgt = rr.uniform(0.26, 0.40)
+                pos = -length / 2 + (rr.uniform(0.0, 0.3) if course % 2 else 0.0)
+                while pos < length / 2 - 0.05:
+                    ln = min(rr.uniform(0.45, 0.95), length / 2 - pos)
+                    tone = rr.uniform(0.27, 0.46)                                    # Feldsteine, vom Wetter dunkel, oben oft bemoost
+                    col = (tone, tone * rr.uniform(0.94, 1.0), tone * rr.uniform(0.80, 0.90))
+                    moss = rr.random() < 0.35
+                    top_c = (0.22, 0.29, 0.12) if moss else tuple(min(1.0, v * 1.08) for v in col)
+                    depth = rr.uniform(0.0, 0.05)
+                    y0_, y1_ = y - hgt + 0.02, y - rr.uniform(0.0, 0.02)
+                    if wall_ == "stirn":
+                        q = (half_a, pos + ln / 2)
+                        box_ = (half_a - 0.3, half_a + 0.03 - depth, pos + 0.015, pos + ln - 0.015)
+                    else:
+                        sb = 1.0 if wall_ == "links" else -1.0
+                        q = (pos + ln / 2, sb * AB_HALF)
+                        bb0, bb1 = sb * AB_HALF - sb * 0.3, sb * AB_HALF + sb * (0.03 - depth)
+                        box_ = (pos + 0.015, pos + ln - 0.015, min(bb0, bb1), max(bb0, bb1))
+                    ground = f_gy(*g.pt(*q))
+                    if y1_ > ground - 0.05:
+                        f_fbox(stones, g, box_[0], box_[1], box_[2], box_[3], max(y0_, y_bot), y1_, col, top=top_c)
+                    pos += ln
+                y -= hgt
+                course += 1
+        # Auflagerbalken (Kantholz) quer über die Stirn, darauf liegen die Träger
+        q0, _, _ = f_tpos(face + sgn * (AB_FRONT - 0.55))
+        gs = Frame(Vector(q0), Vector(t_c), Vector(l_c))
+        mesh_objects("Widerlager_Schwelle_%s" % ("A" if sgn > 0 else "B"), box(gs, "f_holz", -0.22, 0.22, -5.3, 5.3, y_top - 0.02, y_top + SILL_H))
+    f_bm_object("Widerlager_Steine", stones.bm, [M["farbe"]])
+    # --- Längsträger: vier Rundhölzer von Widerlager zu Widerlager, die äußeren mit Moos
+    trunks = bmesh.new()
+    tuv = trunks.loops.layers.uv.new("UVMap")
+    caps, moss = FBuild(), FBuild()
+    g0 = Frame(Vector((0.0, 0.0)), Vector((1.0, 0.0)), Vector((0.0, 1.0)))
+    a0, a1 = a_A + AB_FRONT - 1.2, a_B - AB_FRONT + 1.2
+    for lat, r in ((-LAT_OUT, R_OUT), (-LAT_IN, R_IN), (LAT_IN, R_IN), (LAT_OUT, R_OUT)):
+        p0, _, _ = f_tpos(a0, lat)
+        p1, _, _ = f_tpos(a1, lat)
+        yc = b_mid + SEAT + r
+        f_log(trunks, tuv, caps, g0, (p0[0], p0[1]), (p1[0], p1[1]), yc, r, rr, sides=8)
+        if abs(lat) > 3.0:                                                         # Moos oben auf den äußeren Trägern (fleckig)
+            a = a0 + rr.uniform(0.0, 1.0)
+            while a < a1 - 0.5:
+                ln = rr.uniform(0.4, 1.6)
+                if rr.random() < 0.55:
+                    pa, _, _ = f_tpos(a, lat)
+                    pb, _, _ = f_tpos(min(a + ln, a1), lat)
+                    w_ = r * rr.uniform(0.45, 0.75)
+                    n_ = np.array([-(pb - pa)[1], (pb - pa)[0]]) / max(float(np.linalg.norm(pb - pa)), 1e-6)
+                    yy = yc + r * 0.93
+                    c_ = (0.20 * rr.uniform(0.85, 1.15), 0.30 * rr.uniform(0.85, 1.15), 0.10)
+                    moss.poly([fV(*(pa - n_ * w_), yy), fV(*(pb - n_ * w_), yy), fV(*(pb + n_ * w_), yy), fV(*(pa + n_ * w_), yy)], c_, up=True)
+                a += ln + rr.uniform(0.2, 1.2)
+    bmesh.ops.recalc_face_normals(trunks, faces=trunks.faces)
+    f_bm_object("Deck_Traeger", trunks, [M["f_stamm"]])
+    f_bm_object("Deck_Traeger_Kappen", caps.bm, [M["farbe"]])
+    f_bm_object("Deck_Moos", moss.bm, [M["farbe"]])
+    # --- Querbohlen über die ganze Länge (unter der Laufzeit-Schotterbahn, sichtbar an den Rändern), leicht unregelmäßig
+    planks = []
+    a = a_A + AB_FRONT - 1.3
+    n_pl = 0
+    while a < a_B - AB_FRONT + 1.3:
+        w = rr.uniform(0.27, 0.33)
+        p, t, lf = f_tpos(a + w / 2)
+        fr = Frame(Vector(p), Vector(t), Vector(lf))
+        yb = base_of(a) + PLANK_TOP - rr.uniform(0.0, 0.012)
+        l0 = -(F_DECK_HALF + rr.uniform(-0.12, 0.12))
+        l1 = F_DECK_HALF + rr.uniform(-0.12, 0.12)
+        if post_clash(a, a + w, -1.0):
+            l0 = -4.1
+        if post_clash(a, a + w, 1.0):
+            l1 = 4.1
+        planks += box(fr, "f_holz_grau", -w / 2, w / 2, l0, l1, yb - PLANK_T, yb)
+        a += w + rr.uniform(0.02, 0.05)
+        n_pl += 1
+    mesh_objects("Deck_Bohlen", planks)
+    # --- Rundholzgeländer entlang der Leitplanken der Streckendatei: Pfosten alle 2 m, zwei Holme
+    rail = bmesh.new()
+    ruv = rail.loops.layers.uv.new("UVMap")
+    n_posts = 0
+    for gr in data.get("guardrails", []):
+        side = 1.0 if gr.get("side") == "left" else -1.0
+        s0, s1 = float(gr["from"]), float(gr["to"])
+        ga, gb = s0 * TOTAL, (s1 if s1 > s0 else s1 + 1.0) * TOTAL
+        n_seg = max(1, int(round((gb - ga) / 2.0)))
+        tops = []
+        for k in range(n_seg + 1):
+            a = ga + (gb - ga) * k / n_seg
+            p, _, _ = f_tpos(a, side * F_RAIL_LAT)
+            yb = base_of(a)
+            on_deck = a_A + AB_FRONT - 1.3 < a < a_B - AB_FRONT + 1.3
+            foot = yb - 0.35 if on_deck else f_gy_min(p[0], p[1], 0.15) - 0.15
+            f_tube(rail, [fV(p[0], p[1], foot), fV(p[0], p[1], yb + 1.17)], [0.09, 0.08], 6, 2.0, ruv, swap=True)
+            tops.append((p, yb))
+            n_posts += 1
+        for hy in (0.62, 1.08):
+            f_tube(rail, [fV(p[0], p[1], yb + hy) for p, yb in tops], [0.06] * len(tops), 6, 2.0, ruv, swap=True)
+    bmesh.ops.recalc_face_normals(rail, faces=rail.faces)
+    f_bm_object("Deck_Gelaender", rail, [M["f_stamm"]])
+    # --- Laternen an beiden Brückenköpfen (Holzmast mit Schirmlampe wie am Zuschauerplatz, über Kreuz), echte Lichtquellen: Die Kreuzung hat
+    # sonst keine Laterne (die Laternen der Streckendatei stehen nur, wo das Gelände auf Fahrbahnhöhe liegt)
+    lamps_at = []
+    for face, sgn, pref in ((a_B, 1.0, 1.0), (a_A, -1.0, -1.0)):
+        for side in (pref, -pref):
+            a = face + sgn * (AB_BACK + 0.9)
+            p, t, lf = f_tpos(a, side * (F_RAIL_LAT + 1.1))
+            x, z = float(p[0]), float(p[1])
+            if f_solid_blocked(x, z, 0.5) or f_dc(x, z) < HW + 2.0:
+                continue
+            f_lantern_post(x, z, math.atan2(-lf[1] * side, -lf[0] * side), "Bruecke%d" % len(lamps_at))
+            lamps_at.append((round(x, 1), round(z, 1)))
+            break
+    lamp_done = lamps_at
+    add_supports(min(F_BR["s_A"] - 0.006, 0.357), max(F_BR["s_B"] + 0.006, 0.449))
+    print("DIORAMA Brücke: Köpfe s %.4f / %.4f (lichte Weite %.1f m zwischen den Widerlagern), Bohlen %d, Geländerpfosten %d, Pfosten des Spiels im Bereich %d, Laternen %s"
+          % (F_BR["s_A"], F_BR["s_B"], a_B - a_A - 2 * AB_FRONT, n_pl, n_posts, len(posts), lamp_done))
+
+
+def f_lantern_post(x, z, heading, tag):
+    """Holzmast (4,3 m) mit Ausleger und Schirmlampe, Schaltkasten am Fuß; echte Lichtquelle (add_light), Hindernis "mast"."""
+    y0 = f_gy_min(x, z, 0.2)
+    pole = bmesh.new()
+    puv = pole.loops.layers.uv.new("UVMap")
+    f_tube(pole, [fV(x, z, y0 - 0.1), fV(x, z, y0 + 4.3)], [0.13, 0.09], 7, 2.0, puv, swap=True)
+    bmesh.ops.recalc_face_normals(pole, faces=pole.faces)
+    f_bm_object("Leuchtpfosten_%s" % tag, pole, [M["f_stamm"]])
+    det = FBuild()
+    gg = Frame(Vector((x, z)), Vector((math.cos(heading), math.sin(heading))), Vector((-math.sin(heading), math.cos(heading))))
+    f_fbox(det, gg, -0.06, 0.75, -0.04, 0.04, y0 + 4.10, y0 + 4.16, (0.16, 0.16, 0.17))
+    f_fbox(det, gg, 0.50, 0.98, -0.24, 0.24, y0 + 3.78, y0 + 4.06, (0.12, 0.13, 0.14), top=(0.10, 0.10, 0.11))
+    f_fbox(det, gg, -0.12, 0.12, -0.12, 0.12, y0 + 0.5, y0 + 1.35, (0.20, 0.30, 0.20))
+    f_bm_object("Leuchtpfosten_%s_Detail" % tag, det.bm, [M["farbe"]])
+    fl = FBuild()
+    P4 = lambda a_, b_: fV(*gg.pt(a_, b_), y0 + 3.77)
+    fl.poly([P4(0.54, -0.2), P4(0.94, -0.2), P4(0.94, 0.2), P4(0.54, 0.2)], (0.9, 0.85, 0.7), out_from=fV(*gg.pt(0.74, 0.0), y0 + 4.2))
+    f_bm_object("Leuchtpfosten_%s_Lampe" % tag, fl.bm, [M["k:lampe"]])
+    f_solid(x, z, 0.2, 4.3, "mast")
+    lx, lz = gg.pt(0.75, 0.0)
+    add_light(lx, lz, y0 + 3.7, (1.0, 0.84, 0.58), 1.0, 12.5, omni=False, glow=0.9)
+
+
+# ---------------------------------------------------------------- Hohlweg unter der Brücke: Wurzeln, Steine am Fuß, Farn an der Krone
+def f_hollow_way():
+    hz = f_hollow_range()
+    if hz is None:
+        return
+    rr = random.Random(404)
+    roots = FBuild()
+    n_root = n_stone = n_fern = 0
+    i0, i1 = int(hz[0] * N), int(hz[1] * N)
+    es = np.arange(0.0, 6.01, 0.25)
+    for i in range(i0, i1 + 1):
+        for side in (1.0, -1.0):
+            a = float(dist[i % N])
+            b = float(_F_LV["base"][i % N])
+            prof = np.array([f_tpos(a, side * (HW + e))[0] for e in es])
+            lv = f_level(prof) - b
+            if lv[-1] < 0.9 or f_dc(*prof[8]) < HW + 0.6:                    # keine Wand (oder schon die andere Fahrbahn)
+                continue
+            foot = int(np.argmax(lv > 0.06))
+            e_foot = float(es[foot])
+            e_crest = float(es[int(np.argmax(lv > 0.9 * lv[-1]))])
+            if rr.random() < 0.42:                                           # Wurzel: aus der Wand, hängt nach unten zum Fuß
+                h0 = rr.uniform(0.35, 0.95) * min(float(lv[-1]), 1.4)
+                e0 = float(np.interp(h0, lv[foot:], es[foot:])) + 0.12
+                pts = []
+                bend = rr.uniform(-0.4, 0.4)
+                for de, dh, da in ((0.0, 0.0, 0.0), (-0.2, -0.22, bend * 0.4), (-0.32, -0.55 * h0, bend * 0.8), (-0.36, -0.85 * h0, bend)):
+                    q, _, _ = f_tpos(a + da, side * (HW + e0 + de))
+                    pts.append(fV(q[0], q[1], b + GROUND_Y + h0 + dh))
+                r0 = rr.uniform(0.035, 0.07)
+                n0 = len(roots.bm.faces)
+                f_tube(roots.bm, pts, [r0, r0 * 0.8, r0 * 0.5, r0 * 0.25], 4, 2.0, roots.uv)
+                tone = rr.uniform(0.85, 1.15)
+                for f in list(roots.bm.faces)[n0:]:
+                    for loop in f.loops:
+                        loop[roots.col] = ((0.24 * tone) ** 2.2, (0.16 * tone) ** 2.2, (0.10 * tone) ** 2.2, 1.0)
+                n_root += 1
+            if rr.random() < 0.3:                                            # Stein am Wandfuß (hinter der Wandkante der Fahrphysik)
+                q, _, _ = f_tpos(a + rr.uniform(-0.3, 0.3), side * (HW + e_foot + rr.uniform(0.05, 0.3)))
+                f_put(f_stone(int(abs(q[0] * 1.9 + q[1] * 6.1)) % 3), float(q[0]), float(q[1]), rr.uniform(0, 6.28), scale=rr.uniform(0.3, 0.6),
+                      anchor="origin", y=f_gy_min(q[0], q[1], 0.2) - 0.03)
+                n_stone += 1
+            if rr.random() < 0.5:                                            # Farn an der Krone
+                q, _, _ = f_tpos(a + rr.uniform(-0.3, 0.3), side * (HW + e_crest + rr.uniform(-0.2, 0.9)))
+                if not f_solid_blocked(q[0], q[1], 0.3) and f_dc(q[0], q[1]) > HW + 1.0:
+                    f_put(f_fern(int(abs(q[0] * 5.1 + q[1] * 2.3)) % 3), float(q[0]), float(q[1]), rr.uniform(0, 6.28), scale=rr.uniform(0.8, 1.25),
+                          anchor="origin", foot=0.4)
+                    n_fern += 1
+    bmesh.ops.recalc_face_normals(roots.bm, faces=roots.bm.faces)
+    f_bm_object("Hohlweg_Wurzeln", roots.bm, [M["farbe"]])
+    print("DIORAMA Hohlweg s %.3f-%.3f: Wurzeln %d, Steine %d, Farne %d" % (hz[0], hz[1], n_root, n_stone, n_fern))
+
+
+# ---------------------------------------------------------------- Laufzeit-Bauteile (Laternen, Tribüne, Turm, Stamm) auf den Dioramaboden
+F_RT_DY = {}
+
+
+def f_runtime_props_on_ground():
+    """Das Spiel stellt Laufzeit-Bauteile auf das Gelände der Streckendatei (terrain_height am Standort). Der Dioramaboden weicht nahe der
+    Fahrbahn davon ab (f_level: Schulter, Erdwand, Böschung); prop_y gleicht den Unterschied aus: tiefste Bodenhöhe unter der Grundfläche
+    minus Gelände am Standort (kein set_prop_heights: das Gelände steckt schon im Spiel)."""
+    n = 0
+    for p in data["props"]:
+        kind = p.get("type")
+        if kind not in ("lantern", "tower", "stand", "log"):
+            continue
+        x, z = float(p["x"]), float(p["z"])
+        if kind in ("stand", "log"):
+            ang = math.radians(float(p.get("rot", 0.0)))
+            hw_, hd = (float(p.get("w", 10.0)) / 2, float(p.get("d", 3.5)) / 2) if kind == "stand" else (1.6, 0.35)
+            g = Frame(Vector((x, z)), Vector((math.cos(ang), math.sin(ang))), Vector((-math.sin(ang), math.cos(ang))))
+            pts = np.array([tuple(g.pt(a, b)) for a in np.linspace(-hw_, hw_, 5) for b in np.linspace(-hd, hd, 3)])
+        else:
+            r = 1.3 if kind == "tower" else 0.25
+            pts = np.array([(x, z)]) + F_RING * r
+        dy = float(f_level(pts).min()) - float(f_ty(np.array([(x, z)]))[0])
+        F_RT_DY[(round(x, 2), round(z, 2))] = dy
+        if abs(dy) >= 0.005:
+            set_prop_y((x, z), dy)
+            n += 1
+    print("DIORAMA Laufzeit-Bauteile auf Dioramaboden gesetzt:", n, "Abweichungen (m)", sorted(round(v, 2) for v in F_RT_DY.values() if abs(v) >= 0.005)[:12])
+
+
+def f_runtime_dy(x, z):
+    return F_RT_DY.get((round(float(x), 2), round(float(z), 2)), 0.0)
+
+
 # ---------------------------------------------------------------- Szenerie
 def theme_scenery():
     f_trees()
     f_rocks()
     f_cabin_yard()
-    f_campfire()
-    f_hochsitz()
-    f_holzpolter()
+    with FLift("lift"):
+        f_campfire()
+    with FLift("lift"):
+        f_hochsitz()
+    with FLift("drape"):
+        f_holzpolter()
     f_signpost()
-    f_strohballen()
-    f_stand_lamps()
-    f_apex_bales()
+    with FLift("drape"):
+        f_strohballen()
+    with FLift("drape"):
+        f_stand_lamps()
+    with FLift("drape"):
+        f_apex_bales()
+    f_bridge()
+    f_hollow_way()
     f_puddles()
     f_verge_detail()
     f_scatter_solids()
     f_pond_decor()
     f_scatter_understory()
-    ao_proxies(types=["lantern", "tower", "stand", "log"])
+    f_runtime_props_on_ground()
+    ao_proxies(types=["lantern", "tower", "stand", "log"], base_y=lambda x, z: GROUND_Y + f_runtime_dy(x, z) + float(f_ty(np.array([(x, z)]))[0]))
     f_report()
 
 

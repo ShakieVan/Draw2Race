@@ -1,7 +1,10 @@
-# Diorama Drift Arena (Thema `harbor`, Stand 02.10.2026, Politur)
+# Diorama Drift Arena (Thema `harbor`, Stand 03.10.2026)
 
 Modul: `tools/dio_themes/harbor.py` (Zweig `IS_ARENA`), gemeinsam mit Harbour Run (siehe `harbor.md`). Bauen:
 `tools/dio_build.ps1 -Track arena -Shots -Times day,dusk,night -Tag _x`.
+
+03.10.2026: Neubau nach der Containerterrasse von Harbour Run (Fassung 2). Die Arena hat keine erhöhte Lücke, die neuen Bauteile (`hb_lv_*`) entfallen dort;
+Bild und Hindernisse sind unverändert (254), die Begleitdatei trägt jetzt `track_hash`.
 
 ## Geschichte des Ortes
 

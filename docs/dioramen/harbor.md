@@ -1,7 +1,40 @@
-# Diorama Harbour Run (Thema `harbor`, Stand 02.10.2026, Politur)
+# Diorama Harbour Run (Thema `harbor`, Stand 03.10.2026, Fassung 2 „Containerterrasse Ost“)
 
 Modul: `tools/dio_themes/harbor.py` (gemeinsam mit der Drift Arena, siehe `arena.md`), Texturen: `tools/make_harbor_textures.py` →
-`game/assets/dio/harbor/`, Vorschau ohne Blender: `tools/make_harbor_preview.py`. Bauen: `tools/dio_build.ps1 -Track harbor -Shots -Times day,dusk,night -Tag _x`.
+`game/assets/dio/harbor/` (neu: `src/riffelblech.png`, Aufruf `make_harbor_textures.py riffel`), Vorschau ohne Blender: `tools/make_harbor_preview.py`.
+Bauen: `tools/dio_build.ps1 -Track harbor -Shots -Times day,dusk,night -Tag _h`. Nahansichten der Terrasse: `AT=0.38` (Absprungkante, Gasse, Landerampe),
+`AT=0.20` (Auffahrt), `AT=0.31` (Ecken 3 und 4 oben), `AT=0.42` (Landerampe, Portalhubwagen).
+
+## Containerterrasse (Fassung 2, Bauplan `docs/dioramen/HOEHEN_PLAN.md` 4.2 und 7 C1)
+
+Die Spielebene steht in der Streckendatei: Höhenprofil 0 → 5,2 m (Auffahrt 37–83 m), Terrasse mit Ecke 3 und 4 (83–123 m), Gasse als erhöhte Lücke (5,5 m,
+Lippe 0,4), Landerampe 2,6 → 0 (128,5–147 m), Leitplanken beidseits 0,1801–0,382, Geländeraster = Fahrbahnhöhe bis Halbbreite + 1 m. Das Diorama trägt die
+Laufzeit-Fahrbahn sichtbar (`hb_lv_*`, alles aus `elevation`, `gaps`, `guardrails` abgeleitet; ohne erhöhte Lücke, z. B. in der Arena, entfällt der Teil):
+
+- **Container unter Auffahrt und Terrasse**: vier Reihen längs der Fahrbahn (Mitte ±1,235 / ±3,705 m), 40-Fuß auf Geraden, 20-Fuß in den Kurven, ohne
+  Überlappung; Lagen nach der Basis darüber (zwei Lagen unter der Terrasse, Dach 5,24 m ≤ Fahrbahn − 0,13; eine Lage auf der oberen Hälfte der Auffahrt:
+  gestufte Türme). 47 Container in 28 Stapeln, Farben aus der Palette der Felder. **Keine Hindernisse** unter oder an der Terrassenfahrbahn.
+- **Stahldeck** aus Riffelblech über Auffahrt, Terrasse und Landerampe (±4,5 m wie das Geländeraster, 5 cm unter der Fahrbahn; sichtbar zwischen Randstein und
+  Kante), gelbe Kante oben, Randträger (Stirnblech 0,42 m) mit gelbem Streifen.
+- **Stützen**: Joche alle 4,5 m unter den Randträgern (HEB-Stützen vom Boden oder vom Containerdach, Querträger, Mittelriegel bei hohen Jochen, Kreuzverband
+  längs zwischen hohen Jochen) auf der Auffahrt und unter der Landerampe. `add_supports(0.1149, 0.4565)`: das Spiel setzt dort keine Laufzeit-Pfeiler.
+- **Gelbe Geländer** entlang der Leitplanken (4,2 m neben der Mitte, Pfosten alle 2 m, Handlauf 1,1 m, Knieleiste) auf dem Deck, folgen der Steigung.
+- **Schwarz-gelbe Absprungkante**: Schrägstreifen quer über Fahrbahn und Deck in den letzten 0,6 m (Höhe der Laufzeit-Markierungen, Basis + 0,197) und als
+  0,6-m-Blende an der Stirnseite der Terrasse zur Gasse.
+- **Gasse mit Portalhubwagen**: quer zur Fahrbahn unter dem Sprung bleibt ein 26 m breiter Streifen frei von Stapeln; der Portalhubwagen (mit blauem 40-Fuß)
+  steht 13,5 m neben der Flugbahn in der Gasse (festes Hindernis am Boden).
+- **Landerampe aus Stahl**: Stirnwand zur Gasse (Blechbahnen, blank gekratzt und Rost) mit verkratzter Lippe oben, Deck und Joche wie die Auffahrt.
+- **Leuchten auf der Terrasse**: zwei 7-m-Masten auf dem Deck außerhalb des Geländers (Ecke 3 außen, Ecke 4), echte Lichtquellen (`add_light`, 13 m), Mast als
+  Hindernis ab Deckhöhe (`b` = 5,2). Die Hoflaternen bleiben am Boden (mindestens 6,5 m neben der Fahrbahn).
+- Planung vor den Feldern: das Band der Hochstrecke (±5,4 m) ist belegt, die Containerfelder planen um den neuen Grundriss (Ecke 5 entfällt).
+- Das Hafenbecken sitzt an der ebenen Lücke (Beckensprung), nicht an der Gasse (`hb_basin_rect` wählt die ebene Lücke).
+
+**Feldtest (alle Gegner im Ziel, `test_field`)**: Mit gültigem Diorama blieben Gegner an Hindernissen dicht neben der Fahrbahn hängen; deshalb seit 03.10.2026:
+- Hoflaternen 8,5 m neben der Mitte (vorher 6,5) und mindestens 7,7 m von jedem Abschnitt, keine Laterne näher als 12 m an erhöhter Fahrbahn ohne Leitplanke
+  (Auffahrt unterhalb der Leitplanken, Landerampe): wer dort herunterfällt, rutscht nicht in einen Mast. Verkehrszeichen 3,5 m vom Fahrschlauch.
+- Startportal: Pylon 7,1 m neben der Mitte (Ausleger länger; vorher 5,15 m, kurz vor dem Ziel blieb ein Gegner daran hängen).
+- Landseitige Kranschiene bündig im Boden wie die seeseitige; die KI-Kranbeine (hängen 0,78 m über dem Boden) stehen auf Stützböcken (2,8 x 1,2 m, Hindernis)
+  unter jedem landseitigen Fuß. Vorher lief ein 0,62 m hoher Betonbalken 1,6 m neben dem Randstein über die ganze Start-Ziel-Gerade.
 
 ## Geschichte des Ortes
 
@@ -39,8 +72,8 @@ Abkürzung baut das Spiel wie ohne Diorama; der Boden des Dioramas liegt bei 0,0
   Schaumsaum um den Rumpf. Der Umriss des Frachters wird aus dem KI-Modell berechnet (Wasserlinie nach der Anpassung von `world.gd`).
 - **Kranbahn**: Die Schienen folgen den Maßen des Kranmodells (`hafen_kran`: seeseitige Räder bei z = -37,4, landseitige Füße bei z = -30,7). Die
   seeseitige Schiene liegt im Boden auf Schwellen mit gelb-schwarzen Warnstreifen; die landseitigen Füße des KI-Modells hängen 0,78 m über dem Boden,
-  deshalb läuft die landseitige Schiene auf einem Betonbalken (0,62 m hoch, festes Hindernis). Prellböcke an den Enden. Nahansichten: Kranfüße stehen
-  mit allen drei Rädern auf der Schiene, die Räder laufen längs der Schiene.
+  deshalb stehen sie seit 03.10.2026 auf Stützböcken (festes Hindernis), die landseitige Schiene liegt bündig im Boden (vorher ein durchgehender Betonbalken,
+  siehe Feldtest oben). Prellböcke an den Enden.
 - **Kranscheinwerfer** (neu): je Kran zwei Arbeitsscheinwerfer an den seeseitigen Beinen (`add_light`, 9 m hoch, warmweiß, Reichweite 14 m, kleiner
   Leuchtfleck am Kopf). Das KI-Modell hat keine Lampen; der Fleck steht für den Scheinwerferkopf, das Licht beleuchtet Kai und Schiffsdeck.
 
@@ -93,7 +126,9 @@ Portalhubwagen. Triangles (ohne KI-Modelle der Laufzeit): Harbour Run etwa 70 00
 
 ## Offene Punkte / Hinweise
 
-- Die Abkürzung zeichnet das Spiel schwarz (`world.gd build_shortcuts`); das ist unabhängig vom Diorama (auch ohne Diorama so).
+- Die Abkürzung zeichnet das Spiel seit 02.10.2026 im Belag der Hauptstraße (früher schwarz).
+- Die Innenseite der engen Ecken 3 und 4 hat unter dem Deck Lücken zwischen den Stapeln (von oben verdeckt).
+- Einfache Grafikstufe: Container, Deck, Geländer gibt es dort nicht (Leitplanken als Band, Laufzeit-Fahrbahn ohne Pfeiler wegen `supports`).
 - Der Kran (KI-Modell) hat keine Lampen; die Scheinwerfer sind reine Lichtquellen mit Leuchtfleck.
 - Mobile Grafik: Die Containerfelder könnten für schwache Geräte ausgedünnt werden; der Boden (36 000 Dreiecke) ließe sich mit gröberen Zellen außerhalb der
   Flicken verkleinern.

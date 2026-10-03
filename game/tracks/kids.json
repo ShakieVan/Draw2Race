@@ -1,8 +1,9 @@
 {
  "format": 1,
+ "rev": 2,
  "id": "kids",
  "name": "Toy Box Speedway",
- "subtitle": "Bonus: Spielzeugbahn im Kinderzimmer – Looping und Sprung über die Bücherlücke.",
+ "subtitle": "Bonus: Spielzeugbahn im Kinderzimmer – Looping, Bücherlücke und ein Lineal als Wippe.",
  "theme": "kids",
  "half_width": 3.5,
  "points": [
@@ -1339,6 +1340,91 @@
    "to": 0.5598
   }
  ],
+ "shortcuts": [
+  {
+   "from": 0.5976,
+   "to": 0.8515,
+   "path": [
+    [
+     35.34,
+     -29.5
+    ],
+    [
+     31.34,
+     -31.83
+    ],
+    [
+     26.91,
+     -33.18
+    ],
+    [
+     22.3,
+     -33.47
+    ],
+    [
+     15.29,
+     -33.11
+    ],
+    [
+     8.28,
+     -32.74
+    ],
+    [
+     1.28,
+     -32.37
+    ],
+    [
+     -5.73,
+     -32.01
+    ],
+    [
+     -12.73,
+     -31.64
+    ],
+    [
+     -19.74,
+     -31.28
+    ],
+    [
+     -26.75,
+     -30.91
+    ],
+    [
+     -33.75,
+     -30.55
+    ],
+    [
+     -35.73,
+     -30.45
+    ],
+    [
+     -37.51,
+     -29.6
+    ]
+   ],
+   "width": 4.0,
+   "surface": "dirt"
+  }
+ ],
+ "seesaws": [
+  {
+   "shortcut": 0,
+   "at": 28.0,
+   "length": 24.0,
+   "width": 4.0,
+   "thickness": 0.3,
+   "pivot_h": 1.1,
+   "inertia": 25.9,
+   "bias": 1.0,
+   "damping": 0.4,
+   "restitution": 0.2,
+   "rail": 0.8,
+   "edge_ok": 0.35,
+   "edge_wreck": 0.6,
+   "decide": 0.515,
+   "ai": true
+  }
+ ],
  "surfaces": [
   {
    "from": 0.36,
@@ -1495,6 +1581,30 @@
    "rot": 20,
    "color": "27ae60",
    "h": 2.6
+  },
+  {
+   "type": "collider",
+   "x": 8.08,
+   "z": -35.48,
+   "w": 1.5,
+   "d": 0.9,
+   "rot": -93.0,
+   "b": 0.0,
+   "h": 0.75,
+   "kind": "mauer",
+   "visible": false
+  },
+  {
+   "type": "collider",
+   "x": 8.37,
+   "z": -29.99,
+   "w": 1.5,
+   "d": 0.9,
+   "rot": -93.0,
+   "b": 0.0,
+   "h": 0.75,
+   "kind": "mauer",
+   "visible": false
   }
  ]
 }

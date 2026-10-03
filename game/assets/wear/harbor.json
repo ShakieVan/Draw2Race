@@ -1,0 +1,14 @@
+{
+	"cols": 120,
+	"crashed": 0,
+	"drivers": 30,
+	"hash": "3c58734c8e495a826e89ff8c3594a235cb0670a2e60f1f439d48bf592e1d4761",
+	"lat": 3.75,
+	"length": 322.0439,
+	"note": "Nutzungsspuren (game/tests/make_wear.gd): R Gummi, G Politur, B Spurrinne; nur Darstellung",
+	"px_lat": 0.0625,
+	"rev": 2,
+	"rows": 1289,
+	"step": 0.24984,
+	"version": 1
+}

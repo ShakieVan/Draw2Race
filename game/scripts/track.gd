@@ -46,6 +46,10 @@ var max_half_width := HALF_WIDTH
 const BREAK_SPEED := 9.0      # m/s senkrecht zur Leitplanke: darüber bricht sie
 var open := false         # Sprintstrecke: Start und Ziel getrennt, eine Durchfahrt
 var laps := 2
+var rev := 1              # Fassung der Geometrie: Bestzeiten, Bestenliste und Geister gelten je Fassung
+var file_hash := ""       # SHA-256 der Streckendatei (Gültigkeit von Diorama-Begleitdatei, Geist und Lauf)
+var seesaws: Array = []   # Wippen-Einträge der Streckendatei (Zustand: Seesaw, je Rennen in RaceField)
+var path := ""
 var points: Array[Vector2] = []
 var tangents: Array[Vector2] = []
 var curvatures := PackedFloat32Array()
@@ -53,11 +57,15 @@ var length := 0.0
 var bounds := Rect2()
 var grid := {}
 
-func _init(path := DEFAULT_TRACK) -> void:
-	var data = JSON.parse_string(FileAccess.get_file_as_string(path))
+func _init(file_path := DEFAULT_TRACK) -> void:
+	var data = JSON.parse_string(FileAccess.get_file_as_string(file_path))
 	if not data is Dictionary:
-		push_error("Streckendatei fehlt oder ist ungültig: " + path)
+		push_error("Streckendatei fehlt oder ist ungültig: " + file_path)
 		return
+	path = file_path
+	file_hash = FileAccess.get_sha256(file_path)
+	rev = int(data.get("rev", 1))
+	seesaws = data.get("seesaws", [])
 	id = str(data.get("id", "track"))
 	name = str(data.get("name", id))
 	subtitle = str(data.get("subtitle", ""))
@@ -95,7 +103,29 @@ func _init(path := DEFAULT_TRACK) -> void:
 	for p in data.points:
 		control.append(Vector2(float(p[0]), float(p[1])))
 	build(control)
+	for message in validate():
+		push_error("%s: %s" % [file_path, message])
 	load_obstacles()
+
+func validate() -> Array:
+	# Formatprüfung: Höhen- und Breitenprofil nach s sortiert, keine doppelten s (unsortiert entstünde eine Stufe, die das Auto
+	# hochschleudert). Liefert die Fehlertexte; _init meldet sie per push_error.
+	var out: Array = []
+	for field in ["elevation", "widths"]:
+		var list: Array = get(field)
+		for i in range(1, list.size()):
+			if float(list[i][0]) <= float(list[i - 1][0]):
+				out.append("%s nicht streng nach s sortiert (Eintrag %d: %.4f nach %.4f)" % [field, i, float(list[i][0]), float(list[i - 1][0])])
+	for d in seesaws:
+		if int(d.get("shortcut", -1)) < 0 or int(d.get("shortcut", -1)) >= shortcuts.size():
+			out.append("Wippe verweist auf keine Abkürzung")
+	return out
+
+func layout_valid(layout: Dictionary) -> bool:
+	# Diorama-Begleitdatei passt zur Streckendatei: gleicher SHA-256 beim Bau, oder (ältere Dioramen ohne Schlüssel) Fassung 1.
+	if layout.has("track_hash"):
+		return str(layout.track_hash) == file_hash
+	return rev <= 1
 
 static func load_track(track_id: String) -> Circuit:
 	return Circuit.new("res://tracks/%s.json" % track_id)
@@ -257,11 +287,42 @@ func phase_near(p: Vector2, hint: float, window := 0.12) -> float:
 		indices.append(wrap_index(center + k))
 	return float(nearest(p, indices).s)
 
-func center_distance(p: Vector2) -> float:
-	# Abstand zur befahrbaren Mitte: Hauptstrecke oder Abkürzungspfad.
-	var d := float(query(p).distance)
+func query_branch(p: Vector2, hint: float) -> Dictionary:
+	# Astbezug für Ebenen übereinander: wie query(p), aber liegt die nächste Mittellinie mehr als 1 m höher oder tiefer als die
+	# Fahrbahn am bisherigen Streckenanteil hint (Brücke über den unteren Ast, Sprung über den eigenen Sohlenweg), gilt die nächste
+	# Mittellinie im Fenster ±0,08 um hint. Ebene Kreuzungen (Acht, Jahrmarkt) bleiben exakt wie query(p).
+	var q := query(p)
+	if hint < 0.0 or (elevation.is_empty() and ramps.is_empty()):
+		return q
+	if absf(surface_z(float(q.s)) - surface_z(hint)) <= 1.0:
+		return q
+	var count := points.size()
+	var center := int(unit(hint) * span())
+	var reach := int(0.08 * count)
+	var indices := PackedInt32Array()
+	for k in range(-reach, reach + 1):
+		if open and (center + k < 0 or center + k > count - 2):
+			continue
+		indices.append(wrap_index(center + k))
+	return nearest(p, indices)
+
+func center_distance(p: Vector2, hint := -1.0) -> float:
+	# Abstand zur befahrbaren Mitte: Hauptstrecke (mit Astbezug, falls hint) oder Abkürzungspfad.
+	var d := float(query_branch(p, hint).distance)
 	var sc := shortcut_at(p, d)
 	return minf(d, float(sc.distance)) if not sc.is_empty() else d
+
+func shortcut_here(p: Vector2, hint: float) -> Dictionary:
+	# Abkürzung, auf der ein Auto mit bisherigem Streckenanteil hint gerade fährt (wie in phase_near: vom Einstieg her erreicht).
+	if shortcuts.is_empty():
+		return {}
+	var sc := shortcut_at(p)
+	if sc.is_empty():
+		return {}
+	var h := unit(hint)
+	if h >= float(shortcuts[int(sc.index)].from) - 0.03 and h <= float(shortcuts[int(sc.index)].to) + 0.01:
+		return sc
+	return {}
 
 func shortcut_at(p: Vector2, main_distance := -1.0) -> Dictionary:
 	# Abkürzung, auf deren Pfad p liegt (näher am Pfad als an der Hauptstrecke, innerhalb Breite + 1 m):
@@ -303,6 +364,21 @@ func place(s: float, offset: float, shortcut := -1) -> Vector2:
 			var dir: Vector2 = (path[i + 1] - path[i]).normalized()
 			return path[i].lerp(path[i + 1], f) + Vector2(-dir.y, dir.x) * offset
 	return path[-1]
+
+func path_pose(k: int, meters: float) -> Array:
+	# Punkt und Richtung auf dem Pfad der Abkürzung k bei „meters“ Pfadmetern ab dem Abzweig.
+	var sc: Dictionary = shortcuts[k]
+	var cum: PackedFloat32Array = sc.cum
+	var trail: Array = sc.path
+	var target := clampf(meters, 0.0, cum[-1])
+	for i in range(trail.size() - 1):
+		if target <= cum[i + 1] or i == trail.size() - 2:
+			var f := clampf((target - cum[i]) / maxf(cum[i + 1] - cum[i], 1e-6), 0.0, 1.0)
+			return [Vector2(trail[i]).lerp(trail[i + 1], f), (Vector2(trail[i + 1]) - Vector2(trail[i])).normalized()]
+	return [Vector2(trail[-1]), Vector2.RIGHT]
+
+func shortcut_length(k: int) -> float:
+	return float(shortcuts[k].cum[-1])
 
 func other_branch_distance(p: Vector2, s: float, gap := 0.12) -> float:
 	# Abstand zu Streckenteilen, die im Streckenverlauf weit entfernt sind (Kreuzung der Acht).
@@ -377,6 +453,14 @@ func in_gap(s: float) -> bool:
 		if x >= float(g.from) and x <= float(g.to):
 			return true
 	return false
+
+func gap_lip(s: float) -> float:
+	# Landelippe der Lücke an Stelle s (m); -1 = keine Angabe (wie bisher: Hochziehen bis 3 m unter der Fahrbahn).
+	var x := unit(s)
+	for g in gaps:
+		if x >= float(g.from) and x <= float(g.to):
+			return float(g.lip) if g.has("lip") else -1.0
+	return -1.0
 
 func ground_height(s: float) -> float:
 	# Fahrbahnhöhe an Streckenstelle s; in einer Lücke gibt es keinen Boden.
@@ -458,22 +542,219 @@ func guardrail_at(s: float, side: float) -> bool:
 	return false
 
 func momentum_needs() -> Array:
-	# Mindesttempo (m/s) vor Loopings (oben muss v²/R ≥ g gelten; Einfahrt ≈ √(5gR), plus Reserve für
-	# Luftwiderstand) und vor Schanzen, hinter denen eine Lücke liegt (Weite ≈ 2v²·Steigung/g).
+	# Mindesttempo (m/s) vor Loopings (oben muss v²/R ≥ g gelten; Einfahrt ≈ √(5gR), plus Reserve für Luftwiderstand).
+	# Sprünge über Lücken plant ai_route über jump_windows (ballistische Vorausrechnung wie im Fahrzeug).
 	var needs: Array = []
 	for l in loops:
 		needs.append({"s": float(l.s), "speed": sqrt(5.0 * RaceVehicle.GRAVITY * float(l.radius)) * 1.15, "extra": 0.0})
-	for g in gaps:
-		for r in ramps:
-			var end_s := float(r.s) + float(r.length) / length
-			if absf(float(g.from) - end_s) * length < 3.0:
-				var slope := float(r.height) / float(r.length)
-				var jump := (float(g.to) - float(g.from)) * length + 2.0
-				needs.append({"s": float(r.s), "speed": sqrt(jump * RaceVehicle.GRAVITY / (2.0 * slope)) * 1.15, "extra": float(r.length) + jump})
 	return needs
 
-func surface_at(p: Vector2) -> Dictionary:
-	var q := query(p)
+# ---------- Sprungfenster (KI, docs/dioramen/HOEHEN_PLAN.md A2 a/b/f) ----------
+const JUMP_SKILL := 2.3          # Kurventempo hinter der Landung wird mit dieser Stufe bewertet
+const JUMP_RUNUP := 40.0         # m: längster Anlauf (gerade, seit dem letzten Kurvenende) vor dem Absprung
+const STRAIGHT_K := 1.0 / 60.0   # Krümmung, unter der ein Stück als gerade gilt
+const JUMP_AIM := 1.0            # m/s: Ist-Ziel der KI mindestens so weit über der Fensteruntergrenze lo (die 2D-Fahrt bleibt 0,2–0,5 m/s unter der
+                                 # 1D-Rechnung; Prüfung 03.10.: Hafen sprang mit 9,0–9,3 m/s bei lo 9,5 ab, nur 1,5 m/s über v_min)
+const LOCK_BEFORE := 40.0        # Gegner-Turbosperre: m vor dem Absprung …
+const LOCK_AFTER := 20.0         # … bis m hinter dem Lückenende
+var jump_cache := {}             # Wetterhaftung -> Fenster
+var jump_problems: Array = []    # Text je Sprung, dessen Fenster leer oder dessen Plan unerreichbar ist (Test FAIL)
+
+func gap_kicker(g: Dictionary) -> Dictionary:
+	# Schanze, die höchstens 3 m vor dem Lückenanfang endet (Kicker), sonst {}.
+	for r in ramps:
+		var end_s := float(r.s) + float(r.length) / length
+		var before := wrapf(float(g.from) - end_s, -0.5, 0.5) * length
+		if before >= -0.5 and before <= 3.0:
+			return r
+	return {}
+
+func flight(s_t: float, z0: float, slope: float, u0: float, g: Dictionary) -> Dictionary:
+	# Flug ab der Kante wie im Fahrzeug (60 Hz, Schwerkraft, waagrecht nur Luftwiderstand, Fortschritt entlang der Mittellinie).
+	var dt := 1.0 / 60.0
+	var u := u0
+	var z := z0
+	var vz := u0 * slope
+	var s := s_t
+	var was_gap := true
+	var lip := float(g.lip) if g.has("lip") else 3.0
+	for _tick in range(900):
+		u -= 0.010 * u * u * dt
+		s += u * dt / length
+		vz -= RaceVehicle.GRAVITY * dt
+		z += vz * dt
+		var gap_now := in_gap(s)
+		var ground := ground_height(s)
+		if z <= ground:
+			if gap_now:
+				return {"ok": false, "why": "Lücke"}
+			if was_gap and ground - z > lip:
+				return {"ok": false, "why": "Lippe", "s": s}
+			return {"ok": true, "s": s, "u": u, "vz": vz}
+		if z < base_height(s) - 3.0:
+			return {"ok": false, "why": "tief"}
+		was_gap = gap_now
+	return {"ok": false, "why": "Zeit"}
+
+func jump_windows() -> Array:
+	# Je Lücke: Absprung s_t = gap.from, Tempofenster [lo, hi] der KI aus der Vorausrechnung für u = 4 … 32 m/s.
+	# v_min = kleinstes u mit Landung hinter der Lücke ohne Lippenverstoß; v_hi = größtes u, bei dem Landepunkt + 0,35 s·u
+	# (Haftungsaufbau) vor der ersten Stelle liegt, deren Kurventempo √(lat/k) unter 0,9·Landetempo fällt.
+	var key := snappedf(RaceVehicle.weather_grip, 0.001)
+	if jump_cache.has(key):
+		return jump_cache[key]
+	var out: Array = []
+	var road_grip: float = RaceVehicle.SURFACE_GRIP.get(road, 1.0) * RaceVehicle.weather_grip
+	var lat_ref := (6.0 + JUMP_SKILL * 1.6) * road_grip
+	for gi in range(gaps.size()):
+		var g: Dictionary = gaps[gi]
+		var s_t := float(g.from)
+		var kicker := gap_kicker(g)
+		var edge := s_t - 0.02 / length
+		var slope := float(kicker.height) / float(kicker.length) if not kicker.is_empty() else (ground_height(edge) - ground_height(edge - 1.0 / length))
+		var z0 := ground_height(edge)
+		var v_min := -1.0
+		var v_hi := -1.0
+		for ui in range(113):
+			var u0 := 4.0 + ui * 0.25
+			var f := flight(s_t, z0, slope, u0, g)
+			if not bool(f.ok):
+				continue
+			if v_min < 0.0:
+				v_min = u0
+			# erste Stelle hinter der Landung, deren Kurventempo unter 0,9 · Landetempo liegt
+			var land := float(f.s)
+			var lu := float(f.u)
+			var limit := INF
+			var m := 0.0
+			while m < 160.0:
+				var sx := land + m / length
+				if sqrt(lat_ref / maxf(curvature(sx), 0.0005)) < 0.9 * lu:
+					limit = m
+					break
+				m += 0.5
+			if 0.35 * lu <= limit:
+				v_hi = u0
+		var lo := maxf(v_min + 2.0, 1.2 * v_min)
+		var hi := v_hi - 1.5
+		var w := {"gap": gi, "s_t": s_t, "to": float(g.to), "kicker": not kicker.is_empty(), "slope": slope,
+			"v_min": v_min, "v_hi": v_hi, "lo": lo, "hi": hi, "ok": v_min > 0.0 and v_hi > 0.0 and lo <= hi}
+		w["start"] = float(kicker.s) if not kicker.is_empty() else s_t
+		out.append(w)
+	jump_cache[key] = out
+	return out
+
+func boost_locked(progress_value: float) -> bool:
+	# Gegner-Turbosperre vor und hinter Sprüngen (ohne Sperre landen Gegner mit Turbo zu weit, mitten in der nächsten Kurve).
+	if gaps.is_empty():
+		return false
+	var x := unit(progress_value)
+	for g in gaps:
+		var a := (float(g.from) - LOCK_BEFORE / length)
+		var b := (float(g.to) + LOCK_AFTER / length)
+		if fposmod(x - a, 1.0) <= fposmod(b - a, 1.0):
+			return true
+	return false
+
+const LOOP_CALM := 60.0         # m vor einem Looping ohne Ausweichen (ein Schlenker schaukelt sich bis zur Einfahrt auf und kostet Schwung)
+const JUMP_CALM := 45.0         # m vor einem Absprung ohne Ausweichen (Feldtest Steinbruch Stufe 3: ein Schlenker 42 m vor der Kante pendelte bis
+                                # auf den Kicker, Absprung schräg in die Grube)
+var calm_zones := PackedByteArray()   # je Stützstelle 1 = kein Ausweichversatz (Schwungzone, erhöhte Fahrbahn)
+
+func calm_at(s: float) -> bool:
+	# Kein Ausweichen der Gegner: JUMP_CALM vor dem Absprung bis Lückenende + 15 m, LOOP_CALM vor einem Looping bis zur Ausfahrt + 10 m, und auf erhöhter
+	# Fahrbahn (Fahrbahn mehr als 1 m über dem Gelände am Rand). Ohne Sprünge, Loopings und Höhen immer false.
+	if gaps.is_empty() and loops.is_empty() and elevation.is_empty():
+		return false
+	if calm_zones.is_empty():
+		calm_zones.resize(span())
+		for i in range(span()):
+			var x := float(i) / span()
+			var calm := false
+			for g in gaps:
+				var a := float(g.from) - JUMP_CALM / length
+				if fposmod(x - a, 1.0) <= fposmod(float(g.to) + 15.0 / length - a, 1.0):
+					calm = true
+			for l in loops:
+				var a := float(l.s) - LOOP_CALM / length
+				if fposmod(x - a, 1.0) <= (LOOP_CALM + 10.0) / length:
+					calm = true
+			if not calm and not elevation.is_empty():
+				var base := base_height(x)
+				for side in [-1.0, 1.0]:
+					if base - terrain_height(at(x, side * hw(x))) > 1.0:
+						calm = true
+			calm_zones[i] = 1 if calm else 0
+	return calm_zones[int(unit(s) * span()) % calm_zones.size()] == 1
+
+func draw_height(s: float, sc := -1, p := Vector2.INF) -> float:
+	# Sichtbare Höhe der Linie: Hauptstrecke surface_z(s); Abkürzung Gelände bzw. Wippendeck in Ruhelage.
+	if sc < 0 or sc >= shortcuts.size():
+		return surface_z(s)
+	var q := place(s, 0.0, sc) if p == Vector2.INF else p
+	for w in rest_seesaws():
+		if w.shortcut == sc and w.inside(q):
+			return w.rest_y(w.local(q).x)
+	return terrain_height(q)
+
+var level_cache := PackedByteArray()   # je Stützstelle: Bit 1 = über einem anderen Ast (≥ 2 m höher), Bit 2 = darunter
+
+func level_flags() -> PackedByteArray:
+	# Äste übereinander (Brücke über den Hohlweg, Sprung über den Sohlenweg): für Darstellung (Deck durchscheinend, Linie gestrichelt).
+	if level_cache.is_empty():
+		level_cache.resize(span())
+		if elevation.is_empty():
+			return level_cache
+		for i in range(span()):
+			var s := float(i) / span()
+			var mine := base_height(s)
+			var flag := 0
+			for j in candidates(points[i]):
+				var ds := absf(index_s(j) - s) if open else absf(wrapf(index_s(j) - s, -0.5, 0.5))
+				if ds <= 0.12:
+					continue
+				var d := points[i].distance_to(Geometry2D.get_closest_point_to_segment(points[i], points[j], points[wrap_index(j + 1)]))
+				if d < hw(s) + 1.0:
+					var other := base_height(index_s(j))
+					if mine - other >= 2.0:
+						flag |= 1
+					elif other - mine >= 2.0:
+						flag |= 2
+			level_cache[i] = flag
+	return level_cache
+
+func deck_over(s: float) -> bool:
+	var f := level_flags()
+	return not f.is_empty() and (f[int(unit(s) * span()) % f.size()] & 1) != 0
+
+func under_deck(s: float) -> bool:
+	var f := level_flags()
+	return not f.is_empty() and (f[int(unit(s) * span()) % f.size()] & 2) != 0
+
+func has_decks() -> bool:
+	for v in level_flags():
+		if v != 0:
+			return true
+	return false
+
+func supported(s: float) -> bool:
+	# Abschnitt, dessen Fahrbahn das Diorama trägt (Begleitdatei "supports"): keine Laufzeit-Pfeiler.
+	var x := unit(s)
+	for r in supports:
+		if x >= float(r[0]) and x <= float(r[1]):
+			return true
+	return false
+
+var rest_cache: Array = []
+
+func rest_seesaws() -> Array:
+	# Wippen in Ruhelage (nur Geometrie: Zeichnen, Darstellung, KI-Vorplanung).
+	if rest_cache.is_empty() and not seesaws.is_empty():
+		rest_cache = Seesaw.from_track(self)
+	return rest_cache
+
+func surface_at(p: Vector2, hint := -1.0) -> Dictionary:
+	var q := query_branch(p, hint)
 	var distance := float(q.distance)
 	var width := hw(float(q.s))
 	if not shortcuts.is_empty() and distance > width:
@@ -515,72 +796,250 @@ func corner_factor(s: float) -> float:
 	# 0 auf Geraden, 1 in engen Kurven (Radius <= 13 m); nur für Messwerkzeuge.
 	return clampf(curvature(s) * 13.0, 0.0, 1.0)
 
-const WET_WALL_REACH := 6.0     # m neben dem Fahrbahnrand, in denen ein festes Hindernis die Nässeplanung vorsichtiger macht
-const WET_WALL_FACTOR := 0.86   # zulässige Querbeschleunigung direkt an einer Wand bei Nässe (Anteil)
+const WET_WALL_REACH := 6.0     # m neben dem Fahrbahnrand, in denen ein Hindernis die Nässeplanung vorsichtiger macht
+const WET_WALL_FACTOR := 0.86   # zulässige Querbeschleunigung direkt an einer Wand bei Regen (Anteil)
+const SNOW_WALL_FACTOR := 0.8   # dito bei Schnee (weniger Haftung, längeres Rutschen)
+static var wet_caution := 0.8   # Querbeschleunigung der KI bei Schnee (Anteil; Regen 0,85 anteilig 0,9; trocken 1; Feldtest)
+const WET_SOFT_SHARE := 0.5     # weiche Hindernisse (Absperrung, Bank, Gitter) fangen ebenfalls fest: halbe Wirkung
 
 func wet_wall_margins() -> PackedFloat32Array:
-	# Bei Nässe plant die KI dort vorsichtiger, wo ein festes Hindernis (Mauer, Tribüne, Haus) nah am Fahrbahnrand steht:
-	# Rutscht sie dort hinaus, gibt es keine Auslaufzone (Stadion der Küste). Je Stützstelle ein Faktor für die Querbeschleunigung
-	# (1 = keine Wand in Reichweite). Weiche Hindernisse (Absperrung, Reifen …) zählen nicht. Trocken bleibt alles wie bisher.
+	# Bei Nässe plant die KI dort vorsichtiger, wo ein Hindernis nah am Fahrbahnrand steht: Rutscht sie dort hinaus, gibt es keine
+	# Auslaufzone (Stadion der Küste), und auch an Absperrungen, Bänken und Gittern bleibt ein Auto hängen (Wrack nach STUCK_TIME).
+	# Je Stützstelle ein Faktor für die Querbeschleunigung (1 = nichts in Reichweite); Schnee staffelt stärker als Regen.
+	# Hindernisse mit Unterkante zählen nur, wenn sie die Fahrbahnhöhe erreichen. Trocken wird das nie aufgerufen.
+	var factor := lerpf(SNOW_WALL_FACTOR, WET_WALL_FACTOR, clampf((RaceVehicle.weather_grip - 0.7) / 0.15, 0.0, 1.0))
 	var out := PackedFloat32Array()
 	out.resize(span())
 	for i in range(span()):
 		var s := float(i) / span()
-		var clear := WET_WALL_REACH
+		var road_z := surface_z(s)
+		var worst := 1.0
 		for side in [-1.0, 1.0]:
 			var d := 0.0
-			while d < clear:
+			while d < WET_WALL_REACH:
 				var p := at(s, side * (HALF_WIDTH + d))
-				var hit := false
+				var hit := 0.0
 				for idx in obstacles_near(p):
 					var o: Dictionary = obstacles[idx]
-					if str(o.k) in SOFT_OBSTACLES:
+					if not obstacle_reaches(o, road_z):
 						continue
 					if obstacle_contact(o, p, 0.9).z > 0.0:
-						hit = true
+						hit = maxf(hit, WET_SOFT_SHARE if str(o.k) in SOFT_OBSTACLES else 1.0)
+						if hit >= 1.0:
+							break
+				if hit > 0.0:
+					var f := lerpf(factor, 1.0, clampf(d / WET_WALL_REACH, 0.0, 1.0))
+					worst = minf(worst, lerpf(1.0, f, hit))
+					if hit >= 1.0:
 						break
-				if hit:
-					clear = d
-					break
 				d += 0.5
-		out[i] = lerpf(WET_WALL_FACTOR, 1.0, clampf(clear / WET_WALL_REACH, 0.0, 1.0))
+		out[i] = worst
 	return out
 
-func ai_route(skill := 0.0, lane := 0.0) -> Array[Dictionary]:
+func ai_route(skill := 0.0, lane := 0.0, shortcut := -1) -> Array[Dictionary]:
 	# Tempoprofil aus der Krümmung: Kurventempo über die zulässige Querbeschleunigung, davor
 	# rechtzeitig bremsen (Rückwärtsdurchlauf). skill 0 = vorsichtig, 3 = gemessenes Optimum (mehr überzieht).
-	# Haftung des Fahrbahnbelags (Schotter) senkt das mögliche Kurventempo.
+	# Haftung des Fahrbahnbelags (Schotter) senkt das mögliche Kurventempo. shortcut >= 0: zweite Route über diese Abkürzung
+	# mit denselben s-Stützstellen (Wippe: RaceField tauscht beim Entscheidungspunkt nur das Routen-Array).
 	var road_grip: float = RaceVehicle.SURFACE_GRIP.get(road, 1.0) * RaceVehicle.weather_grip
 	var lateral := (6.0 + skill * 1.6) * road_grip
 	var top := 15.0 + skill * 1.3
 	var brake := 6.0 + skill * 1.0
 	var count := span() * laps
 	var speeds := PackedFloat32Array()
+	var caps := PackedFloat32Array()      # Kurventempo je Stützstelle (Stufe der KI)
+	# Deckel für Mindesttempi (Looping): nie über dem Kurventempo an der Haftungsgrenze des Grundautos (Gegner fahren es) an dieser Stelle.
+	var need_caps := PackedFloat32Array()
+	var need_lat := float(RaceVehicle.CARS[0].grip) * road_grip
 	var margins := wet_wall_margins() if RaceVehicle.weather_grip < 0.999 else PackedFloat32Array()
+	# Bei Nässe/Schnee etwas Reserve unter der Haftungsgrenze: Rutscher, Kontakte und Ausweichen kosten dort mehr (trocken 1).
+	var caution := 1.0 if RaceVehicle.weather_grip >= 0.999 else lerpf(1.0, wet_caution, clampf((1.0 - RaceVehicle.weather_grip) / 0.3, 0.0, 1.0))
 	for i in range(count):
 		var s := float(i) / span()
 		var k := maxf(curvature(s), 0.0005)
 		# Außen-/Innenspur ändern den Radius (Versatz relativ zur Kurvenrichtung wird näherungsweise ignoriert).
-		var lat := lateral * (margins[i % margins.size()] if not margins.is_empty() else 1.0)
-		speeds.append(minf(top, sqrt(lat / k)))
+		var lat := lateral * (margins[i % margins.size()] if not margins.is_empty() else 1.0) * caution
+		caps.append(sqrt(lat / k))
+		speeds.append(minf(top, caps[i]))
+		need_caps.append(sqrt(maxf(lat, need_lat * (lat / maxf(lateral, 0.001))) / k))
 	var ds := length / span()
+	var slopes := PackedFloat32Array()
+	if not elevation.is_empty():
+		# Hangbewusst: bergab liegt der Bremsregler um g·|k|/1,6 über dem Plan (Plan absenken); im Rückwärtsdurchlauf mindert
+		# Gefälle die verfügbare Verzögerung, Steigung erhöht sie.
+		for i in range(count):
+			var s0 := float(i) / span()
+			slopes.append((ground_height(s0 + ds / length) - ground_height(s0)) / ds)
+			if slopes[i] < 0.0:
+				speeds[i] = maxf(5.0, speeds[i] - RaceVehicle.GRAVITY * -slopes[i] / 1.6)
+		for _round in range(2):
+			for i in range(count - 2, -1, -1):
+				var b := maxf(2.0, brake + RaceVehicle.GRAVITY * slopes[i])
+				speeds[i] = minf(speeds[i], sqrt(speeds[i + 1] * speeds[i + 1] + 2.0 * b * ds))
+			if not open:
+				speeds[count - 1] = minf(speeds[count - 1], speeds[0])
 	for _round in range(2):
 		for i in range(count - 2, -1, -1):
 			speeds[i] = minf(speeds[i], sqrt(speeds[i + 1] * speeds[i + 1] + 2.0 * brake * ds))
 		if not open:
 			speeds[count - 1] = minf(speeds[count - 1], speeds[0])
-	# Schwung für Loopings und Sprünge: im Anlauf (25 m) und auf der Schanze Mindesttempo halten.
+	# Schwung für Loopings: im Anlauf (25 m) Mindesttempo halten, nie über dem Kurventempo der Stelle (Kurvendeckel). Das Plantempo trägt seit
+	# 03.10.2026 den Reglerversatz wie bei Sprüngen (Antrieb (soll − ist)·2,2 deckt Luft- und Rollwiderstand): sonst kam die KI 1,5–2 m/s unter
+	# dem Mindesttempo an und fiel im Pulk mit dem kleinsten Kontakt aus dem Looping.
+	var loop_drag: float = RaceVehicle.SURFACE_DRAG.get(road, 0.0)
 	for need in momentum_needs():
+		var v_need := float(need.speed)
+		var v_plan := v_need + (0.010 * v_need * v_need + v_need * (0.09 + loop_drag)) / 2.2
 		for i in range(count):
 			var d := fposmod(float(i) / span() - float(need.s), 1.0) * length
 			if d >= length - 25.0 or d <= float(need.extra):
-				speeds[i] = maxf(speeds[i], float(need.speed))
+				speeds[i] = maxf(speeds[i], minf(v_plan, need_caps[i]))
+	speeds = plan_jumps(speeds, caps, brake, skill)
 	var route: Array[Dictionary] = []
 	for i in range(count + 1):
 		var s := float(i) / span()
 		var bias := loop_lane_bias(s)
 		var o: float = lane if bias == 0.0 else lerpf(lane, bias, absf(bias) / LOOP_LANE)
 		route.append({"p": at(s, o), "speed": speeds[mini(i, count - 1)], "s": s, "o": o})
+	if shortcut >= 0 and shortcut < shortcuts.size():
+		return shortcut_route(route, shortcut, skill)
+	return route
+
+func plan_jumps(speeds: PackedFloat32Array, caps: PackedFloat32Array, brake: float, skill: float) -> PackedFloat32Array:
+	# Sprünge: im geraden Anlauf (seit dem letzten Kurvenende, höchstens 40 m vor dem Absprung) Ist-Ziel u* = Plan geklemmt auf das
+	# Fenster [lo, hi]; das Plantempo trägt den Reglerversatz (Antrieb (soll − ist)·2,2 deckt im Gleichgewicht Luft-, Roll- und
+	# Hangwiderstand). Erreichbarkeit: 1D-Vorwärtsrechnung des Reglers (Grundauto, ohne Turbo) ab dem Kurventempo.
+	if gaps.is_empty():
+		return speeds
+	var count := speeds.size()
+	var n := span()
+	var drag: float = RaceVehicle.SURFACE_DRAG.get(road, 0.0)
+	for w in jump_windows():
+		if not bool(w.ok):
+			add_jump_problem("Sprung bei s %.4f: leeres Fenster (v_min %.2f, v_hi %.2f)" % [float(w.s_t), float(w.v_min), float(w.v_hi)])
+			continue
+		var i_t := int(round(float(w.s_t) * n))
+		for lap in range(laps):
+			var it := i_t + lap * n
+			if it >= count:
+				break
+			# Anlauf: rückwärts bis zum Kurvenende (Schanzen selbst gelten als gerade), höchstens JUMP_RUNUP
+			var i_a := it
+			var i_kick := int(round(float(w.start) * n)) + lap * n
+			while i_a > 0 and (it - i_a) * length / n < JUMP_RUNUP:
+				if i_a - 1 < i_kick and curvature(float(i_a - 1) / n) >= STRAIGHT_K:
+					break
+				i_a -= 1
+			var u_star := clampf(speeds[it], minf(float(w.lo) + JUMP_AIM, float(w.hi)), float(w.hi))
+			for i in range(i_a, mini(it + 1, count)):
+				var s0 := float(i) / n
+				# Steigung der Fahrbahn (Höhenprofil), auf der Schanze deren Neigung (die Kante selbst ist keine Steigung).
+				var slope := float(w.slope) if bool(w.kicker) and i >= i_kick else (base_height(s0 + 1.0 / length) - base_height(s0))
+				speeds[i] = u_star + (0.010 * u_star * u_star + u_star * (0.09 + drag) + RaceVehicle.GRAVITY * slope) / 2.2
+			# davor rechtzeitig auf das Plantempo bremsen
+			# (nicht über den Absprung der Vorrunde hinweg: dahinter liegt deren Lücke, das Tempo dort zählt nicht)
+			for i in range(i_a - 1, maxi(maxi(-1, i_a - 400), it - n), -1):
+				speeds[i] = minf(speeds[i], sqrt(speeds[i + 1] * speeds[i + 1] + 2.0 * brake * length / n))
+			# Erreichbarkeit
+			# Stehender Start, wenn der Anlauf an der Startlinie der ersten Runde beginnt.
+			var u := 0.0 if lap == 0 and i_a == 0 else minf(speeds[maxi(i_a - 1, 0)], caps[maxi(i_a - 1, 0)])
+			var x := float(i_a) / n * length
+			var x_end := float(it) / n * length
+			var dt := 1.0 / 60.0
+			var guard := 0
+			while x < x_end and guard < 3600:
+				guard += 1
+				var idx := clampi(int(x / length * n), 0, count - 1)
+				var plan := speeds[idx]
+				var s0 := x / length
+				var slope := float(w.slope) if bool(w.kicker) and idx >= i_kick else (base_height(s0 + 1.0 / length) - base_height(s0))
+				var drive := clampf((plan - u) * 2.2, 0.0, 9.0)
+				var braking := clampf((u - plan) * 1.6, 0.0, 12.0)
+				u += (drive - braking - 0.010 * u * u - u * (0.09 + drag) - RaceVehicle.GRAVITY * slope / sqrt(1.0 + slope * slope)) * dt
+				x += u * dt
+			if lap == 0:
+				w["planned"] = u_star
+				w["reached"] = u
+				w["skill"] = skill
+			if u < float(w.lo) - 0.25:
+				add_jump_problem("Sprung bei s %.4f (Stufe %.1f): Anlauf erreicht nur %.2f m/s, Fenster ab %.2f" % [float(w.s_t), skill, u, float(w.lo)])
+	return speeds
+
+func add_jump_problem(text: String) -> void:
+	if not text in jump_problems:
+		jump_problems.append(text)
+		push_warning(id + ": " + text)
+
+func path_curvature(k: int, m: float) -> float:
+	# Krümmung des Abkürzungspfads bei m Pfadmetern: Knickwinkel je Stützpunkt (auch an Abzweig und Einmündung) über die halbe
+	# Länge der Nachbarstücke verteilt, mindestens 2 m.
+	var sc: Dictionary = shortcuts[k]
+	var trail: Array = sc.path
+	var cum: PackedFloat32Array = sc.cum
+	var best := 0.0
+	for j in range(trail.size()):
+		var d_in: Vector2 = tangent(float(sc.from)) if j == 0 else (Vector2(trail[j]) - Vector2(trail[j - 1])).normalized()
+		var d_out: Vector2 = tangent(float(sc.to)) if j == trail.size() - 1 else (Vector2(trail[j + 1]) - Vector2(trail[j])).normalized()
+		var turn := absf(d_in.angle_to(d_out))
+		var reach := 2.0
+		if j > 0:
+			reach = maxf(reach, (cum[j] - cum[j - 1]) * 0.5)
+		if j < trail.size() - 1:
+			reach = maxf(reach, (cum[j + 1] - cum[j]) * 0.5)
+		if absf(m - cum[j]) <= reach:
+			best = maxf(best, turn / (2.0 * reach))
+	return best
+
+const DECK_TOP_SPEED := 16.0    # KI höchstens so schnell über ein Lineal
+const SHORTCUT_BLEND := 12.0    # m vor dem Abzweig Spur auf 0, ebenso lang dahinter zurück
+
+func shortcut_route(base: Array[Dictionary], k: int, skill: float) -> Array[Dictionary]:
+	# Route über die Abkürzung k mit denselben s-Stützstellen wie base: auf dem Pfad mittig, Tempo aus der Pfadkrümmung, auf dem
+	# Lineal höchstens DECK_TOP_SPEED; Rückwärtsdurchlauf mit den wirklichen Abständen der Stützpunkte.
+	var sc: Dictionary = shortcuts[k]
+	var from := float(sc.from)
+	var to := float(sc.to)
+	var plen := float(sc.cum[-1])
+	var grip: float = RaceVehicle.SURFACE_GRIP.get(str(sc.surface), 1.0) * RaceVehicle.weather_grip
+	var lateral := (6.0 + skill * 1.6) * grip
+	var top := 15.0 + skill * 1.3
+	var brake := 6.0 + skill * 1.0
+	var decks: Array = []
+	for d in seesaws:
+		if int(d.get("shortcut", 0)) == k:
+			decks.append([float(d.get("at", 0.0)), float(d.get("length", 24.0)) * 0.5])
+	var blend := SHORTCUT_BLEND / length
+	var route: Array[Dictionary] = []
+	for i in range(base.size()):
+		var e: Dictionary = base[i].duplicate()
+		var x := unit(float(e.s))
+		if float(e.s) >= float(laps):
+			x = 1.0 if open else 0.0
+		if x >= from and x <= to:
+			var m := (x - from) / maxf(to - from, 1e-6) * plen
+			var v := minf(top, sqrt(lateral / maxf(path_curvature(k, m), 0.0005)))
+			for d in decks:
+				if absf(m - float(d[0])) <= float(d[1]) + 2.0:
+					v = minf(v, DECK_TOP_SPEED)
+			e.p = place(x, 0.0, k)
+			e.o = 0.0
+			e.sc = k
+			e.speed = v
+		else:
+			var before := fposmod(from - x, 1.0)
+			var after := fposmod(x - to, 1.0)
+			var o := float(e.o)
+			if before < blend:
+				o = lerpf(o, 0.0, smoothstep(0.0, 1.0, 1.0 - before / blend))
+			elif after < blend:
+				o = lerpf(0.0, o, smoothstep(0.0, 1.0, after / blend))
+			e.o = o
+			e.p = at(float(e.s), o)
+		route.append(e)
+	for _round in range(2):
+		for i in range(route.size() - 2, -1, -1):
+			var dist := Vector2(route[i].p).distance_to(route[i + 1].p)
+			route[i].speed = minf(float(route[i].speed), sqrt(float(route[i + 1].speed) * float(route[i + 1].speed) + 2.0 * brake * dist))
 	return route
 
 # ---------- Hindernisse (Deko mit Körper: Häuser, Absperrungen, Laternen, Bäume …) ----------
@@ -601,12 +1060,22 @@ var obstacles: Array = []        # {k: Art, c: Mitte, u: a-Achse, h: halbe Maße
 var obstacle_grid := {}
 var baked_types: Array = DIORAMA_BAKED   # Bausteintypen, die das Diorama selbst enthält (Begleitdatei "baked"); "ai:<modell>" = nur dieses KI-Modell
 var obstacle_source := "props"   # "layout": Hindernisse aus der Diorama-Begleitdatei (Häuser stehen dort, nicht an den Bausteinen)
+var layout_ok := true            # false: Begleitdatei veraltet (Hash/rev) -> weder Diorama noch dessen Hindernisse
+var supports: Array = []         # Begleitdatei "supports": [[s0, s1], ...] Abschnitte, deren Fahrbahn das Diorama trägt (keine Laufzeit-Pfeiler)
 
 func add_circle(c: Vector2, r: float, height: float, kind: String) -> void:
 	obstacles.append({"k": kind, "c": c, "r": r, "y": height})
 
 func add_rect(c: Vector2, u: Vector2, half: Vector2, height: float, kind: String) -> void:
 	obstacles.append({"k": kind, "c": c, "u": u.normalized(), "h": half, "y": height})
+
+static func obstacle_reaches(o: Dictionary, z: float) -> bool:
+	# Höhenüberlappung eines Autos (Unterkante z, 1,4 m hoch) mit einem Hindernis mit Unterkante "b" (Höhe "y" darüber).
+	# Ohne "b" steht das Hindernis auf dem Boden (Aufrufer prüft wie bisher nur den Flug darüber).
+	if not o.has("b"):
+		return true
+	var b := float(o.b)
+	return z < b + float(o.y) and z + 1.4 > b
 
 func load_obstacles() -> void:
 	obstacles.clear()
@@ -615,13 +1084,20 @@ func load_obstacles() -> void:
 	var layout_path := "res://dioramas/%s_layout.json" % id
 	var blocked: Array = []
 	var from_layout := false
+	layout_ok = true
+	supports = []
 	if FileAccess.file_exists(layout_path):
 		var layout = JSON.parse_string(FileAccess.get_file_as_string(layout_path))
-		if layout is Dictionary and layout.has("obstacles"):
+		if layout is Dictionary and not layout_valid(layout):
+			# Veraltetes Diorama (Streckendatei seit dem Bau geändert): weder Bild noch Hindernisse benutzen (World.build prüft dasselbe).
+			layout_ok = false
+			push_warning("Diorama-Begleitdatei %s passt nicht zur Streckendatei (track_hash/rev): Laufzeitgrafik und Bausteine" % layout_path)
+		elif layout is Dictionary and layout.has("obstacles"):
 			from_layout = true
 			obstacle_source = "layout"
 			blocked = layout.get("blocked", [])
 			baked_types = layout.get("baked", DIORAMA_BAKED)
+			supports = layout.get("supports", [])
 			for o in layout.obstacles:
 				var c := Vector2(float(o.c[0]), float(o.c[1]))
 				if o.has("r"):
@@ -630,11 +1106,13 @@ func load_obstacles() -> void:
 					add_rect(c, Vector2(float(o.u[0]), float(o.u[1])), Vector2(float(o.h[0]), float(o.h[1])), float(o.y), str(o.k))
 				if o.has("v") and not bool(o.v):
 					obstacles[-1]["v"] = false      # unsichtbarer Begrenzer: kollidiert, wird in der einfachen Grafikstufe aber nicht als Klotz gezeichnet
+				if o.has("b"):
+					obstacles[-1]["b"] = float(o.b)  # Unterkante (m, absolut): Kontakt nur bei Höhenüberlappung
 			for lamp in layout.get("lamps", []):
 				add_circle(Vector2(float(lamp.x), float(lamp.z)), 0.18, 4.0, "mast")
 	for prop in props:
 		var kind := str(prop.get("type", ""))
-		if from_layout and (is_baked(prop) or on_layout_road(prop, blocked)):
+		if kind != "collider" and from_layout and (is_baked(prop) or on_layout_road(prop, blocked)):
 			continue
 		prop_obstacle(prop)
 	for i in range(obstacles.size()):
@@ -673,6 +1151,11 @@ func prop_obstacle(prop: Dictionary) -> void:
 	var u := Vector2(cos(rot), sin(rot))
 	var sc := float(prop.get("scale", 1.0))
 	match kind:
+		"collider":
+			# Körper der Spielebene ohne eigenes Modell (Bruchwand, Wall, Stift, Hohlwegwand): Rechteck mit Unterkante b und Höhe h darüber.
+			add_rect(c, u, Vector2(float(prop.get("w", 1.0)), float(prop.get("d", 1.0))) * 0.5, float(prop.get("h", 1.0)), str(prop.get("kind", "mauer")))
+			obstacles[-1]["b"] = float(prop.get("b", 0.0))
+			obstacles[-1]["v"] = bool(prop.get("visible", false))
 		"building", "pavilion":
 			add_rect(c, u, Vector2(float(prop.get("w", 4.0)), float(prop.get("d", 4.0))) * 0.5, float(prop.get("h", 3.0)), "mauer")
 		"planter":

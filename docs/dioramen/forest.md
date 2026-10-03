@@ -1,9 +1,46 @@
 # Diorama Forest Eight (Thema `forest`)
 
-Stand 02.10.2026 (nach der Überarbeitung am Nachmittag und dem Wegsaum am Abend). Modul: `tools/dio_themes/forest.py`, Texturen: `tools/make_forest_textures.py` →
+Stand 03.10.2026 (Höhenniveaus: Hügelacht mit Holzbrücke über den Hohlweg, Bauplan `docs/dioramen/HOEHEN_PLAN.md` 4.3/7; davor 02.10.2026 Überarbeitung und Wegsaum). Modul: `tools/dio_themes/forest.py`, Texturen: `tools/make_forest_textures.py` →
 `game/assets/dio/forest/` (Herkunft dort in `HERKUNFT.md`, alles prozedural). Bauen: `tools\dio_build.ps1 -Track forest -Shots -Times day,dusk,night -Tag _wald`.
 
-## Was gebaut ist
+## Höhenniveaus (03.10.2026, Streckenfassung `rev` 2)
+
+Die Strecke steigt in der rechten Schleife auf 4,5 m, überquert die Kreuzung auf einer Holzbrücke (s 0,36 bis 0,445) und fällt in der linken Schleife
+wieder; der untere Ast läuft bei s 0,86 bis 0,95 durch einen Hohlweg unter der Brücke. Gelände (`terrain`), Leitplanken, Hohlweg-Collider und Bausteine
+stammen aus der Streckendatei (Agent B), Fahrbahn und Brückenfahrbahn baut das Spiel zur Laufzeit. Das Diorama folgt dem so:
+
+- **Dioramaboden `f_level`** (Abschnitt „Höhen“ in `forest.py`): Die Fahrphysik kennt neben der Fahrbahn keine Geländehöhe (ein Auto neben der Piste fährt
+  auf der Höhe seines Asts), und das 2-m-Raster verschmiert die Fahrbahnkante um bis zu 0,2 m. Der Boden folgt deshalb dem Raster erst ab einigem Abstand:
+  am Fahrbahnrand genau die Fahrbahnhöhe des nächsten Asts; liegt das Gelände höher (Einschnitt, Hohlweg), bleibt eine **1,5 m breite ebene Schulter**,
+  dahinter steigt eine **Erdwand 2,4 : 1** bis zum Gelände; liegt es tiefer (Damm, Hang unter der oberen Schleife), fällt die Böschung über 2,5 m weich ins
+  Gelände. Brückenstücke (Fahrbahn mehr als 1,0 m über dem Gelände) zählen nicht als Ast: Unter der Brücke gilt der untere Ast, über die Brückenköpfe
+  hinaus zählt die obere Kette nicht (nächster Punkt nur als senkrechte Projektion oder im Keil einer Ecke). Abweichung vom Raster: im Hohlweg bis 0,7 m
+  (Wandfuß), an den Dämmen bis 0,75 m (Böschungsschulter), sonst wenige Zentimeter; Absicht, damit Bild und Fahrphysik zusammenpassen (die Hohlweg-Collider
+  der Strecke liegen 5,1 bis 6,1 m neben der Mittellinie, die Erdwand beginnt bei 5,0 m).
+- **Alles steht auf diesem Boden**: Bodennetz, Weite (folgt dem am Rand geklemmten Raster), Saum, Matsch, Radspuren, Streugut und Pfützen relativ zu
+  `f_level`; Modelle aus `f_put` auf der tiefsten Bodenhöhe unter ihrem Fuß (`f_gy_min`, Bäume mit 0,45 m x Skalierung: nichts schwebt am Hang); feste
+  Baugruppen über `FLift` („lift“: Hütte, Regentonne, Feuerstelle, Hochsitz starr um die tiefste Ecke; „drape“: Holzpolter, Strohballen, Leuchtpfosten folgen
+  dem Boden je Eckpunkt), Punktlichter und Lichtblocker wandern mit. Wasser (Teich) und Pfützen sind eben: Der Teich liegt 0,13 m unter dem Boden seiner
+  Mulde (Gelände -0,4 m), Pfützen nur bis 0,14 m Gefälle unter dem Ring (bergseitig taucht ihr Rand in den Boden). Unter der Laufzeit-Fahrbahn bleibt das
+  Bodennetz unter der Kernprüfung (`branch_floor` + 0,158 m; im Gefälle liegt es dort einige Zentimeter tiefer, der Saum deckt es).
+- **Laufzeit-Bauteile** (Laternen, Tribüne, Zeitnahmeturm, liegender Stamm) stellt das Spiel auf das Raster; `prop_y` gleicht den Unterschied zum
+  Dioramaboden aus (tiefste Bodenhöhe unter der Grundfläche minus Raster am Standort, 21 Einträge, -0,29 bis 0 m). Kein `set_prop_heights`.
+- **Holzbrücke** (`f_bridge`): zwei **Feldstein-Widerlager** im Hang vor den Brückenköpfen (Stirn 1,4 m vor dem Kopf, 12,4 m breit, Steinlagen auf Stirn
+  und Flanken, dunkle Hintermauerung als Fugen, bemooste Decksteine), darauf je ein Auflagerbalken; **vier Rundholz-Längsträger** (die äußeren mit Moos)
+  über 13,7 m lichte Weite; **Querbohlen** (49, unregelmäßig, 10,1 m lang) 2 cm unter der Laufzeit-Schotterbahn, sichtbar an beiden Rändern;
+  **Rundholzgeländer** entlang der Leitplanken der Streckendatei (s 0,35 bis 0,46, Pfosten alle 2 m 4,85 m neben der Mittellinie, zwei Holme; die
+  Leitplanken-Physik hält die Wagenmitte bei 4,2 m); **zwei Laternen** über Kreuz an den Brückenköpfen (Holzmast mit Schirmlampe, Punktlicht 1,0/12,5 m,
+  Hindernis „mast“): Die Kreuzung hatte nachts sonst kein Licht. Brückenteile über dem unteren Ast heißen `Deck_*` (Bohlen, Träger, Trägerköpfe, Moos,
+  Geländer; im Zeichenmodus 35 % deckend), die Widerlager nicht. `add_supports(0.357, 0.449)`: keine Laufzeit-Pfeiler. Die zwei Holzpfosten, die das Spiel
+  an den Brückenköpfen neben die Piste setzt (`build_gravel_road`, gleiche Regeln in `f_runtime_posts`), bekommen eine Aussparung in den Bohlen.
+- **Hohlweg** (`f_hollow_way`, s 0,83 bis 0,97 des unteren Asts, nur wo eine Wand ist): Erdwände (steile Flächen tragen im Bodenmischer offene, dunklere
+  Erde statt Moos und Nadeln, gilt für alle Hänge), 27 freiliegende Wurzeln, 22 Steine am Wandfuß (hinter der Wandkante der Fahrphysik), 21 Farne an der
+  Krone; die Sohle ist feucht und dunkel (Schlammfeld bis an den Wandfuß, Matschnetz „hohlweg“).
+- Bäume und feste Teile halten die Widerlager frei (Planung: Rechteck und Lichtung je Brückenkopf). Kein Uferschlamm am steilen Nordufer des Teichs.
+- Prüfung: `test_diorama` forest besteht (0 Verstöße im Fahrschlauch, `supports`, `track_hash`, 5 `Deck_*`-Knoten, KI ohne Stoß),
+  `test_field` forest alle Stufen (auch Schnee) mit allen Gegnern im Ziel. Dreiecke rund 196 000 (Grenze 220 000), Brücke und Widerlager rund 3 600.
+
+## Was gebaut ist (Stand 02.10.2026, weiter gültig)
 
 - **Straße**: `runtime` (Schotterpiste samt Pfosten und Feldsteinen baut das Spiel, Boden bei 0,08 m). Das Modul liefert nichts auf Fahrbahnhöhe.
 - **Boden**: ein Netz `Gelaende` (1-m-Raster, als Viererbaum auf bis zu 8 m große Vierecke zusammengefasst, wo Höhe und Vertexfarben ebenmäßig sind)
@@ -70,11 +107,19 @@ Stand 02.10.2026 (nach der Überarbeitung am Nachmittag und dem Wegsaum am Abend
   stehen immer nur ein bis zwei davon (rund 8 000 Dreiecke). Eingespart durch kleinere Nah-Zone (9 statt 26 m),
   Unterteilung 1 im mittleren und fernen Bereich, entfallene Kronen-Unterseiten (`drop_down`) und stärker verkleinerte Findlinge. Der Wald wirkt dabei nicht dünner:
   Zahl und Orte der Bäume sind unverändert.
-- Die Kreuzung ist eben (Acht ohne Brücke): `runtime_terrain` ist aus, der Boden ist überall bei 0,08 m.
+- **Auslaufzonen** (seit 03.10.2026, `f_in_runoff`): außen an Kehren enger als Radius 16 m und bis 12 m hinter dem Scheitel setzt das Thema bis hw + 7 m
+  keine Zusatzbäume. Anlass (Prüfung der Nachtschicht): Übertempo in der Talkehre endete immer festgeklemmt an einem Zusatzbaum innerhalb des Freiraums,
+  den die Streckendatei dort hält (hw + 6 m außen). Probe (Plantempo fest auf s 0,30–0,62, Stufe 2,3 sonst): 12, 14 und 18 m/s kommen mit 1,2–3,5 s
+  Verlust ins Ziel, 16 m/s bleibt an einem Baum der Streckendatei hängen, ab 22 m/s an der Hohlwegwand. 52 statt 70 Zusatzbäume.
+- `runtime_terrain` bleibt aus: Das Diorama backt das Relief selbst (`f_level`, siehe oben); der Boden liegt 0,08 m über dem Dioramaboden.
 - Alle festen Zusatzteile haben Hindernisse in der Begleitdatei (rund 360); der Fahrschlauch bleibt frei (Test `test_diorama` für `forest` besteht, die KI fährt ohne
   Zusammenstoß).
 
 ## Offene Punkte
+
+- Höhen (03.10.2026): Fahrgefühl auf Steigung, Brücke und im Hohlweg auf dem Gerät prüfen (Leitplanke 10). In der Draufsicht des Zeichenmodus liest sich
+  das Relief nur über Schatten, Erdwände und Brückengeländer; die Brückenfahrbahn ist dort durchscheinend und nachts dunkel (Ersatzmaterial des Spiels
+  ohne Lichtkarte). Die gebackene Umgebungsverdeckung unter der Brücke fällt auf den Boden, nicht auf die Laufzeit-Fahrbahn des Hohlwegs.
 
 - Nicht auf einem Gerät gemessen (MultiMeshes der Bäume, Lichtkarte, Premium-Wasser, die rund 33 000 Dreiecke des Wegsaums).
 - Die Fahrbahn ist die Laufzeit-Piste des Spiels (flache Schotterfarbe mit Flecken); das Diorama kann nur den Rand gestalten (Wegsaum). Spurrillen **auf** der Piste und Laub darauf

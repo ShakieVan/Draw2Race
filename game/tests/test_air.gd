@@ -150,7 +150,7 @@ func _init() -> void:
 		ai_track.obstacles.clear()   # Schanze vor der Kurve: die Landung liegt neben der Fahrbahn bei der Deko
 		ai_track.obstacle_grid.clear()
 		if kind == "loop":
-			ai_track.loops = [{"s": 0.47, "radius": 3.5}]   # Gegengerade: genug Anlauf
+			ai_track.loops = [{"s": 0.51, "radius": 3.5}]   # Mitte der Gegengeraden: genug Anlauf (Mindesttempo nie über dem Kurventempo davor)
 		else:
 			ai_track.ramps = [{"s": meters(ai_track, 8.0), "length": 5.0, "height": 1.6}]
 			ai_track.gaps = [{"from": meters(ai_track, 13.05), "to": meters(ai_track, 22.0)}]

@@ -557,7 +557,7 @@ def make_ground():
 def make_src():
     for name, fn in (("container_seite", make_container_seite), ("container_tuer", make_container_tuer), ("container_dach", make_container_dach),
                      ("blech_wand", make_blech_wand), ("blech_dach", make_blech_dach), ("lehm", make_lehm), ("planen", make_planen), ("schotter", make_schotter),
-                     ("lack", make_lack)):
+                     ("lack", make_lack), ("riffelblech", make_riffelblech)):
         color, normal = fn()
         save(color, SRC, name + ".png")
         if normal is not None:
@@ -569,7 +569,45 @@ def make_lack_only():
     save(color, SRC, "lack.png")
 
 
-TASKS = {"boden": make_ground, "src": make_src, "lack": make_lack_only}
+# ---------------------------------------------------------------- Riffelblech (Stahldeck der Containerterrasse, Fassung 2 von Harbour Run)
+def make_riffelblech(n=512, seed=95):
+    """Tränenblech (1 x 1 m, Raster 2,9 cm): linsenförmige Warzen abwechselnd quer und längs, Laufspuren blank gescheuert, Kratzer, leichter Rost
+    in den Mulden. Neutralgrau; Farbe kommt aus der Vertexfarbe."""
+    rng = np.random.default_rng(seed)
+    ys, xs = np.mgrid[0:n, 0:n].astype(np.float64)
+    cells = 34
+    cu, cv = (xs / n * cells) % 1.0, (ys / n * cells) % 1.0
+    iu, iv = np.floor(xs / n * cells).astype(int), np.floor(ys / n * cells).astype(int)
+    alt = (iu + iv) % 2 == 0
+    du, dv = cu - 0.5, cv - 0.5
+    a = np.where(alt, du, dv)
+    b = np.where(alt, dv, du)
+    lens = np.clip(1.0 - (a / 0.36) ** 2 - (b / 0.10) ** 2, 0.0, 1.0) ** 0.6
+    wear = smooth(tile_noise(n, 2.2, seed + 1), -0.2, 1.4)
+    lum = 0.50 + 0.10 * lens * (1.0 - 0.6 * wear) + 0.10 * wear
+    lum += 0.03 * tile_noise(n, 0.6, seed + 2)
+    scratch = np.zeros((n, n))
+    for _ in range(60):
+        x0, y0 = rng.uniform(0, n, 2)
+        ang = rng.uniform(-0.35, 0.35) + (0.0 if rng.random() < 0.7 else math.pi / 2)
+        ln = rng.uniform(30, 160)
+        pts = [(x0 + math.cos(ang) * t, y0 + math.sin(ang) * t) for t in np.linspace(0, ln, 24)]
+        draw_wrapped(scratch, pts, 1, 1.0)
+    scratch = blur(scratch, 0.6)
+    lum += np.clip(scratch, 0, 1) * 0.16
+    rust = smooth(tile_noise(n, 1.2, seed + 3), 0.8, 2.0) * (1.0 - lens)
+    lum -= rust * 0.10
+    rgb = np.stack([lum + rust * 0.08, lum + rust * 0.01, lum * 1.02 - rust * 0.05], -1)
+    return to_img(rgb), to_img(normal_from_height(lens * 1.2, 2.6))
+
+
+def make_riffel_only():
+    color, normal = make_riffelblech()
+    save(color, SRC, "riffelblech.png")
+    save(normal, SRC, "riffelblech_n.png")
+
+
+TASKS = {"boden": make_ground, "src": make_src, "lack": make_lack_only, "riffel": make_riffel_only}
 
 if __name__ == "__main__":
     names = sys.argv[1:] or list(TASKS)

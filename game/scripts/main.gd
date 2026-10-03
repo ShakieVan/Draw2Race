@@ -65,10 +65,10 @@ var ghost_turbo: Array = []
 var last_boost_input := false
 var result_record := false
 var result_won := false
-# Eigene Spuren der Gegner mit Seitenabstand zur (meist mittigen) Spielerlinie.
-const RIVAL_LANES := [1.0, -1.0, 0.4]
-# Spielstärke je Herausforderung (1, 2, 3 Rivalen) und Gegner; 3 = nahe am physikalischen Limit.
-const RIVAL_SKILL := [[1.6], [2.3, 1.9], [3.0, 2.7, 2.3]]
+# Starterfeld, Wippen und Takt (Aufstellung, Gegnerstärke und -spuren stehen in RaceField).
+var field: RaceField
+const RIVAL_LANES := RaceField.RIVAL_LANES
+const RIVAL_SKILL := RaceField.RIVAL_SKILL
 
 func _ready() -> void:
 	get_tree().auto_accept_quit = true
@@ -223,6 +223,8 @@ func clear_cars() -> void:
 	if is_instance_valid(ghost_model):
 		ghost_model.queue_free()
 	ghost = null
+	field = null
+	world.clear_seesaws()
 
 func ghost_path() -> String:
 	return "user://ghosts/%s_%d.json" % [track_id, stage]
@@ -234,7 +236,7 @@ func save_ghost() -> void:
 		plan.append({"x": point.p.x, "z": point.p.y, "speed": point.speed, "s": point.s, "o": point.get("o", 0.0), "sc": point.get("sc", -1)})
 	var file := FileAccess.open(ghost_path(), FileAccess.WRITE)
 	if file:
-		file.store_string(JSON.stringify({"physics": RaceVehicle.VERSION, "car": car_choice, "time": vehicles[0].finish_time, "plan": plan, "turbo": turbo_actions}))
+		file.store_string(JSON.stringify({"physics": RaceVehicle.VERSION, "track_hash": track.file_hash, "car": car_choice, "time": vehicles[0].finish_time, "plan": plan, "turbo": turbo_actions}))
 
 func spawn_ghost() -> void:
 	if not bool(store.data.get("ghost", true)) or track.mode == "drift" or demonstration or not FileAccess.file_exists(ghost_path()):
@@ -242,11 +244,16 @@ func spawn_ghost() -> void:
 	var data = JSON.parse_string(FileAccess.get_file_as_string(ghost_path()))
 	if not data is Dictionary or str(data.get("physics", "")) != RaceVehicle.VERSION:
 		return
+	# Geist gilt nur für dieselbe Streckendatei (ohne Hash nur bei Fassung 1, also Geister von vor dem Höhen-Paket).
+	if (data.has("track_hash") and str(data.track_hash) != track.file_hash) or (not data.has("track_hash") and track.rev > 1):
+		return
 	var plan: Array[Dictionary] = []
 	for q in data.plan:
 		plan.append({"p": Vector2(float(q.x), float(q.z)), "speed": float(q.speed), "s": float(q.s), "o": float(q.get("o", 0.0)), "sc": int(q.get("sc", -1))})
 	var car := clampi(int(data.get("car", 0)), 0, RaceVehicle.CARS.size() - 1)
 	ghost = RaceVehicle.new(track, plan, 0.0, 0.0, car)
+	if field != null:
+		field.set_ghost(ghost)
 	ghost_turbo = data.get("turbo", [])
 	ghost_model = world.car_model(Color(0.75, 0.9, 1.0), false, str(RaceVehicle.CARS[car].style))
 	for node in ghost_model.find_children("*", "GeometryInstance3D", true, false):
@@ -322,12 +329,12 @@ func begin_race() -> void:
 	# Gegner in anderen Farben als das eigene Auto; sie fahren das Grundmodell.
 	var rival_cars := rival_lineup(car_choice)
 	# Drift-Modus: allein gegen Punkteziel und Zeitlimit, keine Rivalen.
-	var field := 1 if track.mode == "drift" else stage+2
 	var engine_ids: Array = [str(spec.id)]
-	for i in range(field):
-		var plan: Array[Dictionary] = recorder.route if i==0 else track.ai_route(RIVAL_SKILL[stage][i-1],RIVAL_LANES[i-1])
-		var vehicle := RaceVehicle.new(track,plan,-float(i)*0.012,0 if i==0 else (1.2 if i%2 else -1.2),car_choice if i==0 else 0)
-		vehicles.append(vehicle)
+	field = RaceField.new(track)
+	field.setup(recorder.route, stage, car_choice)
+	vehicles = field.cars
+	world.build_seesaws(field.seesaws)
+	for i in range(vehicles.size()):
 		if i == 0:
 			models.append(world.car_model(Color(spec.color),true,str(spec.style)))
 		else:
@@ -401,15 +408,19 @@ func place_models() -> void:
 				halo_off.visible = false
 			continue
 		if vehicles[i].crashed and not vehicles[i].rolled_back and not vehicles[i].wrecked:
-			# Absturz: nur Darstellung – das Auto fällt aus dem Bild.
+			# Absturz: nur Darstellung – das Auto fällt aus dem Bild, oder liegt auf dem Boden darunter, wenn der höchstens 8 m tiefer
+			# liegt (Sohlenweg unter dem Sprung, Gelände neben der Brücke).
 			var fall: float = models[i].get_meta("fall", 0.0) + get_process_delta_time() * 9.81 * 0.5
 			models[i].set_meta("fall", fall)
 			drop = fall * fall
+			var floor_y := crash_floor(vehicles[i])
+			if vehicles[i].z - floor_y <= 8.0:
+				drop = minf(drop, maxf(0.0, vehicles[i].z - floor_y))
 		models[i].position = Vector3(p.x,0.2 + vehicles[i].z - drop,p.y)
 		if vehicles[i].in_loop:
 			models[i].basis = track.loop_basis(vehicles[i].loop_forward, vehicles[i].loop_theta, vehicles[i].loop_radius, vehicles[i].loop_entry)
 		else:
-			models[i].rotation = Vector3(0, -h, 0.0)
+			models[i].rotation = Vector3(0, -h, car_pitch(models[i], vehicles[i]))
 		var halo := models[i].get_node_or_null("Halo") as Node3D
 		if halo != null:
 			halo.visible = not vehicles[i].in_loop and not vehicles[i].loop_fall
@@ -418,8 +429,10 @@ func place_models() -> void:
 		if ghost.in_loop:
 			ghost_model.basis = track.loop_basis(ghost.loop_forward, ghost.loop_theta, ghost.loop_radius, ghost.loop_entry)
 		else:
-			ghost_model.rotation = Vector3(0, -ghost.heading, 0.0)
+			ghost_model.rotation = Vector3(0, -ghost.heading, car_pitch(ghost_model, ghost))
 		ghost_model.visible = ghost.finish_time < 0.0 and not ghost.crashed
+	if field != null and not field.seesaws.is_empty():
+		world.update_seesaws(field.seesaws, alpha)
 	# Regen: Scheinwerfer- und Rücklicht-Positionen für die Beleuchtung der Tropfen.
 	var lit: Array = []
 	for i in range(mini(vehicles.size(), models.size())):
@@ -427,6 +440,38 @@ func place_models() -> void:
 	world.atmosphere.update_rain_cars(lit)
 
 const CAR_HEIGHT := 0.65   # Höhe des Autos (Dach über den Rädern) für das Liegen auf dem Dach
+
+func car_pitch(model: Node3D, v: RaceVehicle) -> float:
+	# Nur Darstellung: Nicken mit der Fahrbahn (Steigung über den Radstand, ±1,25 m) am Boden, im Flug aus vz/u (±25°), weich gefiltert.
+	var target := 0.0
+	var forward := Vector2.from_angle(v.heading)
+	if v.airborne:
+		target = clampf(atan2(v.vz, maxf(absf(v.velocity.dot(forward)), 1.0)), -0.44, 0.44)
+	elif not v.crashed or v.wrecked:
+		var ahead := ground_y(v, v.pos + forward * 1.25)
+		var behind := ground_y(v, v.pos - forward * 1.25)
+		target = clampf(atan((ahead - behind) / 2.5), -0.44, 0.44)
+	var pitch: float = lerpf(float(model.get_meta("pitch", 0.0)), target, 1.0 - exp(-get_process_delta_time() * 12.0))
+	model.set_meta("pitch", pitch)
+	return pitch
+
+func ground_y(v: RaceVehicle, p: Vector2) -> float:
+	# Bodenhöhe unter einem Punkt nahe dem Auto (Deck der Wippe, Abkürzungsgelände oder eigener Ast), nur für die Darstellung.
+	if v.deck != null and v.deck.inside(p):
+		return v.deck.deck_y(v.deck.local(p).x)
+	if v.on_shortcut:
+		return track.terrain_height(p)
+	return track.ground_height(track.phase_near(p, v.previous_phase, 0.02))
+
+func crash_floor(v: RaceVehicle) -> float:
+	# Boden unter einem abgestürzten Auto: Gelände oder ein tieferer Ast, auf dessen Fahrbahn es fällt.
+	var y := track.terrain_height(v.pos)
+	var q := track.query(v.pos)
+	if float(q.distance) <= track.hw(float(q.s)) + 0.5 and not track.in_gap(float(q.s)):
+		var road := track.surface_z(float(q.s))
+		if road <= v.z + 0.01:
+			y = maxf(y, road)
+	return y
 
 func loop_band_point(v: RaceVehicle, th: float, lift := 0.0) -> Vector3:
 	# Punkt auf der Innenseite des Loopingbandes; lift = Abstand zur Ringmitte hin.
@@ -485,20 +530,13 @@ func _physics_process(dt: float) -> void:
 			phase = "race"
 	elif phase == "race":
 		race_time += dt
-		RaceVehicle.update_avoidance(vehicles,dt)
-		for i in range(vehicles.size()):
-			var v := vehicles[i]
-			var boost: bool = (turbo_held or Input.is_physical_key_pressed(KEY_SPACE)) if i==0 and not demonstration else absf(sin(v.progress*TAU))<0.35 and v.turbo>0.25
-			if i==0 and boost!=last_boost_input:
-				turbo_actions.append({"time":race_time,"held":boost})
-				last_boost_input = boost
-			v.step(dt,boost,race_time)
-		if ghost != null:
-			ghost.step(dt, ghost_boost(race_time), race_time)
-		for a in range(vehicles.size()):
-			for b in range(a+1,vehicles.size()):
-				if vehicles[a].finish_time<0 and vehicles[b].finish_time<0:
-					contact_sparks(a,b,RaceVehicle.resolve_contact(vehicles[a],vehicles[b]))
+		var boost: bool = (turbo_held or Input.is_physical_key_pressed(KEY_SPACE)) if not demonstration else RaceField.rival_boost(vehicles[0])
+		if boost!=last_boost_input:
+			turbo_actions.append({"time":race_time,"held":boost})
+			last_boost_input = boost
+		field.step(dt, race_time, boost, "race", ghost_boost(race_time))
+		for hit in field.impacts:
+			contact_sparks(hit[0],hit[1],hit[2])
 		update_tyre_tracks()
 		update_models()
 		race_sounds()
@@ -512,20 +550,17 @@ func _physics_process(dt: float) -> void:
 	elif phase == "result":
 		# Rivals finish normally; their interpolated times update the result table.
 		race_time += dt
-		if ghost != null:
-			ghost.step(dt, ghost_boost(race_time), race_time)
-		RaceVehicle.update_avoidance(vehicles,dt)
-		var new_finish := false
+		var unfinished: Array[int] = []
 		for i in range(1,vehicles.size()):
-			var v := vehicles[i]
-			if v.finish_time<0:
-				v.step(dt,absf(sin(v.progress*TAU))<0.35 and v.turbo>0.25,race_time)
-				if v.finish_time>=0 and hud.result_times.has(i):
-					new_finish = true
-		for a in range(1,vehicles.size()):
-			for b in range(a+1,vehicles.size()):
-				if vehicles[a].finish_time<0 and vehicles[b].finish_time<0:
-					contact_sparks(a,b,RaceVehicle.resolve_contact(vehicles[a],vehicles[b]))
+			if vehicles[i].finish_time<0:
+				unfinished.append(i)
+		field.step(dt, race_time, false, "result", ghost_boost(race_time))
+		for hit in field.impacts:
+			contact_sparks(hit[0],hit[1],hit[2])
+		var new_finish := false
+		for i in unfinished:
+			if vehicles[i].finish_time>=0 and hud.result_times.has(i):
+				new_finish = true
 		if new_finish:
 			var rows := sorted_results()
 			hud.results(rows,player_result_rank(rows),result_record)
@@ -590,6 +625,11 @@ func race_sounds() -> void:
 			if metal or v.obstacle_hit > 6.0:
 				world.sparks(Vector3(v.pos.x, 0.45, v.pos.y), Vector3(-v.velocity.y, 0, v.velocity.x).normalized(), clampf(v.obstacle_hit / 8.0, 0.2, 1.0))
 		v.obstacle_hit = 0.0
+	if field != null:
+		# Wippe schlägt an den Anschlag: leiser Landestoß (nur Ton).
+		for w in field.seesaws:
+			if w.clack > 0.15:
+				sound.impact("land", clampf(w.clack * 0.6, 0.15, 0.5), screen_pan(w.c), sound_distance_db(w.c))
 	if not vehicles.is_empty():
 		if vehicles[0].boosting and not was_boosting:
 			sound.impact("kick", 0.9)
@@ -786,10 +826,14 @@ func world_point(screen: Vector2) -> Vector2:
 	var direction := camera.project_ray_normal(screen)
 	var plane := 0.20
 	var hit := from + direction*((plane-from.y)/direction.y)
-	if not track.elevation.is_empty() or not track.terrain.is_empty():
+	if not track.elevation.is_empty() or not track.terrain.is_empty() or not track.seesaws.is_empty():
+		# Fenster um den eigenen Ast höchstens 40 m (Äste übereinander liegen im Streckenverlauf weit auseinander).
+		var window := minf(0.15, 40.0 / track.length)
 		for _i in range(3):
-			var near := track.phase(Vector2(hit.x,hit.z)) if recorder == null else track.phase_near(Vector2(hit.x,hit.z), recorder.last_phase, 0.2)
-			plane = 0.20 + track.surface_z(near)
+			var p2 := Vector2(hit.x,hit.z)
+			var near := track.phase(p2) if recorder == null else track.phase_near(p2, recorder.last_phase, window)
+			var sc := track.shortcut_here(p2, recorder.last_phase) if recorder != null else {}
+			plane = 0.20 + track.draw_height(near, int(sc.index) if not sc.is_empty() else -1, p2)
 			hit = from + direction*((plane-from.y)/direction.y)
 	return Vector2(hit.x,hit.z)
 
@@ -902,7 +946,8 @@ func refresh_line() -> void:
 		return
 	world.draw_route(recorder.route,false,recorder.open_route_index(),recorder.ghost())
 	var tip: Vector2 = recorder.last_pos if not recorder.route.is_empty() else track.at(0.0)
-	world.marker.position = Vector3(tip.x,0.31 + track.surface_z(recorder.last_phase),tip.y)
+	var tip_sc := int(recorder.route[-1].get("sc", -1)) if not recorder.route.is_empty() else -1
+	world.marker.position = Vector3(tip.x,0.31 + track.draw_height(recorder.last_phase, tip_sc, tip),tip.y)
 
 func _input(event: InputEvent) -> void:
 	# Ein begonnener Strich läuft weiter, auch wenn der Finger über eine Leiste gleitet.
@@ -990,7 +1035,7 @@ func finish_race() -> void:
 		var plan: Array = []
 		for point in recorder.route:
 			plan.append({"x":point.p.x,"z":point.p.y,"speed":point.speed,"s":point.s})
-		var run := {"version":1,"physics":RaceVehicle.VERSION,"track":track_id,"car":car_choice,"stage":stage,"time":vehicles[0].finish_time,"raw":recorder.raw,"plan":plan,"turbo":turbo_actions}
+		var run := {"version":1,"physics":RaceVehicle.VERSION,"track":track_id,"track_hash":track.file_hash,"rev":track.rev,"car":car_choice,"stage":stage,"time":vehicles[0].finish_time,"raw":recorder.raw,"plan":plan,"turbo":turbo_actions}
 		var file := FileAccess.open(run_record_path,FileAccess.WRITE)
 		if file:
 			file.store_string(JSON.stringify(run))

@@ -256,7 +256,7 @@ Regeln für `runtime`:
 
 - Der Boden des Dioramas darf die Laufzeit-Fahrbahn nicht überdecken. Die Fahrbahn liegt bei 0,17 (plus Höhenprofil/Rampe), die Randsteine reichen von 0,14 bis 0,285,
   Reifenspuren liegen bei 0,105 und 0,137. Vorgabe `ground_y = 0.08` (wie der Laufzeit-Boden ohne Diorama). Der Kern bricht ab, wenn Netzpunkte
-  von `objs_ground` näher als `HW+0,3` an der Mittellinie höher als 0,16 liegen.
+  von `objs_ground` näher als `HW+0,3` an der Mittellinie höher als 0,16 über der Basis des tiefsten nahen Asts liegen (relativ zum Höhenprofil, Abschnitt 4.1).
 - Es gibt keine Gehwege, Portale und Zuschauerzonen (Vorgaben `portal`/`crowd` aus), weil sie auf Gehweghöhe 0,30 gebaut würden.
 - Bei Strecken mit Geländerelief (`terrain` in der Streckendatei, z. B. serra) überspringt das Spiel `build_terrain`, sobald ein Diorama existiert. Zwei Wege:
   **`runtime_terrain: True`** (empfohlen: Relief wie bisher aus dem Höhenraster; das Thema baut dann *keinen* ebenen Boden, nur Szenerie und Wasser unterhalb), oder das Thema
@@ -293,6 +293,35 @@ Ohne die optionalen Schlüssel gilt das bisherige Verhalten. Materialnamen im Di
 setzt das Spiel), `K_*` (Bausatz-Oberflächen, Texturen aus `assets/kit`), `E_*` (Rennausstattung); `D_Asphalt`, `D_Asphalt_Strasse` bekommen den
 Fahrbahn-Shader, `D_Gelaende` die Bodenmischung (Vertexfarbe: R Helligkeit, G Sand, B Erde), `D_Wasser` den Wasser-Shader.
 Für `K_*`/`E_*` ohne Spielmaterial schlägt `tests/test_diorama.gd` an („Platzhalter“).
+
+### 4.1 Höhen (Kern, seit 03.10.2026; Bauplan `docs/dioramen/HOEHEN_PLAN.md`, A6)
+
+Für Strecken mit mehreren Ebenen (Brücke über den Hohlweg, Sprung über den eigenen Sohlenweg, Containerterrasse) kennt der Kern das Höhenprofil der
+Streckendatei und schreibt drei weitere Schlüssel:
+
+| Schlüssel | Inhalt |
+|---|---|
+| `track_hash` | SHA-256 (hex) der Streckendatei beim Bau (immer geschrieben). Das Spiel benutzt Diorama **und** dessen Hindernisse nur, wenn der Hash zur Streckendatei passt, oder wenn der Schlüssel fehlt und die Strecke Fassung `rev` ≤ 1 hat (alte Dioramen). Sonst Laufzeitgrafik und Hindernisse aus den Bausteinen (`push_warning`); `test_diorama` meldet die Strecke mit `WARN` und überspringt sie. Nach jeder Datenänderung also neu bauen |
+| `obstacles[].b` | Unterkante (m, absolut) eines Hindernisses: Kontakt nur bei Höhenüberlappung (`z < b + y` und `z + 1,4 > b`, am Boden wie im Flug). Ohne `b` wie bisher (am Boden immer, im Flug überfliegbar ab `z > y`) |
+| `supports` | `[[s0, s1], ...]`: Abschnitte, deren Fahrbahn das Diorama trägt (Container, Brückenträger) – das Spiel setzt dort keine Laufzeit-Pfeiler |
+
+Helfer:
+
+- `road_base(s)` = Höhenprofil + Schanze wie `Circuit.surface_z` (bis 16 Stützpunkte Smoothstep, sonst linear; ohne `ROAD_Y`), `base_height(s)`, `ramp_height(s)`, `in_gap(s)`;
+  `terrain_y(x, z)` = Gelände wie `Circuit.terrain_height` (bilinear, ohne Raster 0). s = Bogenlänge der Mittellinie dieses Skripts / Gesamtlänge (`S_OF[i]` je Punkt).
+- `branch_floor(P)`: je Punkt die tiefste Basis der Äste, deren Mittellinie näher als `HW + 0,3` liegt (ohne Lückenstücke).
+- `collide_rect(..., base=None)`, `collide_circle(..., base=None)`: mit `base` entsteht `"b"` (Container unter der Terrasse: `base` 0 und Oberkante ≤ Fahrbahn − 0,05;
+  Brückenträger über dem Hohlweg: `base` ≥ Fahrbahn unten + 1,4 – beides zählt im Fahrschlauch nicht).
+- `add_supports(s0, s1)`.
+- **Namensregel `Deck_*`**: Objekte über einem anderen Ast (Brückenträger, Geländer, Bohlen) heißen `Deck_…`. Das Spiel blendet sie im Zeichenmodus auf 35 % Deckkraft
+  (wie die Laufzeit-Fahrbahn über dem anderen Ast), im Rennen sind sie deckend.
+
+`check_runtime_ground` prüft **relativ**: zulässig ist `y ≤ branch_floor + ROAD_Y − 0,01` (auf ebenen Strecken die bisherige Grenze 0,16; unter einer Brücke zählt der
+untere Ast). Themen-Ersatzprüfungen (mountain) bleiben gültig. `test_diorama` prüft den Fahrschlauch höhenbewusst (Hindernis mit `b` zählt nicht, wenn seine Oberkante
+≤ Fahrbahn − 0,05 oder seine Unterkante ≥ Fahrbahn + 1,4 liegt), `supports`, `track_hash` und `Deck_*` (im Zeichenmodus durchscheinend).
+
+Streckendatei-Bausteine `{"type": "collider", x, z, w, d, rot, b, h, kind, visible}` sind Körper der Spielebene (Bruchwand, Wall, Stift): Das Spiel lädt sie mit und ohne
+Diorama, sie werden nie „gebacken“; das Bild folgt ihnen (sichtbar in der einfachen Grafikstufe als Klotz ab `b`, wenn `visible`).
 
 ## 5. Importanpassungen und Texturen
 
@@ -352,3 +381,35 @@ Fehlermuster `SCRIPT ERROR`/`ERROR:`/`FAIL:` oder keine RESULT-Zeile).
 - Kontrollbilder (`dio_shot.gd`, auch über `dio_build -Shots`): Verliert das Spielfenster beim Aufnehmen den Fokus (anderes Fenster im Vordergrund), pausiert das Spiel und legt
   die „Kurze Boxenpause“ über das Bild. Dann das Bild wiederholen, ohne anderes Fenster zu bedienen, oder in einer Kopie des Skripts nach dem Start `app.resume_game()` aufrufen.
 - Die einfache Grafikstufe lässt sich auf dem PC mit `godot_run.ps1 … -Extra '--rendering-method','gl_compatibility'` aufnehmen (Hindernisklötze, Laternenscheiben).
+
+## 9. Nutzungsspuren (seit 03.10.2026; Bauplan `docs/dioramen/HOEHEN_PLAN.md` 2.3 und 8)
+
+Vorab gelegte, **unbunte** Spuren auf jeder Laufzeit-Fahrbahn (`forest`, `quarry`, `harbor`, `fair`, `serra`, `arena`, `kids`): alter Gummiabrieb in Brems-, Rutsch- und
+Anfahrzonen, Politur der Ideallinie, Spurrinnen auf Schotter. Nur Darstellung (Premium-Grafik); Simulation, KI und Hindernisse lesen die Karten nie.
+Gebackene Fahrbahnen (`azure`, `city`) und Abkürzungen haben keine Karte.
+
+| Teil | Datei | Inhalt |
+|---|---|---|
+| Erzeuger (Werkzeug, keine Suite) | `game/tests/make_wear.gd` | `tools/godot_run.ps1 -Script res://tests/make_wear.gd -Headless -Timeout 900 -EnvPairs 'TRACK=all'` (oder `TRACK=<id>`), ≈ 20 s je Strecke |
+| Karte | `game/assets/wear/<id>.png` | RGBA8 im Streckenraum: Spalte = Seitenversatz −`lat` … +`lat` (0,0625 m), Zeile = Bogenlänge ab s 0 (`step` ≈ 0,25 m). **R** Gummi, **G** Politur, **B** Rinne, A 255 |
+| Begleitdatei | `game/assets/wear/<id>.json` | `{version 1, lat, px_lat, step, length, rows, cols, hash, rev, drivers, crashed}`; `hash` = SHA-256 der Streckendatei |
+| Import | `game/assets/wear/<id>.png.import` | verlustfrei (`compress/mode=0`), Mipmaps an, `detect_3d/compress_to=0` (keine Grafikkartenkompression) – liegt bei, nicht neu anlegen |
+| Anschluss | `world.gd` `apply_wear_map()` | lädt Karte + JSON nur in der Premium-Stufe und nur bei passendem Hash, sonst `wear_strength` 0 und `push_warning` „make_wear neu erzeugen“ |
+| Look | `game/assets/road.gdshader` | siehe unten; ohne Karte rechnet der Shader exakt wie vorher |
+| Prüfung | `game/tests/test_wear.gd` (Suite) | Karte je Strecke, Maße zu Länge/Breite, Hash aktuell, keine Spuren an Startlinie ±1 m, in Lücken, Looping-Zone, Schanzen und neben der Fahrbahn, keine geschlossene Gummifläche > 1,6 m quer, Rinnen nur auf Schotter, Import, Simulationsskripte ohne Kartenbezug |
+
+**Herkunft der Spuren:** echte Solo-Fahrten mit `RaceVehicle` (trocken) – skill 1,6/1,9/2,3/2,7/3,0 × Spur 1/−1/0,4/0 von den Startplätzen wie im Rennen – und zehn
+„Fahrer“ auf einer geglätteten Ideallinie (Gummiband, ±(hw − 1,4) m; langwelliger Versatz σ 0,35 m; Bremspunkt ±3 m; dreifaches Gewicht). Je Rad (Lage wie
+`tyre_tracks.gd`) wird gestempelt: **R** schmale Striche (≈ 0,14 m) bei Verzögerung > 3 m/s², Schlupf, Anfahren unter 12 m/s (Hinterräder), an den Startplätzen und bei
+Landungen nach einem Flug; nur ein Teil der Episoden hinterlässt einen Strich (15 %, Drift-Arena 45 %), Striche setzen weich ein, dazu ein weicher Schleier (≤ 0,22).
+**G** jede Überfahrt (σ 0,10 m). **B** nur auf Schotter: Überfahrtsdichte (σ 0,19 m, in Schlammzonen bis 0,30 m mit 5 m Übergang) plus alte Rinnen bei ±0,95 m.
+Alles 1 px weichgezeichnet und normiert; Zeilen mit quer zusammenhängendem dunklem Gummi (R > 0,45 über 1,5 m) werden weich gedämpft. Fest gesät, also reproduzierbar.
+
+**Look** (`road.gdshader`, nur wenn `wear_strength` > 0): Gummi leicht entsättigt („alt, gräulich“) und höchstens 30 % dunkler; frische Laufzeitspuren (`tyre_tracks.gd`) liegen
+dunkler und scharf darüber. Politur bis 0,08 weniger Rauheit. Rinne bis 16 % dunkler, 60 % weniger Körnung, falsche Normale aus 3 cm Tiefe (wirkt nur im Tageslicht; das
+Laternenlicht ist Emission, nachts bleibt also nur die Abdunklung). Regen: Gummi glänzt etwas (Rauheit −0,10·R, Spiegelung +0,06·R), Pfützen sammeln sich in Rinnen
+(`pn += B·0,12`). Schnee bleibt in Rinnen und auf der Ideallinie weniger liegen (`snow·(1 − 0,5·B)·(1 − 0,35·G)`): die Fahrspuren zeichnen sich ab.
+
+**Wann neu erzeugen:** nach **jeder** Änderung einer der sieben Streckendateien (der Hash veraltet sonst; `test_wear` meldet `FAIL … make_wear neu erzeugen`, das Spiel zeigt
+keine Spuren). Die `.png.import` bleiben gültig, Godot importiert die neue Karte beim nächsten `build.ps1`/`dio_build.ps1` mit denselben Einstellungen.
+Ansicht einer Karte ohne Godot: Zeilen × 4 strecken (dann isotrop), R als Abdunklung auf Grau darstellen.

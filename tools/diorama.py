@@ -165,6 +165,106 @@ SEG_A, SEG_B = (C[:-1], C[1:]) if OPEN else (C, np.roll(C, -1, axis=0))   # Segm
 NSEG = len(SEG_A)
 
 
+# ---------------------------------------------------------------- Höhen (Port von Circuit.base_height/ramp_height/in_gap/terrain_height)
+# Gleiche Regeln wie im Spiel (game/scripts/track.gd): Höhenprofil "elevation" [[s, m], ...] geschlossen, bis 16 Stützpunkte weich
+# (Smoothstep), sonst linear; Schanzen "ramps" steigen linear über length Meter; in Lücken "gaps" liegt keine Fahrbahn; Gelände
+# "terrain" bilinear (ohne Raster eben 0). s = Streckenanteil (Bogenlänge / Gesamtlänge der Mittellinie dieses Skripts).
+ELEV = data.get("elevation", [])
+RAMPS = data.get("ramps", [])
+GAPS = data.get("gaps", [])
+TERRAIN = data.get("terrain", {})
+TOTAL = dist[N - 1] if OPEN else dist[N]
+S_OF = np.array([dist[i] / TOTAL for i in range(N)])           # s je Punkt der Mittellinie
+
+
+def unit_s(s):
+    return min(max(s, 0.0), 1.0) if OPEN else s % 1.0
+
+
+def base_height(s):
+    if not ELEV:
+        return 0.0
+    x = unit_s(s)
+    n = len(ELEV)
+    for i in range(n):
+        sa, ha = float(ELEV[i][0]), float(ELEV[i][1])
+        sb, hb = float(ELEV[(i + 1) % n][0]) + (1.0 if i == n - 1 else 0.0), float(ELEV[(i + 1) % n][1])
+        xx = x + (1.0 if i == n - 1 and x < sa else 0.0)
+        if sa <= xx <= sb:
+            f = (xx - sa) / max(sb - sa, 1e-6)
+            if n <= 16:
+                f = f * f * (3.0 - 2.0 * f)
+            return ha + (hb - ha) * f
+    return float(ELEV[0][1])
+
+
+def ramp_height(s):
+    h = 0.0
+    x = unit_s(s)
+    for r in RAMPS:
+        d = ((x - float(r["s"])) % 1.0) * TOTAL
+        if d <= float(r["length"]):
+            h = max(h, float(r["height"]) * d / float(r["length"]))
+    return h
+
+
+def in_gap(s):
+    x = unit_s(s)
+    return any(float(g["from"]) <= x <= float(g["to"]) for g in GAPS)
+
+
+def road_base(s):
+    """Sichtbare Fahrbahnhöhe der Laufzeit-Fahrbahn an Stelle s (ohne ROAD_Y): Höhenprofil + Schanze, wie Circuit.surface_z."""
+    return base_height(s) + ramp_height(s)
+
+
+def terrain_y(x, z):
+    """Gelände unter (x, z) aus dem Höhenraster der Streckendatei, wie Circuit.terrain_height (ohne Raster 0)."""
+    if not TERRAIN:
+        return 0.0
+    cell = float(TERRAIN["cell"])
+    fx = (x - float(TERRAIN["origin"][0])) / cell
+    fz = (z - float(TERRAIN["origin"][1])) / cell
+    w, h = int(TERRAIN["w"]), int(TERRAIN["h"])
+    ix = min(max(int(math.floor(fx)), 0), w - 2)
+    iz = min(max(int(math.floor(fz)), 0), h - 2)
+    tx = min(max(fx - ix, 0.0), 1.0)
+    tz = min(max(fz - iz, 0.0), 1.0)
+    hs = TERRAIN["heights"]
+    a = hs[iz * w + ix] + (hs[iz * w + ix + 1] - hs[iz * w + ix]) * tx
+    b = hs[(iz + 1) * w + ix] + (hs[(iz + 1) * w + ix + 1] - hs[(iz + 1) * w + ix]) * tx
+    return a + (b - a) * tz
+
+
+SEG_BASE = np.array([base_height((S_OF[i] + (S_OF[(i + 1) % N] if (i + 1) % N else 1.0)) * 0.5) for i in range(NSEG)])
+SEG_GAP = np.array([in_gap((S_OF[i] + (S_OF[(i + 1) % N] if (i + 1) % N else 1.0)) * 0.5) for i in range(NSEG)])
+TRACK_HASH = __import__("hashlib").sha256(open(TRACK, "rb").read()).hexdigest()   # gleicher Wert wie FileAccess.get_sha256 im Spiel
+supports = []        # Begleitdatei "supports": [[s0, s1], ...] Abschnitte, deren Fahrbahn das Diorama trägt (Container, Brücke)
+
+
+def add_supports(s0, s1):
+    """Das Diorama trägt die Fahrbahn zwischen s0 und s1 (Containerterrasse, Brückenträger): das Spiel baut dort keine Pfeiler."""
+    supports.append([round(float(s0), 5), round(float(s1), 5)])
+
+
+def branch_floor(P, reach=None):
+    """Je Punkt (n×2) die tiefste Basis aller Äste, deren Mittellinie näher als reach (HW + 0,3) liegt, ohne Lückenstücke;
+    +inf, wo keine Fahrbahn in Reichweite ist. Grundlage der relativen Prüfung „Boden unter der Laufzeit-Fahrbahn“."""
+    reach = HW + 0.3 if reach is None else reach
+    out = np.full(len(P), np.inf)
+    d = SEG_B - SEG_A
+    ll = np.maximum((d ** 2).sum(1), 1e-9)
+    for k in range(0, len(P), 2000):
+        q = P[k:k + 2000, None, :]
+        t = np.clip(((q - SEG_A) * d).sum(2) / ll, 0, 1)
+        proj = SEG_A + t[..., None] * d
+        dd = np.sqrt(((q - proj) ** 2).sum(2))
+        near = (dd < reach) & ~SEG_GAP[None, :]
+        base = np.where(near, SEG_BASE[None, :], np.inf)
+        out[k:k + 2000] = base.min(1)
+    return out
+
+
 def dist_to_center(P, keep=None):
     """Abstand vieler Punkte (n×2) zur Mittellinie; keep = Bool-Maske der Segmente, die zählen."""
     a, b = (SEG_A, SEG_B) if keep is None else (SEG_A[keep], SEG_B[keep])
@@ -429,19 +529,22 @@ placed = []          # Flächen (Vierecke in 2D), auf denen keine Häuser/Bäume
 colliders = []       # Hindernisse für die Fahrphysik (Begleitdatei "obstacles"): Rechteck oder Kreis, Höhe, Art
 
 
-def collide_rect(cx, cz, ux, uz, ha, hb, height, kind, visible=True):
+def collide_rect(cx, cz, ux, uz, ha, hb, height, kind, visible=True, base=None):
     """Rechteckiges Hindernis: Mitte, Richtung der a-Achse (Einheitsvektor), halbe Maße entlang a und quer dazu.
     visible=False: reiner Fahrschlauch-Begrenzer ohne Körper im Bild (Begleitdatei "v": false); in der einfachen Grafikstufe
-    zeichnet das Spiel ihn nicht als Klotz, die Fahrphysik kennt ihn trotzdem."""
+    zeichnet das Spiel ihn nicht als Klotz, die Fahrphysik kennt ihn trotzdem.
+    base: Unterkante (m, absolut; Begleitdatei "b"): Kontakt nur bei Höhenüberlappung (Container unter der Terrasse, Brückenträger);
+    ohne base steht das Hindernis auf dem Boden (wie bisher)."""
     n = math.hypot(ux, uz) or 1.0
     colliders.append({"k": kind, "c": [round(cx, 3), round(cz, 3)], "u": [round(ux / n, 5), round(uz / n, 5)],
-                      "h": [round(ha, 3), round(hb, 3)], "y": round(height, 2), **({} if visible else {"v": False})})
+                      "h": [round(ha, 3), round(hb, 3)], "y": round(height, 2), **({} if visible else {"v": False}),
+                      **({} if base is None else {"b": round(float(base), 3)})})
 
 
-def collide_circle(cx, cz, r, height, kind, visible=True):
-    """Kreisförmiges Hindernis (siehe collide_rect für visible)."""
+def collide_circle(cx, cz, r, height, kind, visible=True, base=None):
+    """Kreisförmiges Hindernis (siehe collide_rect für visible und base)."""
     colliders.append({"k": kind, "c": [round(cx, 3), round(cz, 3)], "r": round(r, 3), "y": round(height, 2),
-                      **({} if visible else {"v": False})})
+                      **({} if visible else {"v": False}), **({} if base is None else {"b": round(float(base), 3)})})
 footprints = []      # (Frame, a0, a1, b0, b1): Gesamtfläche von Straße + Rand + Gehweg (für Boden und Häuser)
 asphalt_rects = []   # (Frame, a0, a1, b0, b1): reine Fahrbahnflächen (Begleitdatei für das Spiel)
 arm_parts = []       # Flächen aller Kreuzungen/Seitenstraßen
@@ -1135,8 +1238,9 @@ if CITY:
 
 
 def check_runtime_ground():
-    """Laufzeit-Fahrbahn: Der Boden des Themas darf die vom Spiel gebaute Straße nicht überdecken (Netzpunkte nahe der Mittellinie
-    müssen unter der Fahrbahnhöhe ROAD_Y liegen)."""
+    """Laufzeit-Fahrbahn: Der Boden des Themas darf die vom Spiel gebaute Straße nicht überdecken. Relativ zur Fahrbahn: zulässig ist
+    y <= (tiefste Basis der Äste, deren Mittellinie näher als HW + 0,3 liegt, ohne Lückenstücke) + ROAD_Y - 0,01. Auf ebenen Strecken
+    ist das die bisherige Grenze ROAD_Y - 0,01; unter einer Brücke zählt der untere Ast."""
     bad = 0
     for o in objs_ground:
         me = o.data
@@ -1145,10 +1249,10 @@ def check_runtime_ground():
         co = np.empty(len(me.vertices) * 3, np.float32)
         me.vertices.foreach_get("co", co)
         co = co.reshape(-1, 3)
-        near = dist_to_center(np.stack([co[:, 0], -co[:, 1]], 1)) < HW + 0.3
-        n = int(((co[:, 2] > ROAD_Y - 0.01) & near).sum())
+        floor = branch_floor(np.stack([co[:, 0], -co[:, 1]], 1))
+        n = int((co[:, 2] > floor + ROAD_Y - 0.01).sum())
         if n:
-            print("DIORAMA Boden überdeckt die Laufzeit-Fahrbahn:", o.name, n, "Punkte höher als", ROAD_Y - 0.01)
+            print("DIORAMA Boden überdeckt die Laufzeit-Fahrbahn:", o.name, n, "Punkte höher als die Fahrbahn (Basis + %.2f)" % (ROAD_Y - 0.01))
         bad += n
     if bad:
         raise ValueError("Boden des Themas überdeckt die Laufzeit-Fahrbahn (%d Netzpunkte); ground_y niedriger setzen" % bad)
@@ -1829,7 +1933,10 @@ if fountain:
 print("DIORAMA Hindernisse:", len(colliders))
 layout = {"blocked": blocked, "extent": [x0, z0, x1, z1], "occluders": light_blockers, "obstacles": colliders,
           "baked": list(CFG["baked"]), "water_y": None,
-          "lamps": [lamp_entry(entry) for entry in lamps]}
+          "lamps": [lamp_entry(entry) for entry in lamps],
+          "track_hash": TRACK_HASH}                                # Gültigkeit im Spiel: Streckendatei unverändert seit dem Bau
+if supports:
+    layout["supports"] = supports                                 # add_supports: Fahrbahn vom Diorama getragen (keine Laufzeit-Pfeiler)
 # Optionale Schlüssel nur, wenn gesetzt (ohne sie gelten im Spiel die bisherigen Vorgaben): siehe docs/dioramen/README.md
 if ROAD_MODE == "runtime":
     layout["runtime_road"] = True                                 # das Spiel baut Fahrbahn, Randsteine, Rampen, Schleifen, Abkürzungen selbst

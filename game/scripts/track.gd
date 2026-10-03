@@ -824,7 +824,8 @@ func wet_wall_margins() -> PackedFloat32Array:
 					if not obstacle_reaches(o, road_z):
 						continue
 					if obstacle_contact(o, p, 0.9).z > 0.0:
-						hit = maxf(hit, WET_SOFT_SHARE if str(o.k) in SOFT_OBSTACLES else 1.0)
+						# Randpfosten der Schotterpiste geben nach oder lassen Lücken: halbe Wirkung wie weiche Hindernisse.
+						hit = maxf(hit, WET_SOFT_SHARE if str(o.k) in SOFT_OBSTACLES or o.has("e") else 1.0)
 						if hit >= 1.0:
 							break
 				if hit > 0.0:
@@ -1115,6 +1116,7 @@ func load_obstacles() -> void:
 		if kind != "collider" and from_layout and (is_baked(prop) or on_layout_road(prop, blocked)):
 			continue
 		prop_obstacle(prop)
+	add_edge_posts()
 	for i in range(obstacles.size()):
 		var o: Dictionary = obstacles[i]
 		var reach: float = float(o.r) if o.has("r") else Vector2(o.h).length()
@@ -1125,6 +1127,114 @@ func load_obstacles() -> void:
 				if not obstacle_grid.has(key):
 					obstacle_grid[key] = []
 				obstacle_grid[key].append(i)
+
+# ---------- Randpfosten der Schotterpiste (Holzpfosten, jeder fünfte Platz ein Feldstein) ----------
+# Bis 03.10.2026 setzte sie nur World.build_gravel_road als Bild: Autos fuhren hindurch (Rückmeldung Steinbruch). Jetzt entstehen sie
+# hier aus der Streckendatei als feste Hindernisse der Spielebene, in jeder Grafikstufe gleich; World zeichnet genau diese Liste.
+# Plätze alle 3,2 m wie bisher (tools/dio_themes/forest.py f_runtime_posts rechnet sie für die Brücke nach); keine an fremden
+# Streckenteilen (Kreuzung), auf erhöhter Fahrbahn (Brücke, Damm), über Lücken, (neu) an Abkürzungen, deren Einfahrt sie sonst
+# versperrten, in Flugzonen (Schanze, Lücke, Looping: dort setzen Autos ohne Grip auf) und wo das Diorama schon etwas hinstellt. Neu ist der Abstand: Die Innenkante steht EDGE_POST_GAP neben dem Fahrbahnrand (vorher Pfostenmitte 0,8 m daneben).
+# So berührt ein Auto, dessen Mitte auf der Fahrbahn bleibt, nie einen Pfosten (Kreis CAR_RADIUS 0,95 m); erst wer neben die
+# Fahrbahn zeichnet oder hinausrutscht, trifft die Reihe (Feldtest: bei 0,8 m streiften Gegner in Kehren bei Schnee die Pfosten,
+# klemmten an der Reihe fest und fielen durch eine Lücke in den Wald). Holzpfosten ("w") brechen bei einem kräftigen Stoß oder geben
+# unter wiederholtem Druck nach (RaceVehicle.POST_BREAK_SPEED/POST_LOAD, Zustand je Rennen in RaceVehicle.post_state); Feldsteine
+# bleiben fest und wirken wie ein Mast (Abprall mit Reibung und Drehimpuls, kein Totalschaden).
+const EDGE_POST_SPACING := 3.2       # m entlang der Mittellinie
+const EDGE_POST_GAP := 1.0           # m vom Fahrbahnrand bis zur Innenkante von Pfosten und Feldstein
+const EDGE_POST_RADIUS := 0.09       # Holzpfosten 16 x 16 cm (Kappe 20 cm)
+const EDGE_POST_HEIGHT := 1.0
+const EDGE_STONE_RADIUS := 0.38      # Feldstein 0,8 x 0,7 m
+const EDGE_STONE_HEIGHT := 0.6
+var edge_posts: Array = []           # {c: Mitte, s, side: ±1, y0: Fußhöhe (m, absolut), stone: Feldstein}
+
+func build_edge_posts() -> Array:
+	var out: Array = []
+	if road != "gravel":
+		return out
+	var count := int(length / EDGE_POST_SPACING)
+	for i in range(count):
+		var s := float(i) / count
+		var stone := i % 5 == 2
+		# at() setzt Versätze jenseits HALF_WIDTH vom örtlichen Fahrbahnrand aus an (Breitenprofil).
+		var lateral := HALF_WIDTH + EDGE_POST_GAP + (EDGE_STONE_RADIUS if stone else EDGE_POST_RADIUS)
+		for edge in [-1.0, 1.0]:
+			var p := at(s, edge * lateral)
+			if nearest_center(p) < p.distance_to(at(s)) - 0.05:
+				continue      # ein anderes Stück Mittellinie liegt näher (Kreuzung, zweiter Schenkel einer Kehre, Innenseite enger Kurven)
+			# Pfosten stehen auf dem Gelände neben der Fahrbahn; auf erhöhter Fahrbahn (Brücke, Damm) gibt es keine.
+			var base := base_height(s)
+			var y0 := base
+			if not terrain.is_empty():
+				y0 = terrain_height(p)
+				if base - y0 > 1.0:
+					continue
+			elif base > 1.0 or in_gap(s):
+				continue
+			if near_shortcut(p, 1.2) or in_flight_zone(s):
+				continue
+			var radius := EDGE_STONE_RADIUS if stone else EDGE_POST_RADIUS
+			if occupied(p, radius + 0.1, y0, EDGE_STONE_HEIGHT if stone else EDGE_POST_HEIGHT):
+				continue      # dort steht schon etwas (Reifenstapel, Absperrung, Baum des Dioramas)
+			out.append({"c": p, "s": s, "side": edge, "y0": y0, "stone": stone})
+	return out
+
+func occupied(p: Vector2, radius: float, foot: float, height: float) -> bool:
+	# Berührt ein Kreis (Mitte p, Fuß foot, Höhe height) ein schon geladenes Hindernis? Nur beim Laden (ohne Raster).
+	for o in obstacles:
+		var reach: float = float(o.r) if o.has("r") else Vector2(o.h).length()
+		if absf(p.x - o.c.x) > reach + radius or absf(p.y - o.c.y) > reach + radius:
+			continue
+		if o.has("b") and (float(o.b) > foot + height or float(o.b) + float(o.y) < foot):
+			continue
+		if obstacle_contact(o, p, radius).z > 0.0:
+			return true
+	return false
+
+func nearest_center(p: Vector2) -> float:
+	# Abstand zur nächstgelegenen Stelle der ganzen Mittellinie (alle Äste).
+	var best := INF
+	for i in candidates(p):
+		best = minf(best, p.distance_to(Geometry2D.get_closest_point_to_segment(p, points[i], points[wrap_index(i + 1)])))
+	return best
+
+func in_flight_zone(s: float) -> bool:
+	# Wo Autos abheben, fliegen und ohne Grip aufsetzen, braucht der Fahrschlauch mehr Breite (tests/test_diorama.gd air_zones):
+	# Schanze bis 3 m nach der Kante, Lücke 6 m davor bis 25 m danach, Looping 20 m davor bis 40 m danach. Dort keine Randpfosten, dazu je
+	# 2 m Rand (der verbreiterte Schlauch an der Zonengrenze reicht schräg noch an den nächsten Pfosten).
+	var meter := 1.0 / length
+	var zones: Array = []
+	for r in ramps:
+		zones.append([float(r.s) - 2.0 * meter, float(r.s) + (float(r.length) + 5.0) * meter])
+	for g in gaps:
+		zones.append([float(g.from) - 8.0 * meter, float(g.to) + 27.0 * meter])
+	for l in loops:
+		zones.append([float(l.s) - 22.0 * meter, float(l.s) + 42.0 * meter])
+	for z in zones:
+		if fposmod(s - float(z[0]), 1.0) <= float(z[1]) - float(z[0]):
+			return true
+	return false
+
+func near_shortcut(p: Vector2, margin: float) -> bool:
+	# Liegt p auf einer Abkürzung (halbe Breite + margin)?
+	for sc in shortcuts:
+		var path: Array = sc.path
+		var reach := float(sc.width) * 0.5 + margin
+		for i in range(path.size() - 1):
+			if Geometry2D.get_closest_point_to_segment(p, path[i], path[i + 1]).distance_to(p) < reach:
+				return true
+	return false
+
+func add_edge_posts() -> void:
+	edge_posts = build_edge_posts()
+	for post in edge_posts:
+		var stone := bool(post.stone)
+		add_circle(post.c, EDGE_STONE_RADIUS if stone else EDGE_POST_RADIUS, EDGE_STONE_HEIGHT if stone else EDGE_POST_HEIGHT,
+			"feldstein" if stone else "pfosten")
+		obstacles[-1]["b"] = float(post.y0)   # Fuß auf dem Gelände: Kontakt nur bei Höhenüberlappung (Sprung darüber, Fahrbahn im Einschnitt)
+		obstacles[-1]["e"] = true             # Randpfosten: World.build_edge_posts zeichnet ihn (kein Klotz in build_obstacle_blocks)
+		if not stone:
+			obstacles[-1]["w"] = true         # Holz: bricht (RaceVehicle.knock_post)
+		post["o"] = obstacles.size() - 1      # Hindernis-Index (Schlüssel in RaceVehicle.post_state)
 
 func is_baked(prop: Dictionary) -> bool:
 	# Steckt der Baustein im Diorama (Typ in "baked", bei KI-Modellen auch "ai:<modell>")? Dann entfallen Laufzeit-Bauteil und -Hindernis.

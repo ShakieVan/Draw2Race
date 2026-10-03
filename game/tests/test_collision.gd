@@ -130,5 +130,143 @@ func _init() -> void:
 		if bot.finish_time >= 0.0 or bot.crashed:
 			break
 	check(bot.finish_time > 0.0 and not bot.crashed and hits == 0, "KI: Stadt ohne Zusammenstoß im Ziel (%.1f s, %d Stöße)" % [bot.finish_time, hits])
+	test_edge_posts()
 	print("RESULT: %d/%d passed" % [checks - failures, checks])
 	quit(1 if failures > 0 else 0)
+
+# ---------- Randpfosten der Schotterpiste (seit 03.10.2026 Hindernisse der Spielebene, Circuit.edge_posts) ----------
+func test_edge_posts() -> void:
+	for id in ["quarry", "forest"]:
+		var t := Circuit.load_track(id)
+		var wood := 0
+		var stones := 0
+		var same := true
+		var worst := 9.0
+		var flagged := 0
+		for o in t.obstacles:
+			if o.has("e"):
+				flagged += 1
+		for post in t.edge_posts:
+			var o: Dictionary = t.obstacles[int(post.o)]
+			var stone := bool(post.stone)
+			same = same and o.has("e") and Vector2(o.c).is_equal_approx(post.c) and o.has("w") != stone \
+				and str(o.k) == ("feldstein" if stone else "pfosten") and is_equal_approx(float(o.b), float(post.y0))
+			if stone:
+				stones += 1
+			else:
+				wood += 1
+			# Fairness: ein Auto (Kreis CAR_RADIUS), dessen Mitte auf der Fahrbahn bleibt, erreicht keinen Pfosten.
+			worst = minf(worst, t.center_distance(post.c, float(post.s)) - float(o.r) - t.hw(float(post.s)) - RaceVehicle.CAR_RADIUS)
+		check(wood > 50 and stones > 10 and same and flagged == t.edge_posts.size(),
+			"%s: Randpfosten sind Hindernisse der Spielebene (%d Holz, %d Feldsteine, Liste und Hindernisse gleich)" % [id, wood, stones])
+		check(worst > 0.0, "%s: Auto mit der Mitte auf der Fahrbahn erreicht keinen Randpfosten (Luft mindestens %.2f m)" % [id, worst])
+	check(Circuit.load_track("city").edge_posts.is_empty(), "Asphaltstrecke ohne Randpfosten")
+
+	var q := Circuit.load_track("quarry")
+	var post := straight_post(q, false)
+	var stone := straight_post(q, true)
+	# Kräftiger Stoß (8 m/s frontal): der Holzpfosten bricht, das Auto verliert nur die Bruchenergie und fährt hindurch.
+	var fast := push_into(q, post, 8.0, 0.0, 0.4)
+	var fast_state: Dictionary = fast.post_state.get(int(post.o), {})
+	check(bool(fast_state.get("down", false)) and fast.velocity.length() > 7.0 and fast.obstacle_kind == "pfosten" and not fast.wrecked,
+		"Holzpfosten bricht bei 8 m/s, Auto behält %.1f m/s (Bruchenergie ½·%.1f²)" % [fast.velocity.length(), RaceVehicle.POST_BREAK_SPEED])
+	# Langsames Drücken (0,5 m/s, Antrieb 1 m/s²): Abprall unter der Bruchgeschwindigkeit, die Stöße summieren sich, dann gibt der Pfosten
+	# nach (Belastung über POST_LOAD, nicht Bruch) – kein Festfahren.
+	var slow := push_into(q, post, 0.5, 1.0, RaceVehicle.STUCK_TIME)
+	var slow_state: Dictionary = slow.post_state.get(int(post.o), {})
+	check(slow.obstacle_hit > 0.0 and slow.obstacle_hit < RaceVehicle.POST_BREAK_SPEED and bool(slow_state.get("down", false))
+		and float(slow_state.get("load", 0.0)) > RaceVehicle.POST_LOAD and not slow.wrecked,
+		"Holzpfosten: langsames Drücken (Stoß %.1f m/s) prallt ab und schiebt ihn dann um (Belastung %.1f)" % [slow.obstacle_hit, float(slow_state.get("load", 0.0))])
+	# Feldstein bleibt fest: Abprall, kein Durchfahren.
+	var rock := push_into(q, stone, 8.0, 0.0, 1.0)
+	var dir := (Vector2(stone.c) - q.at(float(stone.s))).normalized()
+	var reach := float(q.obstacles[int(stone.o)].r) + RaceVehicle.CAR_RADIUS
+	check(rock.post_state.is_empty() and rock.obstacle_kind == "feldstein" and (rock.pos + Vector2.from_angle(rock.heading) * RaceVehicle.CAR_REACH - Vector2(stone.c)).dot(dir) < -reach + 0.2,
+		"Feldstein hält: Abprall (%.1f m/s), kein Durchfahren" % rock.obstacle_hit)
+	# Seitlich rutschend mit der Wagenmitte auf den Pfosten (zwischen den beiden Kreisen): der dritte Kreis fängt ihn.
+	var side := push_into(q, post, 1.5, 0.0, 2.0, true)
+	check(side.obstacle_hit > 0.0 and side.pos.distance_to(post.c) > RaceVehicle.CAR_RADIUS,
+		"Pfosten mittig an der Wagenflanke: Berührung (%.1f m/s), kein Durchrutschen (Abstand %.2f m)" % [side.obstacle_hit, side.pos.distance_to(post.c)])
+	# Reproduzierbar
+	var again := push_into(q, post, 8.0, 0.0, 0.4)
+	check(again.pos.is_equal_approx(fast.pos) and again.velocity.is_equal_approx(fast.velocity), "Pfostenbruch reproduzierbar")
+
+	# Ein Rennen teilt den Pfostenzustand (umgefahren für alle), ein Einzelauto (Geist, Test) hat einen eigenen.
+	var f := RaceField.new(q)
+	f.setup(q.ai_route(2.0), 1)
+	check(is_same(f.cars[0].post_state, f.cars[1].post_state) and is_same(f.post_state, f.cars[1].post_state)
+		and not is_same(RaceVehicle.new(q, q.ai_route(2.0)).post_state, f.post_state), "Pfostenzustand je Rennen geteilt, Einzelauto eigener")
+
+	# Bild aus derselben Liste: Holzpfosten als MultiMesh-Instanzen am Fuß, Feldsteine als Kegel; umgefahren liegt er, neues Rennen stellt auf.
+	var w := Diorama.new()
+	w.track = q
+	w.build_edge_posts()
+	var on_spot := true
+	var wood_n := 0
+	var stone_n := 0
+	for p in q.edge_posts:
+		if p.stone:
+			stone_n += 1
+			continue
+		wood_n += 1
+		var slot_k := int(w.edge_post_slot.get(int(p.o), -1))
+		on_spot = on_spot and slot_k >= 0 and is_same(w.edge_post_wood[slot_k], p) and w.edge_post_tilt[slot_k] == 0.0
+	var cones := 0
+	for key in w.batches:
+		if str(key).begins_with("cone"):
+			cones += w.batches[key].transforms.size()
+	var pose: Array = Diorama.edge_post_transforms(post, 0.0, Vector2.RIGHT)
+	on_spot = on_spot and Transform3D(pose[0]).origin.is_equal_approx(Vector3(post.c.x, float(post.y0) + 0.55, post.c.y))
+	check(on_spot and w.edge_post_slot.size() == wood_n and w.edge_post_layers.size() == 2 and w.edge_post_layers[0].instance_count == wood_n and cones == stone_n,
+		"Bild = Spielebene: %d Holzpfosten an ihren Plätzen, %d Feldsteine" % [wood_n, cones])
+	var knocked := {int(post.o): {"load": 9.0, "down": true, "dir": q.tangent(float(post.s))}}
+	w.update_edge_posts(knocked)
+	OS.delay_msec(int(Diorama.EDGE_POST_FALL * 1000.0) + 100)
+	w.update_edge_posts(knocked)
+	var slot := int(w.edge_post_slot[int(post.o)])
+	var lying := w.edge_post_tilt[slot]
+	var neighbour := w.edge_post_tilt[(slot + 1) % wood_n]
+	var fallen: Array = Diorama.edge_post_transforms(post, lying, q.tangent(float(post.s)))
+	w.update_edge_posts({})
+	check(lying > 1.3 and Transform3D(fallen[0]).basis.y.normalized().dot(Vector3.UP) < 0.3 and neighbour == 0.0 and w.edge_post_tilt[slot] == 0.0,
+		"umgefahrener Pfosten liegt im Bild (Neigung %.2f rad), die anderen stehen; neues Rennen stellt ihn wieder auf" % lying)
+	w.free()
+	# Einfache Grafikstufe mit Diorama-Hindernissen: kein zweiter Klotz an einem Randpfosten.
+	var blocks := Diorama.new()
+	blocks.track = q
+	blocks.build_obstacle_blocks()
+	var doubled := 0
+	for key in blocks.batches:
+		for tf in blocks.batches[key].transforms:
+			for p in q.edge_posts:
+				if Vector2(tf.origin.x, tf.origin.z).distance_to(p.c) < 0.01:
+					doubled += 1
+	check(doubled == 0, "einfache Grafikstufe: Randpfosten nicht doppelt als Klotz (%d)" % doubled)
+	blocks.free()
+
+func straight_post(track: Circuit, stone: bool) -> Dictionary:
+	# Pfosten bzw. Feldstein an einer geraden Stelle (Krümmung klein), Fuß auf Fahrbahnhöhe.
+	for p in track.edge_posts:
+		if bool(p.stone) == stone and track.curvature(float(p.s)) < 0.01 and absf(float(p.y0) - track.base_height(float(p.s))) < 0.3:
+			return p
+	return track.edge_posts[0]
+
+func push_into(track: Circuit, post: Dictionary, speed: float, drive: float, seconds: float, sideways := false) -> RaceVehicle:
+	# Nur die Stoßrechnung (collide_obstacles) ohne Fahrer: Auto 3 m vor dem Pfosten, fährt senkrecht zur Strecke auf ihn zu (sideways:
+	# quer stehend, rutscht mit der Flanke darauf), drive = Antrieb (m/s²) in Fahrtrichtung.
+	var v := RaceVehicle.new(track, track.ai_route(2.0))
+	var dir := (Vector2(post.c) - track.at(float(post.s))).normalized()
+	v.pos = Vector2(post.c) - dir * 3.0
+	v.heading = dir.angle() + (PI * 0.5 if sideways else 0.0)
+	v.velocity = dir * speed
+	v.yaw = 0.0
+	v.z = float(post.y0)
+	v.progress = float(post.s)
+	for tick in range(int(seconds * 60.0)):
+		v.velocity += dir * drive / 60.0
+		v.pos += v.velocity / 60.0
+		v.heading += v.yaw / 60.0
+		v.collide_obstacles(1.0 / 60.0)
+		if v.wrecked:
+			break
+	return v

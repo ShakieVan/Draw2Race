@@ -986,7 +986,7 @@ def arena():
     props += [ai("drift_zuschauer_container", 0, 45, h=5.5, color="3d5a6b"), ai("drift_parkhaus", -20, -52, w=30, d=14, color="9a9a9a")]
     data = {"format": 1, "id": "arena", "name": "Drift Arena", "subtitle": "Quer ist mehr: Punkte für Winkel und Tempo – ohne die Wand zu küssen.",
             "theme": "harbor", "half_width": HALF_WIDTH, "points": pts, "mode": "drift", "widths": widths,
-            "drift_targets": [600, 1100, 1600],   # kalibriert: Drift-Auto mit ~45 % zu schnell geplanten Kurven ~1800 Pkt.
+            "drift_targets": [600, 1100, 1600],   # kalibriert 03.10.2026 (Fahrer hält im Drift das Plantempo, siehe vehicle.gd): Kurven 30/45 % zu schnell geplant -> Drift-Auto ~1240/2140 Pkt., Grundauto ~630/1060, mit 60 % ~1680; noch schneller -> Abflug/Dreher
             "conditions": [{"time": "dusk", "weather": "dry", "fog": 0}, {"time": "night", "weather": "dry", "fog": 0},
                            {"time": "night", "weather": "rain", "fog": 0}],
             "surfaces": [], "props": keep(props, dense, 0.2)}

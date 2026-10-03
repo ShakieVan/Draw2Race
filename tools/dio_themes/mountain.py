@@ -979,7 +979,7 @@ def m_boat(x, z, ang, hull, stripe):
 
 def m_gantry(i_c, kind):
     """Torbogen quer über die Fahrbahn an Mittellinienindex i_c: zwei Pfosten außerhalb der Randsteine und ein Querträger mit Schachbrett (Ziel)
-    bzw. rot-weißen Feldern (Start). Steht neben der Fahrbahn: ohne Hindernis."""
+    bzw. rot-weißen Feldern (Start). Die Pfosten stehen neben der Fahrbahn und sind seit 03.10.2026 Hindernisse der Spielebene (Mast)."""
     c, t, l_ = center[i_c], tang[i_c], left[i_c]
     ang = math.atan2(t.y, t.x)
     base = float(m_tr.nearest(np.array([c.x]), np.array([c.y]))[2][0]) + ROAD_Y
@@ -989,6 +989,7 @@ def m_gantry(i_c, kind):
         p = c + l_ * side * off
         gy = m_height(p.x, p.y)
         m_box(parts, p.x, p.y, ang, 0.16, 0.16, gy - 0.1, base + 5.3, m_lin((0.82, 0.82, 0.8)))
+        collide_rect(p.x, p.y, math.cos(ang), math.sin(ang), 0.16, 0.16, base + 5.4 - gy, "mast", base=gy - 0.1)
     y0, y1 = base + 4.5, base + 5.4
     for face in (1, -1):                                  # Vorder- und Rückseite des Querträgers
         for k in range(int((2 * off + 0.4) / 0.45)):
@@ -1051,7 +1052,8 @@ def m_plaza():
 
 
 def m_posts():
-    """Leitpfosten (weiß mit rotem Reflektorband) alle 16 m an beiden Fahrbahnrändern, wo keine Parapetmauer steht."""
+    """Leitpfosten (weiß mit rotem Reflektorband) alle 16 m an beiden Fahrbahnrändern, wo keine Parapetmauer steht. Seit 03.10.2026 auch
+    Hindernisse der Spielebene (Kreis 6 cm, Fuß auf dem Gelände): Ein Auto, dessen Mitte auf der Fahrbahn bleibt, berührt sie nicht."""
     parts = []
     n_c = len(center)
     spans = []
@@ -1069,6 +1071,7 @@ def m_posts():
             ang = math.atan2(tang[i].y, tang[i].x)
             m_box(parts, p.x, p.y, ang, 0.055, 0.055, gy - 0.05, gy + 0.95, m_lin((0.88, 0.88, 0.86)))
             m_box(parts, p.x, p.y, ang, 0.06, 0.06, gy + 0.62, gy + 0.82, m_lin((0.75, 0.06, 0.04)), top=False)
+            collide_circle(p.x, p.y, 0.06, 1.0, "pfosten", base=gy - 0.05)
             count += 1
     if parts:
         mesh_object("Leitpfosten", parts)
@@ -1095,6 +1098,7 @@ def m_warning_signs():
         if float(m_tr.at(m_tr.d, np.array([p.x]), np.array([p.y]))[0]) < HW + 1.0:
             continue
         m_box(parts, p.x, p.y, ang, 0.03, 0.03, gy - 0.05, gy + 2.3, m_lin((0.55, 0.57, 0.6)), top=False)
+        collide_circle(p.x, p.y, 0.04, 2.35, "mast", base=gy - 0.05)          # Schildmast (seit 03.10.2026 Hindernis der Spielebene)
         fx, fz = -t.x, -t.y                                # das Schild blickt dem Fahrer entgegen
         sx, sz = -fz, fx
         cy = gy + 2.35

@@ -269,6 +269,7 @@ func build(circuit: Circuit) -> void:
 	else:
 		build_asphalt_road()
 		build_sprint_apron()
+	build_edge_posts()
 	# Start/Ziel-Karo quer über die Fahrbahn und Startplätze dahinter.
 	var t0 := track.tangent(0.0)
 	var n0 := Vector2(-t0.y, t0.x)
@@ -707,27 +708,92 @@ func build_gravel_road() -> void:
 			continue
 		var tone := Color("a88c65") if rng.randf() < 0.6 else Color("6e5639")
 		shape("box", Vector3(p.x,0.176+s*0.004+track.base_height(s),p.y), Vector3(rng.randf_range(0.08,0.2),0.012,rng.randf_range(0.08,0.2)), tone, rng.randf()*TAU)
-	var post_count := int(track.length/3.2)
-	for i in range(post_count):
-		var s := float(i) / post_count
-		for edge in [-1.0, 1.0]:
-			var p := track.at(s, edge * 4.3)
-			if track.other_branch_distance(p, s) < Circuit.HALF_WIDTH + 1.0:
-				continue
-			# Pfosten stehen auf dem Gelände neben der Fahrbahn; auf erhöhter Fahrbahn (Brücke, Damm) gibt es keine.
-			var base := track.base_height(s)
-			var y0 := base
-			if not track.terrain.is_empty():
-				y0 = track.terrain_height(p)
-				if base - y0 > 1.0:
-					continue
-			elif base > 1.0 or track.in_gap(s):
-				continue
-			if i % 5 == 2:
-				shape("cone", Vector3(p.x,0.3 + y0,p.y), Vector3(0.8,0.6,0.7), Color("8a8f8c"), s*40.0)
-			else:
-				shape("box", Vector3(p.x,0.55 + y0,p.y), Vector3(0.16,1.0,0.16), Color("6b4a32"))
-				shape("box", Vector3(p.x,0.98 + y0,p.y), Vector3(0.2,0.06,0.2), Color("f1dfb7"))
+
+const EDGE_POST_PARTS := [[0.55, Vector3(0.16, 1.0, 0.16), "6b4a32"], [0.98, Vector3(0.2, 0.06, 0.2), "f1dfb7"]]   # Pfahl, Kappe: Mitte über dem Fuß, Maße, Farbe
+const EDGE_POST_FALL := 0.35      # s, bis ein umgefahrener Pfosten im Bild liegt
+var edge_post_layers: Array = []  # MultiMesh je Teil (Pfahl, Kappe), Instanz k = k-ter Holzpfosten
+var edge_post_wood: Array = []    # Holzpfosten (Einträge aus Circuit.edge_posts) in Instanzreihenfolge
+var edge_post_slot := {}          # Hindernis-Index -> Instanz
+var edge_post_fallen := {}        # Hindernis-Index -> {t: ms, ab dem er im Bild umfällt, lying: liegt}
+var edge_post_tilt := PackedFloat32Array()   # Neigung je Instanz (rad, 0 = aufrecht); Abbild der MultiMesh-Lagen für Prüfungen
+
+func build_edge_posts() -> void:
+	# Holzpfosten und Feldsteine neben der Schotterpiste: genau die Hindernisse der Spielebene (Circuit.edge_posts, Plätze und
+	# Auslassregeln dort), in jeder Grafikstufe und auch dann, wenn ein Diorama die Fahrbahn selbst trägt. Holzpfosten liegen in eigenen
+	# MultiMeshes, damit update_edge_posts umgefahrene umlegen kann (Zustand aus der Simulation, RaceVehicle.post_state).
+	edge_post_layers.clear()
+	edge_post_slot.clear()
+	edge_post_fallen.clear()
+	edge_post_wood = []
+	edge_post_tilt = PackedFloat32Array()
+	var wood := edge_post_wood
+	for post in track.edge_posts:
+		var p: Vector2 = post.c
+		if bool(post.stone):
+			shape("cone", Vector3(p.x,0.3 + float(post.y0),p.y), Vector3(0.8,0.6,0.7), Color("8a8f8c"), float(post.s)*40.0)
+		else:
+			edge_post_slot[int(post.o)] = wood.size()
+			wood.append(post)
+	if wood.is_empty():
+		return
+	for part in EDGE_POST_PARTS:
+		var mesh := BoxMesh.new()
+		mesh.material = material(Color(part[2]))
+		var multi := MultiMesh.new()
+		multi.transform_format = MultiMesh.TRANSFORM_3D
+		multi.mesh = mesh
+		multi.instance_count = wood.size()
+		var node := MultiMeshInstance3D.new()
+		node.multimesh = multi
+		add_overlay(node, lit_overlay_color(Color(part[2])))
+		add_child(node)
+		edge_post_layers.append(multi)
+	edge_post_tilt.resize(wood.size())
+	for k in range(wood.size()):
+		set_edge_post(k, wood[k], 0.0, Vector2.RIGHT)
+
+func set_edge_post(k: int, post: Dictionary, tilt: float, fall: Vector2) -> void:
+	# Pfosten k aufrecht (tilt 0) oder um den Fuß in Richtung fall gekippt (tilt in rad).
+	var parts := edge_post_transforms(post, tilt, fall)
+	for i in range(edge_post_layers.size()):
+		edge_post_layers[i].set_instance_transform(k, parts[i])
+	edge_post_tilt[k] = tilt
+
+static func edge_post_transforms(post: Dictionary, tilt: float, fall: Vector2) -> Array:
+	# Lage von Pfahl und Kappe eines Holzpfostens: aufrecht über dem Fuß bzw. um den Fuß in Richtung fall gekippt.
+	var p: Vector2 = post.c
+	var foot := Vector3(p.x, float(post.y0), p.y)
+	var turn := Basis.IDENTITY
+	if tilt > 0.0 and fall.length() > 0.001:
+		turn = Basis(Vector3.UP.cross(Vector3(fall.x, 0.0, fall.y)).normalized(), tilt)
+	var out: Array = []
+	for part in EDGE_POST_PARTS:
+		out.append(Transform3D(turn, foot) * Transform3D(Basis.IDENTITY.scaled(part[1]), Vector3(0.0, float(part[0]), 0.0)))
+	return out
+
+func update_edge_posts(state: Dictionary) -> void:
+	# Bild folgt der Simulation: umgefahrene Holzpfosten kippen in EDGE_POST_FALL um und bleiben liegen; ein neues Rennen (leerer
+	# Zustand) stellt sie wieder auf. Rein darstellend, ändert nichts an der Fahrphysik.
+	if edge_post_layers.is_empty():
+		return
+	var now := Time.get_ticks_msec()
+	for idx in edge_post_fallen.keys():
+		if not bool(state.get(idx, {}).get("down", false)):
+			edge_post_fallen.erase(idx)
+			set_edge_post(int(edge_post_slot[idx]), edge_post_wood[int(edge_post_slot[idx])], 0.0, Vector2.RIGHT)
+	for idx in state:
+		var st: Dictionary = state[idx]
+		if not bool(st.get("down", false)) or not edge_post_slot.has(idx):
+			continue
+		if not edge_post_fallen.has(idx):
+			edge_post_fallen[idx] = {"t": now, "lying": false}
+		var fallen: Dictionary = edge_post_fallen[idx]
+		if fallen.lying:
+			continue
+		var f := clampf(float(now - int(fallen.t)) / 1000.0 / EDGE_POST_FALL, 0.0, 1.0)
+		var slot := int(edge_post_slot[idx])
+		set_edge_post(slot, edge_post_wood[slot], 1.45 * f * f, st.get("dir", Vector2.RIGHT))
+		fallen.lying = f >= 1.0
 
 func light_pool(head: Vector3, reach: float, color: Color, kind := "") -> void:
 	# Lichtkegel am Boden (nur abends/nachts sichtbar) plus leuchtender Kopf; ohne echte Lichtquelle, mobil-tauglich.
@@ -1281,6 +1347,8 @@ func build_obstacle_blocks() -> void:
 	for o in track.obstacles:
 		if not bool(o.get("v", true)):
 			continue            # unsichtbarer Begrenzer (Begleitdatei "v": false): kein Klotz, die Fahrphysik kennt ihn trotzdem
+		if o.has("e"):
+			continue            # Randpfosten der Schotterpiste: zeichnet build_edge_posts aus derselben Liste
 		var c: Vector2 = o.c
 		var height := float(o.y)
 		match str(o.k):
@@ -1288,7 +1356,8 @@ func build_obstacle_blocks() -> void:
 				shape("cylinder", Vector3(c.x, 1.2, c.y), Vector3(0.35, 2.4, 0.35), Color("6b4a32"))
 				shape("box", Vector3(c.x, 3.6, c.y), Vector3(2.6, 2.4, 2.6), Color("4f7f4a"))
 			"mast":
-				shape("cylinder", Vector3(c.x, height * 0.5, c.y), Vector3(0.16, height, 0.16), DARK)
+				# ab der Unterkante (Leitpfosten, Schildmast und Torbogen am Hang der Serra), sonst auf dem Boden
+				shape("cylinder", Vector3(c.x, float(o.get("b", 0.0)) + height * 0.5, c.y), Vector3(0.16, height, 0.16), DARK)
 			_:
 				if o.has("r"):
 					shape("cylinder", Vector3(c.x, float(o.get("b", 0.0)) + height * 0.5, c.y), Vector3(float(o.r) * 2.0, height, float(o.r) * 2.0), Color("9a9a96"))

@@ -205,6 +205,7 @@ Ersetzt Zeichen-Zoom-Regler, automatische Nachführung und Kamera-Stick (Nutzere
 - Voraussetzungen: Gradle-Export (`gradle_build/use_gradle_build=true`, Vorlage in `game/android/build`), Berechtigungen INTERNET und REQUEST_INSTALL_PACKAGES. `org.gradle.daemon=false`, sonst hält der Gradle-Dienst die Ausgabe offen und der Export kehrt nicht zurück.
 - Versionen: `application/config/version` in `project.godot` und `version/name` im Exportprofil müssen übereinstimmen, `version/code` muss je Release steigen (`tools/build.ps1` prüft die Namen und legt `builds/Draw2Race-<version>.apk` an).
 - Release veröffentlichen: `gh release create vX.Y.Z builds/Draw2Race-X.Y.Z.apk`.
+- Nummernschema (Nutzerentscheidung 03.10.2026): Ein reguläres Release endet immer auf `.0` und hebt die mittlere Stelle (0.3.0, 0.4.0 …). Betas zählen danach die letzte Stelle hoch (0.3.1, 0.3.2 …). Wird eine Beta zum Release, wird sie mit der nächsten `.0`-Nummer und höherem `version/code` neu gebaut. So liegt jedes Release über allen Betas davor, und ein Beta-Handy bekommt das Release als normales Update, in beiden Kanälen. Der Updater vergleicht nur Zahlen (`X.Y.Z`); Zusätze wie `-beta` würden ältere Fassungen ablehnen.
 - Tests: 3 Prüfungen in `test_core.gd` (Versionsvergleich, gültiges Release, Ablehnung fremder URL/Entwurf/fehlender Prüfsumme).
 - Regen nur im Licht (`assets/rain.gdshader`): Tropfen ohne Eigenfarbe, additiv; Helligkeit = Tageslicht + Lichtkarte der Straßenlichter (beim Aufbau berechnet, `Atmosphere.bake_rain_lights`) + Scheinwerferkegel/Rücklichter der Autos (live, `update_rain_cars`). Zum Boden hin heller als Tiefenhinweis in der orthografischen Draufsicht.
 - Kontrollbild-Aufrufe immer mit `timeout`/`--quit-after`: Bricht ein Skript beim Laden ab, erreicht das Testskript sein `quit()` nie.
@@ -389,3 +390,23 @@ Nutzerwunsch: verschiedene Höhenniveaus ab dem Wald. Entwurf, Bauplan und Stand
 - **Nutzungsspuren:** Spurenkarten aus echten KI-Fahrten (`game/assets/wear/`), nur der Fahrbahn-Shader liest sie (Reifenabrieb, Spurrinnen auf Schotter).
 - **Tests:** neu `test_heights`, `test_field` (alle Strecken × 3 Stufen mit Wetter und mehreren Spielerlinien), `test_wear`; zusammen 653 Prüfungen. Unabhängige Prüfung: Steinbruch, Wippe, Gegnerfeld, Zeichnen, Determinismus gut; Hafen, Wald, Regression brauchbar.
 - **Offen:** Sichtabnahme und Geräteprüfung; Stadt verliert in Regen-Stufe 3 bei sehr schneller Außenlinie selten einen Gegner (3 von 30 Proben); weitere Ideen (Steilkurven, Viadukt, Parkdeck) zurückgestellt (Plan Abschnitt „verschoben“).
+
+## Drift, Randpfosten, Musik beim Streckenwechsel (03.10.2026, Beta 0.2.29)
+
+- **Drift-Auto fuhr rückwärts:** Die Karosserie `game/assets/cars/drift.glb` saß verkehrt herum. Die automatische Vorn/Hinten-Erkennung in `tools/ai_car.py` sucht rote Rückleuchten, und die des Drift-Modells sind dunkel. `tools/ai_cars.json` erzwingt deshalb jetzt `"flip": true`, `tools/build_cars.ps1` reicht das weiter. Das Modell ist neu gebaut, die gelenkten Vorderräder sitzen jetzt an der Schnauze. Physikalisch fuhr das Auto nie rückwärts.
+- **Drift-Modus:** Der Fahrer-Regler in `RaceVehicle.step()` deckelte nach einem Ausbrechen auf 7 m/s (Fehlwinkel > 0,85 rad oder > 3 m neben der Linie). Ein driftendes Auto bremste also und kroch zur Linie zurück.
+  - Im Drift-Modus greift der Deckel nur noch, wenn das Auto wirklich verloren ist: Das Ziel liegt mehr als 2,0 rad daneben oder dahinter, oder das Auto steht mehr als 1 m jenseits des Fahrbahnrands.
+  - Gas und Bremse richten sich nach der tatsächlichen Geschwindigkeit |v| statt nach der Längsgeschwindigkeit u.
+  - Ein verlorenes Auto dreht mit vollem Einschlag bei 3 m/s um.
+  - Der Rennmodus ist bitgleich (Vergleich mit dem alten Stand auf allen Rennstrecken). Ziele [600, 1100, 1600] unverändert. Beispiel: Drift King mit 45 % zu schnell geplanten Kurven erreicht 2136 Punkte in 47,6 s (vorher 1798 Punkte in 59,1 s).
+- **Randpfosten:** Die Holzpfosten und Feldsteine an der Schotterpiste (Steinbruch, Wald) waren reine Grafik.
+  - Sie stehen jetzt als Hindernisse in `Circuit.edge_posts` (`track.gd`), und `World.build_edge_posts()` zeichnet genau diese Liste.
+  - Die Innenkante liegt 1 m hinter dem Fahrbahnrand. An Abkürzungen, Sprüngen, Lücken, Loopings und in Diorama-Bauteilen fallen sie weg.
+  - Holzpfosten brechen ab 2 m/s Stoß oder nach gesammelter Last. Der Zustand gilt je Rennen für alle Autos (`post_state` über `RaceField`), umgefallene Pfosten kippen sichtbar.
+  - Feldsteine bleiben fest. Ein Mittelkreis erfasst schlanke Hindernisse (r ≤ 0,3 m) und die Feldsteine, die sonst zwischen die beiden Wagenkreise passten.
+  - Serra: Leitpfosten, Torpfosten und Schildmast sind jetzt fest (`tools/dio_themes/mountain.py`, `serra_layout.json` neu).
+  - Physikversion `bicycle-6`: Die nassen Stufen von Steinbruch, Wald und Serra ändern sich leicht. Alle 27 Herausforderungen kommen ins Ziel, `golden_times.json` ist neu erzeugt.
+- **Musik:** Wurde direkt nach dem Ergebnis die Strecke gewechselt, liefen Sieg-/Niederlage-Stück und Menümusik bis zum Ende des Ladens gemeinsam. `Sound.finish_crossfade()` schließt die Überblendung jetzt am Anfang von `select_track()` ab.
+- **Tests:** 673 Prüfungen, neu sind `test_drift_throttle` in `test_air.gd` und 14 Pfostenprüfungen in `test_collision.gd`. Kontrollbild-Werkzeug: `game/tests/post_shot.gd`.
+- **Offen:** Geräteprüfung des Driftgefühls. Beim Aufprall auf Holz sprühen bisher Funken statt Splittern. Das Grundauto braucht für Drift-Stufe 1 jetzt etwa 30 % zu schnell geplante Kurven.
+- **Mehrspieler:** Die Recherche zu bis zu 4 Handys ohne Internet steht in `docs/MULTIPLAYER_RECHERCHE.md`.

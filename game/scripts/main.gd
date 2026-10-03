@@ -178,6 +178,7 @@ func select_track(new_id: String) -> void:
 	track_id = new_id
 	store.data["track"] = new_id
 	store.save()
+	sound.finish_crossfade()
 	track = Circuit.load_track(new_id)
 	# Welt komplett neu aufbauen (Thema, Deko, Fahrbahn).
 	world.queue_free()
@@ -225,6 +226,7 @@ func clear_cars() -> void:
 	ghost = null
 	field = null
 	world.clear_seesaws()
+	world.update_edge_posts({})   # Randpfosten wieder aufstellen
 
 func ghost_path() -> String:
 	return "user://ghosts/%s_%d.json" % [track_id, stage]
@@ -433,6 +435,8 @@ func place_models() -> void:
 		ghost_model.visible = ghost.finish_time < 0.0 and not ghost.crashed
 	if field != null and not field.seesaws.is_empty():
 		world.update_seesaws(field.seesaws, alpha)
+	if field != null:
+		world.update_edge_posts(field.post_state)   # umgefahrene Randpfosten (Schotterpiste) im Bild umlegen
 	# Regen: Scheinwerfer- und Rücklicht-Positionen für die Beleuchtung der Tropfen.
 	var lit: Array = []
 	for i in range(mini(vehicles.size(), models.size())):

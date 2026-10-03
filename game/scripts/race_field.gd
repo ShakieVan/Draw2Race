@@ -20,6 +20,7 @@ var cars: Array[RaceVehicle] = []
 var seesaws: Array = []           # Seesaw je Eintrag der Streckendatei
 var ghost: RaceVehicle
 var ghost_seesaws: Array = []
+var post_state: Dictionary = {}   # Randpfosten dieses Rennens (RaceVehicle.post_state): alle Autos teilen ihn, der Geist hat einen eigenen
 var impacts: Array = []           # Kontakte des letzten Takts: [a, b, Aufprallgeschwindigkeit]
 var decisions: Array = []         # Protokoll der Wippen-Entscheidungen (Tests): [Auto, Runde, Lineal?, Ankunft s, frei ab s]
 
@@ -33,6 +34,7 @@ static func lane_for(i: int) -> float:
 func setup(player_route: Array[Dictionary], stage: int, player_car := 0, field := -1) -> void:
 	# Aufstellung wie bisher in main.gd: Spieler auf s 0, Gegner dahinter auf Spur ±1,2; Drift-Modus allein.
 	cars.clear()
+	post_state = {}
 	var count := field if field > 0 else (1 if track.mode == "drift" else stage + 2)
 	for i in range(count):
 		var skill := float(RIVAL_SKILL[stage][i - 1]) if i > 0 else -1.0
@@ -56,6 +58,7 @@ func add_car(plan: Array[Dictionary], i: int, car := 0, skill := -1.0, lane := 0
 	else:
 		v = RaceVehicle.new(track, plan, -float(i) * START_GAP, lane_for(i), car)
 	v.seesaws = seesaws
+	v.post_state = post_state
 	v.set_meta("skill", skill)
 	v.set_meta("lane", lane)
 	v.set_meta("decided", -1)

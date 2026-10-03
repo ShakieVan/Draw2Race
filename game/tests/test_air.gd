@@ -239,5 +239,65 @@ func _init() -> void:
 	check(wall_car.wall_hits == 1 and wall_car.drift_score <= 440.0 and wall_car.drift_multiplier == 1.0, "Drift: Wandberührung kostet Punkte und Multiplikator")
 	var racer := drive(flat, 20.0, 3.0)
 	check(racer.drift_score == 0.0, "Rennmodus: keine Drift-Wertung")
+	test_drift_throttle(arena, wild_route)
 	print("RESULT: ", checks - failures, "/", checks, " passed")
+
+func slide_stats(track: Circuit, route: Array[Dictionary]) -> Dictionary:
+	# Drift-Auto auf der Route; ausgewertet werden die Takte, in denen es quer rutscht (> 15°) und auf der Fahrbahn bleibt.
+	RaceVehicle.weather_grip = 1.0
+	var v := RaceVehicle.new(track, route, 0.0, 0.0, 7)
+	var slides := 0
+	var braked := 0
+	var capped := 0
+	var min_ratio := 9.0
+	var sum_ratio := 0.0
+	for tick in range(60 * 90):
+		v.step(1.0 / 60.0, false, float(tick + 1) / 60.0)
+		if v.finish_time >= 0.0 or v.crashed:
+			break
+		var speed := v.velocity.length()
+		var plan_speed := float(route[v.cursor].speed)
+		if speed > 6.0 and absf(wrapf(v.velocity.angle() - v.heading, -PI, PI)) > deg_to_rad(15.0) and not v.beyond_edge(0.0):
+			slides += 1
+			if v.braking > 0.0 and speed < plan_speed:
+				braked += 1
+			if v.recovering:
+				capped += 1
+			min_ratio = minf(min_ratio, speed / plan_speed)
+			sum_ratio += speed / plan_speed
+	return {"car": v, "slides": slides, "braked": braked, "capped": capped, "min_ratio": min_ratio, "mean_ratio": sum_ratio / maxf(1.0, slides)}
+
+func test_drift_throttle(arena: Circuit, wild_route: Array[Dictionary]) -> void:
+	# Seit 03.10.2026: Im Drift-Modus bleibt der Fahrer beim Rutschen auf dem geplanten Gas (kein Erholungsdeckel, kein Bremsen unter dem
+	# Plantempo); Abflug, Dreher und Wandkontakt entstehen aus der Fahrphysik. Dieselbe Linie im Rennmodus bremst beim Ausbrechen wie bisher.
+	var drift := slide_stats(arena, wild_route)
+	var drift_car: RaceVehicle = drift.car
+	check(int(drift.slides) > 300 and int(drift.braked) == 0 and int(drift.capped) == 0,
+		"Drift-Modus: %d Takte quer, dabei nie unter Plan gebremst (%d) und kein Erholungsdeckel (%d)" % [drift.slides, drift.braked, drift.capped])
+	check(float(drift.mean_ratio) > 0.78, "Drift-Modus: Tempo im Drift bleibt nahe am Plan (im Mittel %.0f %%, min. %.0f %%)" % [float(drift.mean_ratio) * 100.0, float(drift.min_ratio) * 100.0])
+	var race_arena := Circuit.load_track("arena")
+	race_arena.mode = "race"
+	var race := slide_stats(race_arena, wild_route)
+	var race_car: RaceVehicle = race.car
+	check(int(race.capped) > 0 and float(race.min_ratio) < 0.5 and float(race.mean_ratio) < float(drift.mean_ratio) - 0.1,
+		"Rennmodus: dieselbe Linie bremst beim Ausbrechen auf 7 m/s (%d Takte gedeckelt, im Mittel %.0f %%, min. %.0f %% des Plans)" % [race.capped, float(race.mean_ratio) * 100.0, float(race.min_ratio) * 100.0])
+	check(drift_car.finish_time > 0.0 and drift_car.finish_time < race_car.finish_time - 3.0 and drift_car.drift_score > 1600.0,
+		"Drift-Modus: Linie mit 45 %% zu schnellen Kurven im Ziel (%.1f s gegen %.1f s im Rennmodus, %d Punkte)" % [drift_car.finish_time, race_car.finish_time, int(drift_car.drift_score)])
+	# Wirklich verloren (am Inselrand, Blick nach außen, stehend): voll einlenken und kriechen, bis das Auto wieder zur Linie zeigt –
+	# mit Vollgas ließ der Reibkreis den Vorderrädern keine Seitenkraft und das Auto blieb am Rand stehen.
+	var lost := RaceVehicle.new(arena, arena.ai_route(1.5), 0.3225, 0.0, 7)
+	var s := 0.3225     # zwischen zwei Reifenstapeln (alle 1/24 Runde, abwechselnd links und rechts)
+	var t := arena.tangent(s)
+	var outward := Vector2(-t.y, t.x)
+	lost.pos = arena.at(s) + outward * (arena.hw(s) + 9.5)
+	lost.heading = outward.angle()
+	lost.previous_phase = s
+	var was_recovering := false
+	for tick in range(60 * 20):
+		lost.step(1.0 / 60.0, false, float(tick + 1) / 60.0)
+		was_recovering = was_recovering or lost.recovering
+		if lost.crashed or not lost.beyond_edge(0.0):
+			break
+	check(was_recovering and not lost.crashed and not lost.beyond_edge(0.0),
+		"Drift-Modus: verlorenes Auto am Inselrand dreht um und kehrt auf die Fahrbahn zurück (Fortschritt %.3f)" % lost.progress)
 	quit(1 if failures else 0)

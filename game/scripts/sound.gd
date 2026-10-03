@@ -322,6 +322,16 @@ func set_context(phase: String, result_won := false) -> void:
 		special = ""
 		start_track(next_playlist_track(),2.0)
 
+func finish_crossfade() -> void:
+	# Vor blockierendem Laden (Streckenwechsel im Menü): laufende Überblendung sofort abschließen. Sonst spielen das
+	# ausklingende Stück (z. B. Sieg/Niederlage) und das neue so lange gemeinsam, bis das Laden fertig ist.
+	if headless or tracks.is_empty() or fade >= 1.0:
+		return
+	if active.volume_db > -79.0:
+		active.volume_db -= linear_to_db(maxf(0.0001, fade))
+	fade = 1.0
+	fading.stop()
+
 func update_music(paused: bool, music_on: bool, dt: float) -> void:
 	if headless or tracks.is_empty():
 		return

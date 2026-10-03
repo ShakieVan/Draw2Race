@@ -2,7 +2,9 @@ class_name RaceVehicle
 extends RefCounted
 
 # Dynamic bicycle model. World position is integrated ONLY here.
-const VERSION := "bicycle-5"   # 03.10.2026: Wandreibung skaliert mit dem Stoß, Höhenebenen und Wippe (alte Geister nicht mehr abspielen)
+const VERSION := "bicycle-6"   # 03.10.2026 (2): Randpfosten der Schotterpisten als Hindernisse (Holz bricht), dritter Prüfkreis für schlanke
+                               # Hindernisse, Leitpfosten/Torbogen/Schildmasten der Serra (alte Geister nicht mehr abspielen)
+                               # bicycle-5 (03.10.2026): Wandreibung skaliert mit dem Stoß, Höhenebenen und Wippe
 # Fahrer-Regler; gemessen mit tests/tune_controller.gd.
 static var LOOK_BASE := 4.0
 static var LOOK_GAIN := 0.40
@@ -57,6 +59,14 @@ var drift_time := 0.0      # Dauer des aktuellen Drifts
 var drift_angle := 0.0     # aktueller Driftwinkel (Grad)
 var wall_hits := 0
 var wall_contact := false
+# Erholungsdeckel (7 m/s), nachdem das Auto die Linie verloren hat. Im Rennmodus schon ab 0,85 rad Zielabweichung oder 3 m neben der
+# Linie. Im Drift-Modus (03.10.2026) ist Ausbrechen gewollt: der Fahrer bleibt auf dem geplanten Gas und fängt das Auto nur mit der
+# Lenkung (Pure Pursuit + Gierdämpfung = Gegenlenken); gedeckelt wird erst, wenn das Auto wirklich verloren ist (gedreht: Ziel seitlich
+# hinter dem Auto, oder mehr als 1 m jenseits des Fahrbahnrands). Vorher bremste jeder Drift über 3 m Linienabstand auf 7 m/s ab.
+const DRIFT_LOST_ERROR := 2.0     # rad: Ziel seitlich hinter dem Auto (gedreht)
+const DRIFT_LOST_EDGE := 1.0      # m jenseits des Fahrbahnrands (dort ist der Drift ohnehin schon als Wandberührung bestraft)
+const DRIFT_TURN_SPEED := 3.0     # m/s Kriechtempo, solange ein verlorenes Auto sich zum Ziel umdreht
+var recovering := false    # Erholungsdeckel gerade aktiv (nur Auswertung)
 # --- Höhe und Flug (2,5D, Leitplanke 8) ---
 const GRAVITY := 9.81
 const LANDING_TIME := 0.35
@@ -139,23 +149,36 @@ func step(dt: float, boost: bool, time: float) -> void:
 	if progress > track.laps - 0.015:
 		target = track.at(progress + 0.025)
 	var error := wrapf((target - pos).angle() - heading, -PI, PI)
+	var drift_mode := track.mode == "drift"
+	# Recover after an actual excursion; this never anticipates future curvature.
+	if drift_mode:
+		recovering = not behind_line and (absf(error) > DRIFT_LOST_ERROR or beyond_edge(DRIFT_LOST_EDGE))
+	else:
+		recovering = not behind_line and (absf(error)>0.85 or pos.distance_to(route[cursor].p)>3.0)
 	var target_distance := maxf(2.3, pos.distance_to(target))
 	var desired_steer := atan2(4.6 * sin(clampf(error,-1.4,1.4)), target_distance)
 	# Gierdämpfung: dreht das Auto schneller als der Bogen zum Ziel verlangt, wird Lenkung zurückgenommen.
 	var expected_yaw := speed * 2.0 * sin(clampf(error,-1.4,1.4)) / target_distance
 	desired_steer = clampf(desired_steer + YAW_DAMPING * (expected_yaw - yaw), -0.62, 0.62)
+	# Drift-Modus, verloren und das Ziel liegt seitlich hinter dem Auto: voll einlenken und nur kriechen. Mit Vollgas ließ der Reibkreis
+	# den Vorderrädern auf losem Grund keine Seitenkraft, das Auto drehte nicht und blieb am Inselrand stehen.
+	var turning := drift_mode and recovering and absf(error) > 1.4
+	if turning:
+		desired_steer = 0.62 * signf(error)
 	steering = move_toward(steering, desired_steer, dt * STEER_RATE)
 	var desired_speed: float = route[cursor].speed
-	# Recover after an actual excursion; this never anticipates future curvature.
-	if not behind_line and (absf(error)>0.85 or pos.distance_to(route[cursor].p)>3.0):
-		desired_speed = minf(desired_speed,7.0)
+	if recovering:
+		desired_speed = minf(desired_speed, DRIFT_TURN_SPEED if turning else 7.0)
 	var forward := Vector2.from_angle(heading)
 	var side := forward.orthogonal()
 	var u := velocity.dot(forward)
 	var v := velocity.dot(side)
-	braking = clampf((u - desired_speed) * 1.6, 0.0, 12.0)
+	# Woran der Fahrer das Plantempo misst: im Rennen am Längstempo, im Drift-Modus am Fahrtempo. Quer rutschend sinkt das Längstempo
+	# (u = v·cos Driftwinkel); gemessen daran gab der Fahrer im Drift Vollgas über den Plan hinaus und schob das Auto aus der Kurve.
+	var pace := signf(u) * velocity.length() if drift_mode else u
+	braking = clampf((pace - desired_speed) * 1.6, 0.0, 12.0)
 	boosting = boost and turbo > 0.005 and braking < 0.5
-	var drive := clampf((desired_speed - u) * 2.2, 0.0, power)
+	var drive := clampf((desired_speed - pace) * 2.2, 0.0, power)
 	throttle = drive / power
 	if boosting:
 		drive += 8.5
@@ -273,6 +296,11 @@ func score_drift(dt: float) -> void:
 		drift_multiplier = 1.0
 		drift_time = 0.0
 	wall_contact = touching
+
+func beyond_edge(margin: float) -> bool:
+	# Mehr als margin jenseits des Fahrbahnrands (Breitenprofil der Strecke, auch auf Abzweigen)?
+	var q := track.query_branch(pos, previous_phase)
+	return float(q.distance) > track.hw(float(q.s)) + margin
 
 func update_height(ph: float, dt: float) -> void:
 	# Senkrechte Bewegung: am Boden folgt z der Fahrbahn; fällt der Boden schneller weg als der freie Fall
@@ -579,6 +607,17 @@ const CAR_INERTIA := 1.8
 const STUCK_TIME := 3.0
 const WRECK_SPEED := 17.0      # m/s senkrecht in eine Wand oder ein Auto: Totalschaden
 const WALL_FRICTION := 0.6     # Reibbeiwert Auto–Hindernis (Tangentialstoß höchstens μ · Normalstoß)
+# Schlanke Hindernisse (Kreis bis 0,3 m: Randpfosten, Masten, Poller) prüft zusätzlich ein dritter Kreis in der Wagenmitte: Zwischen den
+# beiden Kreisen (±CAR_REACH) bleibt eine Taille, durch die ein seitlich rutschendes Auto sonst einen Pfosten „hindurchließ“ (03.10.2026).
+const THIN_OBSTACLE := 0.3
+# Holzpfosten neben der Schotterpiste (Hindernis "w") geben nach: Ein Stoß mit mehr als POST_BREAK_SPEED senkrecht bricht den Pfosten;
+# das kostet das Auto die Bruchenergie ½·POST_BREAK_SPEED² je Masse (es behält √(vn² − V²) seiner Normalgeschwindigkeit, fährt also
+# hindurch). Schwächere Stöße prallen ab wie an einem Mast und summieren sich (Normalstoß je Masse); ab POST_LOAD gibt der Pfosten
+# ebenfalls nach – wer langsam dagegen drückt, schiebt ihn um, statt sich festzufahren. Umgefallene Pfosten (post_state, je Rennen
+# von RaceField für alle Autos geteilt) haben keinen Körper mehr; World legt sie im Bild um. Feldsteine bleiben fest.
+const POST_BREAK_SPEED := 2.0
+const POST_LOAD := 2.5
+var post_state: Dictionary = {}     # Hindernis-Index -> {load: Normalstoß bisher (m/s), down: umgefallen, dir: Fallrichtung}
 var obstacle_hit := 0.0         # stärkster Aufprall (m/s) seit dem letzten Abholen, für Geräusch/Funken (Aufrufer setzt zurück)
 var obstacle_kind := ""
 var stuck := 0.0
@@ -592,10 +631,17 @@ func collide_obstacles(dt: float) -> void:
 		return
 	var forward := Vector2.from_angle(heading)
 	var touching := false
-	for off in [CAR_REACH, -CAR_REACH]:
+	for off in [CAR_REACH, -CAR_REACH, 0.0]:
 		var c: Vector2 = pos + forward * off
 		for idx in track.obstacles_near(c):
 			var o: Dictionary = track.obstacles[idx]
+			if off == 0.0 and float(o.get("r", 1.0)) > THIN_OBSTACLE and str(o.k) != "feldstein":
+				# Wagenmitte nur gegen schlanke Hindernisse (Pfosten, Masten) und die Feldsteine der Pfostenreihe (r 0,38): sie passten
+				# sonst zwischen die beiden Kreise (Prüfung 03.10.: seitlich rutschend lag ein Feldstein bis 0,08 m an der Wagenachse).
+				continue
+			var wooden := o.has("w")
+			if wooden and bool(post_state.get(idx, {}).get("down", false)):
+				continue      # umgefahrener Pfosten
 			if o.has("b"):
 				# Hindernis mit Unterkante (Bruchwand, Wall auf dem Damm, Stift): nur bei Höhenüberlappung, am Boden wie in der Luft.
 				if not Circuit.obstacle_reaches(o, z):
@@ -607,6 +653,12 @@ func collide_obstacles(dt: float) -> void:
 				continue
 			touching = true
 			var n := Vector2(hit.x, hit.y)
+			if wooden:
+				var r0 := c - pos
+				var vc0 := velocity + Vector2(-r0.y, r0.x) * yaw
+				if -vc0.dot(n) > POST_BREAK_SPEED:
+					knock_post(idx, o, n, r0, vc0)
+					continue
 			pos += n * hit.z
 			c += n * hit.z
 			var r := c - pos
@@ -633,6 +685,13 @@ func collide_obstacles(dt: float) -> void:
 			if -vn > obstacle_hit:
 				obstacle_hit = -vn
 				obstacle_kind = str(o.k)
+			if wooden:
+				var st: Dictionary = post_state.get(idx, {"load": 0.0, "down": false})
+				st.load = float(st.load) + j
+				if float(st.load) > POST_LOAD:
+					st.down = true
+					st.dir = -n
+				post_state[idx] = st
 			if not soft and -vn > WRECK_SPEED and str(o.k) in ["mauer", "auto"]:
 				wreck_cause = "Aufprall " + str(o.k)
 				wreck()
@@ -650,6 +709,23 @@ func collide_obstacles(dt: float) -> void:
 			wreck()
 	else:
 		stuck = 0.0
+
+func knock_post(idx: int, o: Dictionary, n: Vector2, r: Vector2, vc: Vector2) -> void:
+	# Holzpfosten bricht: Bruchenergie aus der Normalbewegung an der Berührstelle, Drehimpuls und Reibung wie beim Abprall.
+	var vn := vc.dot(n)
+	var keep := sqrt(vn * vn - POST_BREAK_SPEED * POST_BREAK_SPEED)
+	var rn := r.x * n.y - r.y * n.x
+	var j := (-vn - keep) / (1.0 + rn * rn / CAR_INERTIA)
+	velocity += n * j
+	yaw = clampf(yaw + rn * j / CAR_INERTIA, -3.0, 3.0)
+	var t := Vector2(-n.y, n.x)
+	var vt := vc.dot(t)
+	velocity -= t * signf(vt) * minf(absf(vt) * 0.22, WALL_FRICTION * j)
+	# Der Pfosten fällt in Bewegungsrichtung der Berührstelle (nur fürs Bild).
+	post_state[idx] = {"load": POST_LOAD, "down": true, "dir": vc.normalized()}
+	if -vn > obstacle_hit:
+		obstacle_hit = -vn
+		obstacle_kind = str(o.k)
 
 func wreck() -> void:
 	# Totalschaden bzw. festgefahren: das Auto bleibt stehen (kein Absturz aus dem Bild).

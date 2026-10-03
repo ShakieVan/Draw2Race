@@ -2746,17 +2746,21 @@ def f_tpos(a, lat=0.0):
 
 
 def f_runtime_posts():
-    """Holzpfosten und Feldsteine, die das Spiel neben der Schotterpiste setzt (world.gd build_gravel_road, gleiche Regeln): (a, Seite, x, z)."""
+    """Holzpfosten und Feldsteine, die das Spiel neben der Schotterpiste setzt (track.gd Circuit.build_edge_posts; seit 03.10.2026
+    Hindernisse der Spielebene mit der Innenkante 1,0 m neben dem Fahrbahnrand): (a, Seite, x, z). Nachgerechnet sind Abstand, Kreuzungs-
+    und Höhenregel; das Spiel lässt außerdem Pfosten in Flugzonen (Schanze, Lücke, Looping) und an Hindernissen des Dioramas weg – der Wald
+    hat keine Flugzonen, und an den Brückenköpfen stehen die beiden Pfosten frei (geprüft 03.10.2026)."""
     out = []
     count = int(TOTAL / 3.2)
     f_lv_setup()
     for i in range(count):
         s = i / count
         b = base_height(s)
+        lateral = HW + 1.0 + (0.38 if i % 5 == 2 else 0.09)                # Feldstein (jeder fünfte Platz) bzw. Holzpfosten
         for edge in (-1.0, 1.0):
-            p, _, _ = f_tpos(s * TOTAL, edge * 4.3)
+            p, _, _ = f_tpos(s * TOTAL, edge * lateral)
             far = np.abs(((S_OF - s + 0.5) % 1.0) - 0.5) > 0.12            # Abstand zu fernen Streckenteilen (other_branch_distance)
-            if far.any() and float(np.sqrt(((C[far] - p) ** 2).sum(1)).min()) < HW + 1.0:
+            if far.any() and float(np.sqrt(((C[far] - p) ** 2).sum(1)).min()) < lateral:
                 continue
             if b - float(f_ty(np.array([p]))[0]) > 1.0:
                 continue

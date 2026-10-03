@@ -9,5 +9,6 @@ foreach ($Entry in $Config.PSObject.Properties) {
     $Dst = Join-Path $Root "game/assets/cars/$($Entry.Value.style).glb"
     $Extra = @()
     if ($Entry.Value.radius) { $Extra += @('--radius', "$($Entry.Value.radius)") }
+    if ($Entry.Value.flip) { $Extra += '--flip' }
     & (Join-Path $PSScriptRoot 'blender.ps1') (Join-Path $PSScriptRoot 'ai_car.py') $Src $Dst $Entry.Value.style @Extra --preview (Join-Path $Root '.tools/cars/ai') | Select-String 'AICAR|Error|Traceback'
 }

@@ -203,6 +203,60 @@ func _init() -> void:
 	from_beta_repo.assets[0].name = "Draw2Race-0.3.2.apk"
 	from_beta_repo.assets[0].browser_download_url = "https://github.com/ShakieVan/Draw2Race-Beta/releases/download/v0.3.2/Draw2Race-0.3.2.apk"
 	check(Updater.parse(JSON.stringify(from_beta_repo)).is_empty() and Updater.parse(JSON.stringify(from_beta_repo), true).get("beta") == true,"Update: Beta-Repo nur im Beta-Kanal")
+	# Versionsabfrage (Befund 04.10.2026): GitHub-Limit (403/429) mit eigener Meldung statt „Keine Verbindung.“; der Prüfzeitpunkt wird
+	# erst nach einer vollständigen Antwort gemerkt; Ausweg über die Release-Seite im Browser.
+	var limit_headers := PackedStringArray(["X-RateLimit-Limit: 60", "X-RateLimit-Remaining: 0", "X-RateLimit-Reset: 1000600"])
+	var limit_text := Updater.failure_text(HTTPRequest.RESULT_SUCCESS, 403, limit_headers, 1000000)
+	check(limit_text.contains("60 pro Stunde") and limit_text.ends_with("in 10 Minuten."),"Update: GitHub-Limit mit Wartezeit gemeldet")
+	check(Updater.failure_text(HTTPRequest.RESULT_SUCCESS, 429, PackedStringArray(["retry-after: 30"]), 0).ends_with("in 1 Minute.")
+		and Updater.failure_text(HTTPRequest.RESULT_CANT_CONNECT, 0, PackedStringArray(), 0) == "Keine Verbindung."
+		and Updater.failure_text(HTTPRequest.RESULT_SUCCESS, 502, PackedStringArray(), 0).contains("502"),"Update: Limit, fehlendes Netz und Serverfehler unterschieden")
+	var stamp := Time.get_ticks_usec()
+	var up_store := "user://test_updater_%d.json" % stamp
+	var up := Updater.new()
+	up.download_dir = "user://test_updates_%d" % stamp
+	up.setup(ProgressStore.new(up_store))
+	up.busy = true
+	up._checked(HTTPRequest.RESULT_SUCCESS, 403, limit_headers, PackedByteArray())
+	check(not up.busy and up.status.contains("60 pro Stunde") and not up.store.data.has("update_last_check"),"Update: Fehlschlag sperrt die automatische Prüfung nicht")
+	var next_version := "%d.0.0" % (int(Updater.current_version().split(".")[0]) + 1)
+	var next_release := good.duplicate(true)
+	next_release.tag_name = "v" + next_version
+	next_release.assets[0].name = "Draw2Race-%s.apk" % next_version
+	next_release.assets[0].browser_download_url = "https://github.com/ShakieVan/Draw2Race/releases/download/v%s/Draw2Race-%s.apk" % [next_version, next_version]
+	up.busy = true
+	up.failed = false
+	up.failure = ""
+	up._checked(HTTPRequest.RESULT_SUCCESS, 200, PackedStringArray(), JSON.stringify(next_release).to_utf8_buffer())
+	check(up.available() and up.release.version == next_version and up.store.data.has("update_last_check"),"Update: erfolgreiche Prüfung merkt den Zeitpunkt")
+	check(Updater.release_page(up.release, false) == "https://github.com/ShakieVan/Draw2Race/releases/tag/v" + next_version
+		and Updater.release_page({}, true) == "https://github.com/ShakieVan/Draw2Race-Beta/releases"
+		and Updater.release_page({}, false) == "https://github.com/ShakieVan/Draw2Race/releases/latest","Update: Release-Seite für den Browser")
+	# Aufräumen beim Start (Updater.setup → prune): Solange das gemerkte Release neuer ist, bleibt nur seine APK; passt die installierte
+	# Version (Update ist durch), verschwinden alle Downloads.
+	DirAccess.make_dir_recursive_absolute(up.download_dir)
+	for file_name in [str(up.release.sha256) + ".apk", "alt.apk", "abgebrochen.apk.part"]:
+		FileAccess.open(up.download_dir + "/" + file_name, FileAccess.WRITE).store_string("x")
+	var pending_update := Updater.new()
+	pending_update.download_dir = up.download_dir
+	pending_update.setup(ProgressStore.new(up_store))
+	check(pending_update.apk_ready and DirAccess.get_files_at(up.download_dir).size() == 1,"Update: offenes Release behält beim Start nur seine APK")
+	var installed := next_release.duplicate(true)
+	installed.tag_name = "v" + Updater.current_version()
+	installed.assets[0].name = "Draw2Race-%s.apk" % Updater.current_version()
+	installed.assets[0].browser_download_url = "https://github.com/ShakieVan/Draw2Race/releases/download/v%s/Draw2Race-%s.apk" % [Updater.current_version(), Updater.current_version()]
+	pending_update.store.data["update_release"] = JSON.stringify(installed)
+	pending_update.store.save()
+	var after_update := Updater.new()
+	after_update.download_dir = up.download_dir
+	after_update.setup(ProgressStore.new(up_store))
+	check(not after_update.available() and DirAccess.get_files_at(up.download_dir).is_empty(),"Update: nach dem Update wird die geladene APK beim Start gelöscht")
+	var test_dir := up.download_dir
+	for node in [up, pending_update, after_update]:
+		node.free()
+	DirAccess.remove_absolute(test_dir)
+	for suffix in ["", ".bak"]:
+		DirAccess.remove_absolute(up_store + suffix)
 	# Wetter: feste Bedingungen je Herausforderung; Nässe senkt Haftung und damit das Tempo der KI.
 	var coast := Circuit.load_track("azure")
 	check(coast.conditions_for(2).weather=="rain" and coast.conditions_for(0).time=="day","Strecke liefert Bedingungen je Herausforderung")

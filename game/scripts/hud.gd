@@ -805,9 +805,10 @@ func update_dialog() -> void:
 		y += 44
 	var state := label(p,up.status + (" %d %%" % up.percent if up.busy and up.percent >= 0 else ""),Vector2(34,y),20,INK,690)
 	if up.available() and str(up.release.notes) != "":
+		# Unter dem Status Platz für zwei Zeilen (z. B. Hinweis auf das GitHub-Limit, Updater.failure_text).
 		var notes := RichTextLabel.new()
-		notes.position = Vector2(34,y+56)
-		notes.size = Vector2(692,200)
+		notes.position = Vector2(34,y+70)
+		notes.size = Vector2(692,186)
 		notes.bbcode_enabled = false
 		notes.text = str(up.release.notes)
 		notes.add_theme_color_override("default_color",MUTED)
@@ -835,6 +836,10 @@ func update_dialog() -> void:
 		# Ohne Internet: die installierte App per Quick Share, Bluetooth o. Ä. an ein Handy in der Nähe schicken (ApkShare).
 		var send := button(p,"Draw2Race teilen (ohne Internet)",Rect2(34,672,692,62),func(): p.get_parent().queue_free(); share_dialog())
 		send.name = "ShareButton"
+	# Ausweg, falls der Updater selbst versagt (ein defekter Updater kann sich nicht selbst reparieren, siehe Hotfix 0.2.26): die
+	# Release-Seite auf GitHub im Browser öffnen und die APK von dort laden und installieren.
+	var web := button(p,"Im Browser herunterladen (GitHub)",Rect2(34,750 if android else 672,692,56 if android else 62),func(): up.open_release_page())
+	web.name = "BrowserButton"
 	# Live aktualisieren, solange der Dialog offen ist.
 	var refresh := func():
 		if is_instance_valid(p):

@@ -203,7 +203,7 @@ Ersetzt Zeichen-Zoom-Regler, automatische Nachführung und Kamera-Stick (Nutzere
 - `game/android/build/src/main/java/com/godot/game/Updater.java` (Aufruf per `JavaClassWrapper`): Paketname gleich, Versionscode höher, Versionsname wie im Release, Signatur identisch zur installierten App; dann System-Installer über den FileProvider der Godot-Bibliothek (`<paket>.fileprovider`). Fehlt die Android-Erlaubnis „Apps installieren“, öffnet sich die passende Einstellung.
 - Oberfläche: Menü-Knopf „Update ↓“, sobald eine neuere Version vorliegt; Dialog mit installierter/neuer Version, Release-Notizen, Fortschritt und Aktion (Suchen/Herunterladen/Installieren).
 - Voraussetzungen: Gradle-Export (`gradle_build/use_gradle_build=true`, Vorlage in `game/android/build`), Berechtigungen INTERNET und REQUEST_INSTALL_PACKAGES. `org.gradle.daemon=false`, sonst hält der Gradle-Dienst die Ausgabe offen und der Export kehrt nicht zurück.
-- Versionen: `application/config/version` in `project.godot` und `version/name` im Exportprofil müssen übereinstimmen, `version/code` muss je Release steigen (`tools/build.ps1` prüft die Namen und legt `builds/Draw2Race-<version>.apk` an).
+- Versionen: `application/config/version` in `project.godot` und `version/name` im Exportprofil müssen übereinstimmen, `version/code` muss je Release steigen (`tools/build.ps1` prüft die Namen und legt `builds/Draw2Race-<version>.apk` an; seit 04.10.2026 berechnet es auch `version/code`, siehe „Updater, Build und Doku gehärtet“).
 - Release veröffentlichen: `gh release create vX.Y.Z builds/Draw2Race-X.Y.Z.apk`.
 - Nummernschema (Nutzerentscheidung 03.10.2026): Ein reguläres Release endet immer auf `.0` und hebt die mittlere Stelle (0.3.0, 0.4.0 …). Betas zählen danach die letzte Stelle hoch (0.3.1, 0.3.2 …). Wird eine Beta zum Release, wird sie mit der nächsten `.0`-Nummer und höherem `version/code` neu gebaut. So liegt jedes Release über allen Betas davor, und ein Beta-Handy bekommt das Release als normales Update, in beiden Kanälen. Der Updater vergleicht nur Zahlen (`X.Y.Z`); Zusätze wie `-beta` würden ältere Fassungen ablehnen.
 - Tests: 3 Prüfungen in `test_core.gd` (Versionsvergleich, gültiges Release, Ablehnung fremder URL/Entwurf/fehlender Prüfsumme).
@@ -471,7 +471,7 @@ Plan und Nutzerentscheidungen: `docs/MULTIPLAYER_RECHERCHE.md`.
   - Menü „Mehrspieler → Im WLAN“ mit „Spiel eröffnen“ und „Beitreten“. Das Beitreten zeigt eine Live-Liste über Rundruf, Ankündigung, Gateway-Probe und Adresse von Hand.
   - Beim Betreten bindet sich das Spiel automatisch ans WLAN, beim Verlassen löst es die Bindung. Ohne WLAN erscheint ein Hinweis auf den Hotspot. Ausnahme: Ein Gastgeber mit eigenem Hotspot bleibt ungebunden, das ist noch nicht am Gerät geprüft.
   - Der Gastgeber stellt Strecke, Stufe, KI-Gegner und Berührungen ein, live für alle. Mitspieler haben „Bereit“, der Gastgeber „Rennen starten“.
-  - Abgelehnt wird bei anderer Spielversion, anderem Protokoll (jetzt 3), anderer Physik oder anderen Streckendaten (SHA-256 über alle Strecken), außerdem während eines Rennens und bei voller Lobby.
+  - Abgelehnt wird bei anderer Spielversion, anderem Protokoll (damals 3; seit 0.3.0 gilt 7, siehe `NetProtocol.VERSION` in `net/net_protocol.gd`), anderer Physik oder anderen Streckendaten (SHA-256 über alle Strecken), außerdem während eines Rennens und bei voller Lobby.
   - Abgänge, Abbrüche, Hintergrund und Zurück-Taste sind behandelt. Geräteprotokoll: `user://mehrspieler.log`.
 - **M4 Zeichnen synchron** (`net/net_draw.gd`):
   - Gemeinsames 3-2-1 nach der gemeinsamen Uhr, am PC auf 1–5 ms genau. Jeder zeichnet verdeckt, ohne Zeitlimit, ein Status zeigt „Anna zeichnet … 60 %“.
@@ -581,3 +581,58 @@ Plan und Nutzerentscheidungen: `docs/MULTIPLAYER_RECHERCHE.md`.
   - Holzpfosten sprühen Funken statt Splitter.
   - In der Stadt bleibt bei Regen in Stufe 3 selten ein Gegner liegen.
   - Musik-Feinabgleich per Mikrofon als Idee.
+
+## Updater, Build und Doku gehärtet (04.10.2026, Beta 1.0.1)
+
+Anlass: Eine Analyse für das Schwesterprojekt Mau-Mau Flip fand fünf Schwachstellen. Jede wurde zuerst am Code geprüft.
+
+Veröffentlicht als Beta 1.0.1 (Pre-Release in `ShakieVan/Draw2Race-Beta`, `Draw2Race-1.0.1.apk`, 312 638 820 Byte, SHA-256 `d195d33e…7275a416`). Die GitHub-API liefert Größe und Prüfsumme passend zur lokalen Datei.
+
+- **Alte Android-Versionen (7.0–8.1, API 24–27):**
+  - Der Befund stimmt, die Wirkung ist aber eine andere als vermutet. Es gibt keinen Absturz: Godot 4.6.1 fängt Java-Fehler aus `JavaClassWrapper`-Aufrufen ab (`java_class_wrapper.cpp`, abrufbar über `JavaClassWrapper.get_exception()`), der Aufruf liefert dann nur einen leeren Wert.
+  - Folgen bisher:
+    - Android 7: `canRequestPackageInstalls` fehlt, „Installation erlauben“ öffnete eine Einstellung, die es dort nicht gibt. Ein Update war nie installierbar.
+    - Android 8: Die Prüfung scheiterte an `getLongVersionCode` mit „Update abgelehnt: <null>“, und der Download wurde gelöscht.
+    - Dasselbe Problem steckte in `ApkShare.java`: „Draw2Race teilen“ und die APK-Weitergabe in der Lobby waren auf 7–8.1 nicht verfügbar.
+  - Behoben in `Updater.java`:
+    - Das Installationsrecht wird ab API 26 je App abgefragt, darunter über den Schalter „Unbekannte Herkunft“ (`Settings.Secure.INSTALL_NON_MARKET_APPS`), der Knopf öffnet dort die Sicherheitseinstellungen.
+    - Signaturen und Versionscode kommen ab API 28 aus `signingInfo` und `getLongVersionCode`, davor aus `GET_SIGNATURES` und `versionCode`.
+    - Alle Einstiege fangen `Throwable`.
+  - Behoben in `ApkShare.java`: Der Versionscode kommt über `Updater.versionCode`, der Kopier-Thread fängt `Throwable` (ein ungefangener Fehler in einem eigenen Java-Thread beendet die App).
+  - Geprüft: Übersetzung mit `javac` gegen `android-35`. Alle Android-Aufrufe der drei Klassen (mit `NetHelper.java`) wurden mit der API-Tabelle des SDK (`api-versions.xml`) abgeglichen. Über API 24 liegen nur noch die vier abgesicherten Aufrufe in `Updater.java`.
+  - Nicht geprüft: ein echtes Gerät oder ein Emulator mit Android 7/8.
+- **Build-Skript (`tools/build.ps1`):**
+  - **Vorabprüfung** vor Import und Tests (Ziele All/Android):
+    - Fehlt `.tools/draw2race-debug.keystore`, bricht der Bau mit Erklärung ab. Vorher signierte Godot dann still mit seinem eigenen Debugschlüssel, und erst das Handy meldete „Signatur passt nicht“.
+    - Die Versionsprüfung `project.godot` ↔ Exportprofil läuft jetzt ebenfalls vorab.
+  - **Signatur nach dem Export:** `apksigner verify --print-certs` muss genau einen Unterzeichner mit dem SHA-256 des Projektschlüssels zeigen (`e1d49a5d…032057b7`, wie Release 1.0.0). Sonst bricht der Bau ab, und `builds/Draw2Race-<version>.apk` entsteht nicht. `apksigner` wird im SDK aus Godots Editor-Einstellungen gesucht, dann unter `ANDROID_HOME`/`%LOCALAPPDATA%\Android\Sdk`.
+  - **`version/code` wird berechnet:** X.Y.Z ergibt X·1 000 000 + Y·1 000 + Z (1.0.1 → 1000001, 1.1.0 → 1001000) und wird ins Exportprofil eingetragen. Steht dort schon ein höherer Wert, bricht der Bau ab. Das Schema steigt mit jeder höheren Version, also auch von jeder Beta zum nächsten Release, und liegt über dem bisher von Hand gezählten Höchstwert 37 (Release 1.0.0). Beta 1.0.1 ist der erste Bau damit (`version/code` 37 → 1000001).
+  - **Godot läuft immer zu Ende:** `Invoke-Godot` bricht nicht mehr bei der ersten stderr-Zeile ab. Unter Windows PowerShell 5.1 machte `2>&1` mit `'Stop'` daraus einen sofortigen Abbruch, während Godot verwaist weiterlief.
+    - Beim ersten Bauversuch von 1.0.1 meldete der Komplett-Import im Worktree `ERROR: Condition "f.is_null()" is true` (`get_multiple_md5`, ein Wettlauf beim parallelen Import). Der Abbruch und ein anschließender zweiter Import hinterließen zehn beschädigte `.import`-Dateien: neue UIDs, Mipmaps aus, Prüfsumme fehlte.
+    - Die daraus gebaute APK wurde verworfen, die Dateien aus Git wiederhergestellt und neu importiert. Danach waren alle `.import`-Dateien inhaltlich gleich dem Git-Stand, und alle 1597 Zieldateien im Import-Cache waren vorhanden.
+    - Godot schreibt `.import`-Dateien mit LF, Git checkt sie mit `core.autocrlf=true` als CRLF aus. Nach einem Import erscheinen sie deshalb als geändert, obwohl ihr Inhalt gleich ist. Nicht per `git checkout` zurücksetzen, das löst einen kompletten Neu-Import aus; `git add` frischt nur den Index auf.
+  - Geprüft: Die neuen Funktionen liefen einzeln aus dem Skript heraus.
+    - Formel und Reihenfolge Release < Betas < nächstes Release.
+    - Ablehnung von „1.0“, „1.0.0-beta“, „1.1000.0“, „v1.0.0“.
+    - `apksigner` an `builds/Draw2Race-1.0.0.apk` erkennt den Projektschlüssel.
+    - Das Umschreiben einer Kopie des Exportprofils erhält CRLF.
+  - Ein vollständiger Android-Export lief nicht. Er hätte `builds/` überschrieben und den Versionscode von 1.0.0 verändert.
+- **Updater (`game/scripts/updater.gd`):**
+  - **Prüfzeitpunkt erst bei Erfolg:** `update_last_check` wird erst nach einer vollständigen Antwort gespeichert. Vorher sperrte ein Fehlschlag die automatische Prüfung 24 h. Automatisch geprüft wird nur beim Start, ein Fehlschlag kostet also eine Anfrage je Start.
+  - **GitHub-Limit:** HTTP 403/429 zeigt jetzt „Zu viele Update-Abfragen aus diesem Netz (GitHub erlaubt 60 pro Stunde). Wieder möglich in N Minuten.“ statt „Keine Verbindung.“. Die Minuten kommen aus `x-ratelimit-reset` bzw. `retry-after`. Andere HTTP-Fehler melden „GitHub antwortet gerade nicht (Fehler N)“.
+  - Antwortet im Beta-Kanal eine der beiden Quellen nicht, wird eine gefundene neuere Version trotzdem angeboten. Ohne neuere Version gilt das als Fehlschlag, statt „Du hast die neueste Version.“ zu behaupten.
+  - **APK nach dem Update:** Das war schon seit 0.3.0 erledigt. `setup()` → `prune()` löscht beim Start alle Downloads, sobald das gemerkte Release nicht mehr neuer ist als die installierte Version. Neu ist ein Test dafür; der Ordner ist dazu umstellbar (`download_dir`).
+  - **Ausweg im Browser:** Der Update-Dialog hat auf allen Plattformen den Knopf „Im Browser herunterladen (GitHub)“. Er öffnet die Seite des angebotenen Releases, sonst die Release-Liste des Kanals (`Updater.release_page`). So bleibt ein Weg offen, falls der Updater selbst versagt wie vor Hotfix 0.2.26.
+  - Dialog: Die Release-Notizen beginnen 14 px tiefer, damit ein zweizeiliger Status Platz hat. Der Hinweis zum Installationsrecht nennt für Android 7 „Unbekannte Herkunft“.
+- **Doku:**
+  - `docs/MULTIPLAYER_RECHERCHE.md`: Der Kopf sagt jetzt, was umgesetzt ist.
+  - Abschnitt 4.2 beschreibt die Hotspot-Adresse nach dem AOSP-Quelltext: bis Android 10 fest `192.168.43.1`, Android 11 zufällig bei jedem Einschalten, ab Android 12 die letzte Adresse wieder (im Speicher bis Neustart oder Konflikt), dazu `172.16.0.0/12` und `10.0.0.0/8`. Prüfprotokoll und Quellen sind ergänzt.
+  - Abweichungen von der Analyse:
+    - Die zusätzlichen Bereiche gibt es schon unter Android 12 (Schalter, ab Werk an), ab Android 13 fest.
+    - Der genannte Android-11-Pfad unter `packages/modules/Connectivity` existiert nicht; die Datei lag damals in `frameworks/base/packages/Tethering`.
+  - M3-Abschnitt oben: Protokoll „damals 3, seit 0.3.0 gilt 7“. Die Analyse nannte 6, das galt bis 0.2.31.
+- **Tests:** 19 Testreihen mit 1587 Prüfungen, alle bestanden (`tools/build.ps1 -Target Test`). Das Kontrollbild des Update-Dialogs am PC (Limit-Meldung über den Notizen, Browser-Knopf) passte. In `test_core` sind 7 Updater-Prüfungen neu: Limit-Meldung mit Wartezeit, Fehlerarten, kein Prüfzeitpunkt nach Fehlschlag, Zeitpunkt nach Erfolg, Release-Seite, Aufräumen bei offenem und bei installiertem Release.
+- **Offen (Gerät):**
+  - In-App-Update auf Android 7 und 8: Zum Testen fehlt ein Gerät oder Emulator.
+  - Der Browser-Knopf am Handy: öffnet er die Release-Seite, und lässt sich die APK von dort über das bestehende Draw2Race installieren?
+  - Die Limit-Meldung bei echtem GitHub-Limit.

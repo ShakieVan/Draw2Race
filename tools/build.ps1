@@ -5,9 +5,77 @@ $engine = Join-Path $projectRoot '.tools/Godot_v4.6.1-stable_win64_console.exe'
 if (-not (Test-Path -LiteralPath $engine)) { throw 'Godot 4.6.1 fehlt. Zuerst tools/setup.ps1 ausführen.' }
 $gamePath = Join-Path $projectRoot 'game'
 function Invoke-Godot([string[]]$Arguments) {
-    $output = & $engine @Arguments 2>&1
+    # Godot schreibt auch auf stderr. Unter Windows PowerShell 5.1 macht "2>&1" daraus Fehlerobjekte, die bei 'Stop' sofort abbrechen –
+    # Godot liefe dann mitten im Import verwaist weiter (04.10.2026: ein so abgebrochener Bau hinterließ zehn beschädigte .import-Dateien).
+    # Darum läuft Godot immer zu Ende, entschieden wird danach.
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { $output = @(& $engine @Arguments 2>&1 | ForEach-Object { "$_" }) }
+    finally { $ErrorActionPreference = $previousPreference }
     $output | Write-Output
     if ($LASTEXITCODE -ne 0 -or ($output -match 'SCRIPT ERROR|^ERROR:|FAIL:')) { throw "Godot fehlgeschlagen: $Arguments" }
+}
+# Android-Signatur: Alle Draw2Race-APKs tragen den festen Projekt-Debugschlüssel .tools/draw2race-debug.keystore. Nur dann passt ein
+# Update zur installierten App; mit jedem anderen Schlüssel lehnen Android und der Updater (Updater.java) es ab. SHA-256 seines
+# Zertifikats (öffentlich, steht in jeder APK; so auch in Release 1.0.0):
+$projectCertSha256 = 'e1d49a5df1cbbb1ef0611e2c5c971a351a82c65aaf0770496325b486032057b7'
+# version/code aus der Version: X.Y.Z → X·1 000 000 + Y·1 000 + Z (1.0.1 → 1000001, 1.1.0 → 1001000). Er steigt mit jeder höheren
+# Version, also auch von jeder Beta zum nächsten Release (Nummernschema in docs/IMPLEMENTIERUNG.md). Bis 1.0.0 wurde von Hand
+# gezählt (zuletzt 37); das Schema liegt darüber. Android erlaubt höchstens 2 100 000 000.
+function Get-VersionCode([string]$Version) {
+    if ($Version -notmatch '^(\d{1,4})\.(\d{1,3})\.(\d{1,3})$') { throw "Version '$Version' passt nicht zum Schema X.Y.Z (nur Ziffern, Y und Z höchstens 999)." }
+    $code = [long]$Matches[1] * 1000000 + [long]$Matches[2] * 1000 + [long]$Matches[3]
+    if ($code -gt 2100000000) { throw "Version '$Version' ergibt version/code $code – mehr als Android erlaubt." }
+    return $code
+}
+function Find-ApkSigner {
+    # apksigner aus dem Android-SDK, das auch Godot benutzt (Editor-Einstellung export/android/android_sdk_path), sonst den üblichen Orten.
+    $roots = @()
+    $settings = Get-ChildItem -LiteralPath (Join-Path $env:APPDATA 'Godot') -Filter 'editor_settings-4*.tres' -ErrorAction SilentlyContinue | Sort-Object Name -Descending
+    foreach ($file in $settings) {
+        $line = Select-String -LiteralPath $file.FullName -Pattern '^export/android/android_sdk_path = "(.+)"' | Select-Object -First 1
+        if ($line) { $roots += $line.Matches[0].Groups[1].Value -replace '\\\\', '\' }
+    }
+    $roots += @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT, (Join-Path $env:LOCALAPPDATA 'Android\Sdk')) | Where-Object { $_ }
+    foreach ($root in $roots) {
+        $tools = Join-Path $root 'build-tools'
+        if (-not (Test-Path -LiteralPath $tools)) { continue }
+        $found = Get-ChildItem -LiteralPath $tools -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'apksigner.bat') } |
+            Sort-Object { try { [version]$_.Name } catch { [version]'0.0' } } -Descending | Select-Object -First 1
+        if ($found) { return Join-Path $found.FullName 'apksigner.bat' }
+    }
+    return $null
+}
+# Vorabprüfung für Android, bevor Import und Tests Minuten kosten.
+if ($Target -in @('All','Android')) {
+    # Ohne den Projektschlüssel würde Godot still mit seinem eigenen Debugschlüssel (%APPDATA%\Godot) signieren, und erst das Handy meldete
+    # beim Update „Signatur passt nicht“.
+    $keystore = Join-Path $projectRoot '.tools/draw2race-debug.keystore'
+    if (-not (Test-Path -LiteralPath $keystore)) {
+        throw ("Projekt-Debugschlüssel fehlt: $keystore`n" +
+            "Ohne ihn wäre die APK mit einem anderen Schlüssel signiert, und In-App-Updates scheiterten auf jedem Handy mit 'Signatur passt nicht'.`n" +
+            "Die Datei aus der Sicherung zurückkopieren. Nicht neu erzeugen: Mit einem neuen Schlüssel müsste Draw2Race auf jedem Handy " +
+            "deinstalliert und neu installiert werden, der Spielstand ginge dabei verloren.")
+    }
+    if (-not (Find-ApkSigner)) { throw 'apksigner (Android-SDK, build-tools) nicht gefunden – ohne ihn lässt sich die Signatur der APK nicht prüfen.' }
+    # Versionen: project.godot und Exportprofil müssen übereinstimmen; version/code wird aus der Version berechnet und eingetragen.
+    $version = (Select-String -LiteralPath (Join-Path $gamePath 'project.godot') -Pattern '^config/version="(.+)"').Matches[0].Groups[1].Value
+    $presetsPath = Join-Path $gamePath 'export_presets.cfg'
+    $preset = Select-String -LiteralPath $presetsPath -Pattern '^version/name="(.+)"'
+    if ($preset.Matches[0].Groups[1].Value -ne $version) { throw "Version in project.godot ($version) und Exportprofil unterscheiden sich." }
+    $versionCode = Get-VersionCode $version
+    $presetText = [IO.File]::ReadAllText($presetsPath)
+    $codeLines = [regex]::Matches($presetText, '(?m)^version/code=(\d+)(\r?)$')
+    if ($codeLines.Count -ne 1) { throw "Exportprofil: genau eine Zeile version/code erwartet, gefunden $($codeLines.Count)." }
+    $presetCode = [long]$codeLines[0].Groups[1].Value
+    if ($presetCode -gt $versionCode) {
+        throw "version/code im Exportprofil ($presetCode) ist höher als der aus Version $version berechnete ($versionCode). Ein Update muss immer höher nummeriert sein – die Version anheben statt den Code zu senken."
+    }
+    if ($presetCode -ne $versionCode) {
+        $presetText = $presetText.Remove($codeLines[0].Index, $codeLines[0].Length).Insert($codeLines[0].Index, "version/code=$versionCode$($codeLines[0].Groups[2].Value)")
+        [IO.File]::WriteAllText($presetsPath, $presetText)
+        Write-Output "Exportprofil: version/code $presetCode -> $versionCode (aus Version $version)"
+    }
 }
 # Godot-Läufe des Projekts laufen nie gleichzeitig (mehrere Agenten teilen game/.godot und game/dioramas): benannter Systemmutex,
 # derselbe wie in godot_run.ps1 und dio_build.ps1. Der Bau hält ihn von der ersten bis zur letzten Godot-Ausführung, damit zwischen
@@ -98,19 +166,26 @@ try {
                 Copy-Item -Recurse -Force (Join-Path $tmp 'libs') (Join-Path $gamePath 'android/build/')
                 Remove-Item -Recurse -Force $tmp
             }
-            # Fester Projekt-Debugschlüssel: Updates auf dem Gerät bleiben möglich, auch wenn %APPDATA%\Godot neu entsteht.
-            $keystore = Join-Path $projectRoot '.tools/draw2race-debug.keystore'
-            if (Test-Path -LiteralPath $keystore) {
-                $env:GODOT_ANDROID_KEYSTORE_DEBUG_PATH = $keystore
-                $env:GODOT_ANDROID_KEYSTORE_DEBUG_USER = 'androiddebugkey'
-                $env:GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD = 'android'
+            # Fester Projekt-Debugschlüssel (Vorabprüfung oben): Updates auf dem Gerät bleiben möglich, auch wenn %APPDATA%\Godot neu entsteht.
+            $env:GODOT_ANDROID_KEYSTORE_DEBUG_PATH = $keystore
+            $env:GODOT_ANDROID_KEYSTORE_DEBUG_USER = 'androiddebugkey'
+            $env:GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD = 'android'
+            $apk = Join-Path $projectRoot 'builds/Draw2Race.apk'
+            Invoke-Godot -Arguments @('--headless','--path',$gamePath,'--export-debug','Android',$apk)
+            # Signatur der fertigen APK nachprüfen: genau ein Unterzeichner, und zwar der Projektschlüssel. Erst dann entsteht die Release-Datei.
+            $previousPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'      # Warnungen von apksigner auf stderr brechen nicht ab; entschieden wird unten
+            try { $certs = @(& (Find-ApkSigner) verify --print-certs $apk 2>&1 | ForEach-Object { "$_" }) }
+            finally { $ErrorActionPreference = $previousPreference }
+            if ($LASTEXITCODE -ne 0) { throw ("apksigner: Signatur der APK ungültig.`n" + ($certs -join "`n")) }
+            $signers = @($certs | Where-Object { $_ -match 'certificate SHA-256 digest: ([0-9a-f]{64})' } | ForEach-Object { ($_ -split ': ')[-1].Trim() })
+            if ($signers.Count -ne 1 -or $signers[0] -ne $projectCertSha256) {
+                throw ("APK ist nicht mit dem Projektschlüssel signiert (gefunden: $($signers -join ', ')). In-App-Updates würden auf den Handys " +
+                    "mit 'Signatur passt nicht' scheitern. .tools/draw2race-debug.keystore prüfen; builds/Draw2Race-$version.apk wurde nicht angelegt.")
             }
-            Invoke-Godot -Arguments @('--headless','--path',$gamePath,'--export-debug','Android',(Join-Path $projectRoot 'builds/Draw2Race.apk'))
+            Write-Output "APK-Signatur: Projektschlüssel (SHA-256 $($projectCertSha256.Substring(0, 16))...), version/code $versionCode"
             # Release-Datei für GitHub: Die Update-Funktion erwartet genau "Draw2Race-<version>.apk" (version = config/version).
-            $version = (Select-String -LiteralPath (Join-Path $gamePath 'project.godot') -Pattern '^config/version="(.+)"').Matches[0].Groups[1].Value
-            $preset = Select-String -LiteralPath (Join-Path $gamePath 'export_presets.cfg') -Pattern '^version/name="(.+)"'
-            if ($preset.Matches[0].Groups[1].Value -ne $version) { throw "Version in project.godot ($version) und Exportprofil unterscheiden sich." }
-            Copy-Item -LiteralPath (Join-Path $projectRoot 'builds/Draw2Race.apk') -Destination (Join-Path $projectRoot "builds/Draw2Race-$version.apk") -Force
+            Copy-Item -LiteralPath $apk -Destination (Join-Path $projectRoot "builds/Draw2Race-$version.apk") -Force
         }
         Copy-Item -LiteralPath (Join-Path $gamePath 'assets/OFL.txt') -Destination (Join-Path $projectRoot 'builds/Outfit-LICENSE.txt') -Force
         Copy-Item -LiteralPath (Join-Path $gamePath 'assets/Godot-LICENSE.txt') -Destination (Join-Path $projectRoot 'builds/Godot-LICENSE.txt') -Force

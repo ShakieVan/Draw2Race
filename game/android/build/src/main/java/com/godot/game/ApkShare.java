@@ -47,12 +47,14 @@ public final class ApkShare {
             o.put("source", app.sourceDir);
             o.put("size", apk.length());
             o.put("version", pkg.versionName);
-            o.put("code", pkg.getLongVersionCode());
-            o.put("stamp", pkg.lastUpdateTime + "-" + apk.length() + "-" + pkg.getLongVersionCode());
+            // Versionsnummer über Updater.versionCode: getLongVersionCode gibt es erst ab Android 9 (API 28), minSdk ist 24.
+            long code = Updater.versionCode(pkg);
+            o.put("code", code);
+            o.put("stamp", pkg.lastUpdateTime + "-" + apk.length() + "-" + code);
             // Aus mehreren Teil-APKs installiert (App-Bundle): die Basis-APK allein wäre unvollständig – dann nicht weitergeben.
             o.put("split", app.splitSourceDirs != null && app.splitSourceDirs.length > 0);
             return o.toString();
-        } catch (Exception e) {
+        } catch (Throwable e) {
             return "{}";
         }
     }
@@ -102,7 +104,7 @@ public final class ApkShare {
             for (byte b : digest.digest()) hex.append(String.format("%02x", b));
             sha = hex.toString();
             state = "done";
-        } catch (Exception e) {
+        } catch (Throwable e) {   // auch Errors: Ein ungefangener Fehler in diesem eigenen Thread beendet sonst die App
             if (part != null) part.delete();
             error = e.getMessage() == null ? e.toString() : e.getMessage();
             state = "error";

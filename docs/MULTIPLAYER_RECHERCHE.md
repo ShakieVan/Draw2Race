@@ -1,6 +1,6 @@
 # Draw2Race – Lokaler Mehrspieler: Recherche und Empfehlung
 
-Stand: 03.10.2026. Status: **Recherche**, nichts davon ist umgesetzt. Grundlage sind der Code von Version 0.2.28, die Android- und Godot-Dokumentation sowie Erfahrungsberichte (Quellen in Abschnitt 11).
+Stand: 03.10.2026, korrigiert am 04.10.2026 (Hotspot-Adressen in 4.2). Status: **umgesetzt** in den Versionen 0.2.29 bis 1.0.0: M0 bis M5 samt „Weitergeben“ (M2b); Wertung, Revanche und Abbrüche sind in M3 bis M5 aufgegangen. Offen sind der Feldtest mit vier Handys (M7) und die Komfortstufe M8 (LocalOnlyHotspot, QR-Code). Was tatsächlich gebaut, getestet und anders als geplant gelöst wurde, steht in `docs/IMPLEMENTIERUNG.md`. Dieses Dokument bleibt die Recherche- und Entscheidungsgrundlage. Grundlage der Recherche waren der Code von Version 0.2.28, die Android- und Godot-Dokumentation sowie Erfahrungsberichte (Quellen in Abschnitt 11).
 
 So sind die Aussagen gekennzeichnet:
 
@@ -98,7 +98,16 @@ Zum Vergleich ist das Datenvolumen winzig. Eine gezeichnete Linie (2 Runden) hat
 
 ### 4.2 Den Host finden
 
-Godot hat **keine eingebaute LAN-Suche** **[belegt: Doku nennt nur manuelle IP]**. Die Adresse des Hosts ist auch nicht fest: Seit Android 11 wählt der Hotspot bei jedem Einschalten ein zufälliges Netz `192.168.x.0/24` statt früher immer `192.168.43.1` **[Bericht, mehrfach übereinstimmend]**. Darum dreistufig:
+Godot hat **keine eingebaute LAN-Suche** **[belegt: Doku nennt nur manuelle IP]**. Die Adresse des Hosts ist auch nicht fest. Laut AOSP-Quelltext (`IpServer`, `PrivateAddressCoordinator`, Quellen in Abschnitt 11) gilt **[belegt: Quelltext; Korrektur 04.10.2026]**:
+
+- **Bis Android 10:** fest `192.168.43.1`.
+- **Android 11:** bei jedem Einschalten ein zufälliges Netz `192.168.x.0/24`. Nur hierfür stimmte die frühere Aussage „zufällig bei jedem Start“.
+- **Ab Android 12:** Android merkt sich die letzte Adresse je Schnittstellenart (WLAN-Hotspot, USB, Bluetooth …) und vergibt sie beim nächsten Einschalten wieder, solange sie nicht mit dem Netz kollidiert, über das das Handy selbst online ist. Gemerkt wird nur im Arbeitsspeicher; nach einem Neustart oder bei einem Konflikt wird neu gewählt. Gesucht wird zuerst in `192.168.0.0/16`, danach in `172.16.0.0/12` und `10.0.0.0/8`. Unter Android 12 hängen die beiden zusätzlichen Bereiche an einem Schalter, der ab Werk an ist (`tether_enable_select_all_prefix_ranges`), ab Android 13 gehören sie fest dazu.
+- **Neuere Fassungen (im Quelltext von Android 15):** Ein weiterer Schalter (`tether_force_random_prefix_base_selection`) lässt auch den Bereich zufällig wählen, dann landet der Hotspot meist in `10.x`. Ob er auf den Geräten aktiv ist, ist **[ungeprüft]**.
+- **Gemessen:** S21 mit Android 15 `172.17.251.0/24`, S24 mit Android 16 `10.110.43.x` **[Gerätetest]**.
+- Das Tethering ist seit Android 11 ein Mainline-Modul, das Google über Systemupdates austauscht, und Hersteller können eigene Regeln haben. Das Verhalten hängt also nicht allein von der Android-Version ab **[ungeprüft je Gerät]**.
+
+Für das Spiel heißt das: Die Adresse kann wechseln, spätestens nach einem Neustart, und liegt nicht unbedingt in `192.168.x`. Darum dreistufig:
 
 1. **Rundruf (UDP-Broadcast):** Mitspieler rufen „Wer ist Host?“, der Host antwortet und kündigt sich zusätzlich jede Sekunde selbst an. Das geht in Godot mit `PacketPeerUDP.set_broadcast_enabled(true)`.
    - Godot holt sich auf Android dafür automatisch den nötigen „Multicast-Lock“. Manche Geräte brauchen dazu die Berechtigung `CHANGE_WIFI_MULTICAST_STATE`, sonst kommen Rundrufe nicht an **[belegt: Godot-Doku, PR #33910]**.
@@ -383,11 +392,11 @@ Zwei Vorarbeiten (Verbindungstechnik, Spielarchitektur) wurden gegen Quellen und
 
 - Der Godot-Vorschlag #7128 (Soft-Float/Festkomma) ist **nicht offen**, sondern „closed as not planned“.
 - Die Google-Hilfe erwähnt **keinen QR-Code** für den Hotspot. Der Hinweis darauf bleibt als „ungeprüft je Hersteller“ stehen.
+- **04.10.2026, Hotspot-Adresse:** Ein zufälliges Netz bei jedem Einschalten gibt es laut AOSP-Quelltext nur unter Android 11. Ab Android 12 wird die letzte Adresse wiederverwendet (bis zum Neustart oder Konflikt), und es kommen `172.16.0.0/12` und `10.0.0.0/8` hinzu. Die Erfahrungsberichte bezogen sich auf Android 11. Abschnitt 4.2 ist berichtigt.
 
 **Nur teilweise bestätigt**
 
 - Die genaue Aufteilung der Bionic-Mathebibliothek (welche Funktion aus FreeBSD, welche aus ARM optimized-routines). Bestätigt ist nur, dass beide Quellen verwendet werden. Für die Empfehlung ist das unerheblich, weil nur der Host rechnet.
-- Die Zufallsnetze des Hotspots seit Android 11 stützen sich auf übereinstimmende Erfahrungsberichte, nicht auf offizielle Doku.
 
 **Offen für den Gerätetest**
 
@@ -413,6 +422,16 @@ Android (offiziell)
 - Nearby Connections, Strategien: https://developers.google.com/nearby/connections/strategies
 - Google Play services Release Notes (play-services-nearby 19.5.x): https://developers.google.com/android/guides/releases
 
+Android-Quelltext (AOSP), Hotspot-Adresse (geprüft am 04.10.2026)
+
+- Android 10, feste Adresse `WIFI_HOST_IFACE_ADDR = "192.168.43.1"`: https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-10.0.0_r1/services/net/java/android/net/ip/IpServer.java
+- Android 11, Zufallsnetz in `192.168.0.0/16` ohne Merken. Unter Android 11 lag das Tethering-Modul noch in `frameworks/base`; derselbe Pfad unter `packages/modules/Connectivity` existiert für diesen Tag nicht: https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-11.0.0_r1/packages/Tethering/src/com/android/networkstack/tethering/PrivateAddressCoordinator.java
+- Android 12, letzte Adresse je Schnittstellenart (`mCachedAddresses`, `useLastAddress`): https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/tags/android-12.0.0_r1/Tethering/src/com/android/networkstack/tethering/PrivateAddressCoordinator.java
+- Android 12, `requestIpv4Address(true /* useLastAddress */)` beim Einschalten, `false` bei Konflikt: https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/tags/android-12.0.0_r1/Tethering/src/android/net/ip/IpServer.java
+- Android 12, Schalter `tether_enable_select_all_prefix_ranges` (ab Werk an): https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/tags/android-12.0.0_r1/Tethering/src/com/android/networkstack/tethering/TetheringConfiguration.java
+- Android 13, alle drei Bereiche fest: https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/tags/android-13.0.0_r1/Tethering/src/com/android/networkstack/tethering/PrivateAddressCoordinator.java
+- Android 15, zufälliger Startbereich (`getStartedPrefixIndex`, Schalter `tether_force_random_prefix_base_selection`): https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/tags/android-15.0.0_r1/Tethering/src/com/android/networkstack/tethering/PrivateAddressCoordinator.java
+
 Godot
 
 - ENetMultiplayerPeer: https://docs.godotengine.org/en/stable/classes/class_enetmultiplayerpeer.html
@@ -427,7 +446,7 @@ Godot
 
 Erfahrungsberichte / Fachartikel **[Bericht]**
 
-- Zufälliges Hotspot-Netz seit Android 11: https://github.com/Mygod/VPNHotspot/issues/193
+- Zufälliges Hotspot-Netz unter Android 11 (ab Android 12 siehe AOSP-Quelltext oben): https://github.com/Mygod/VPNHotspot/issues/193
 - Pixel-Hotspot 6 GHz / Kompatibilität: https://www.androidpolice.com/android-14-control-wi-fi-hotspot-frequency-band/
 - LocalSend funktioniert über Handy-Hotspot ohne Internet (Praxisbeleg für Variante A): https://www.makeuseof.com/localsend-got-so-much-better-once-i-started-using-it-like-this/
 - WLAN ohne Internet und mobile Daten (Nutzerberichte): https://xdaforums.com/t/force-android-to-use-mobile-data-when-wifi-connected-but-has-no-internet.4501535/

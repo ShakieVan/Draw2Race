@@ -28,6 +28,9 @@ var hash_thread: Thread
 var pending: Array = []    # noch abzufragende Endpunkte dieser Suche
 var best := {}             # bestes gefundenes Release dieser Suche
 var answered := false      # mindestens eine Quelle hat geantwortet
+var failed := false        # mindestens eine Quelle hat nicht geantwortet (kein Netz, GitHub-Limit, Serverfehler)
+var failure := ""          # Klartext zum Fehlschlag (failure_text)
+var download_dir := DIR    # Ablage der Downloads (Tests: eigener Ordner)
 
 static func current_version() -> String:
 	return str(ProjectSettings.get_setting("application/config/version", "0.0.0"))
@@ -135,17 +138,20 @@ func publish(text: String) -> void:
 func check(manual: bool) -> void:
 	if busy:
 		return
+	# Der Zeitpunkt der letzten Prüfung wird erst nach einer vollständigen Antwort gespeichert (finish_check): Ein Fehlschlag (kein
+	# Netz, GitHub-Limit) sperrte die automatische Prüfung sonst für 24 h. Automatisch wird nur beim Programmstart geprüft, ein
+	# Fehlschlag kostet also höchstens eine Anfrage je Start.
 	var now := int(Time.get_unix_time_from_system() * 1000.0)
 	if not manual and now - int(store.data.get("update_last_check", 0)) < DAY_MS:
 		return
-	store.data["update_last_check"] = now
-	store.save()
 	busy = true
 	percent = -1
 	publish("Suche nach Updates …")
 	pending =[ENDPOINT_BETA, ENDPOINT] if beta() else [ENDPOINT]
 	best = {}
 	answered = false
+	failed = false
+	failure = ""
 	request_next()
 
 func request_next() -> void:
@@ -162,9 +168,14 @@ func request_next() -> void:
 		http.request_completed.disconnect(_checked)
 		request_next()
 
-func _checked(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+func _checked(result: int, code: int, headers: PackedStringArray, body: PackedByteArray) -> void:
 	if result == HTTPRequest.RESULT_SUCCESS and (code == 200 or code == 404):
 		answered = true
+	else:
+		failed = true
+		# Das GitHub-Limit hat Vorrang: Es betrifft alle Quellen desselben Netzes und erklärt den Fehlschlag am besten.
+		if failure == "" or rate_limited(code):
+			failure = failure_text(result, code, headers, int(Time.get_unix_time_from_system()))
 	if result == HTTPRequest.RESULT_SUCCESS and code == 200 and body.size() <= 1024 * 1024:
 		var found := parse(body.get_string_from_utf8(), beta())
 		if not found.is_empty() and (best.is_empty() or compare_versions(found.version, best.version) > 0):
@@ -172,32 +183,85 @@ func _checked(result: int, code: int, _headers: PackedStringArray, body: PackedB
 	request_next()
 
 func finish_check() -> void:
+	# Eine neuere Version wird angeboten, auch wenn eine zweite Quelle (Beta-Kanal) nicht geantwortet hat. Ohne neuere Version zählt
+	# ein Fehlschlag: Dann ist „Du hast die neueste Version.“ nicht sicher, und der Prüfzeitpunkt bleibt offen (nächster Start fragt neu).
 	busy = false
-	if not answered:
-		publish("Keine Verbindung.")
-		return
-	var found := best
-	if found.is_empty():
-		release = {}
-		publish("Noch kein passendes Release veröffentlicht.")
-		return
-	store.data["update_release"] = str(found.raw)
+	var newer := not best.is_empty() and compare_versions(best.version, current_version()) > 0
+	if not failed:
+		store.data["update_last_check"] = int(Time.get_unix_time_from_system() * 1000.0)
+	if not best.is_empty() and (newer or not failed):
+		store.data["update_release"] = str(best.raw)
 	store.save()
-	if compare_versions(found.version, current_version()) > 0:
-		release = found
+	if newer:
+		release = best
 		apk_ready = FileAccess.file_exists(apk_path())
 		publish("Neue Version verfügbar.")
+	elif failed:
+		publish(failure if failure != "" else "Keine Verbindung.")
+	elif best.is_empty():
+		release = {}
+		publish("Noch kein passendes Release veröffentlicht.")
 	else:
 		release = {}
 		publish("Du hast die neueste Version.")
 
+static func rate_limited(code: int) -> bool:
+	# GitHub beantwortet zu viele Anfragen ohne Anmeldung mit 403 (Hauptlimit: 60 je Stunde und IP-Adresse) oder 429.
+	return code == 403 or code == 429
+
+static func failure_text(result: int, code: int, headers: PackedStringArray, now_unix: int) -> String:
+	# Klartext für eine gescheiterte Versionsabfrage. Im geteilten WLAN (Urlaub, Hotel, Schule) teilen sich alle Geräte eine öffentliche
+	# Adresse und damit das Limit von 60 Abfragen je Stunde – das soll nicht als „Keine Verbindung.“ erscheinen. Die Antwort nennt in
+	# x-ratelimit-reset (Unix-Zeit) bzw. retry-after (Sekunden), wann es wieder geht.
+	if result != HTTPRequest.RESULT_SUCCESS:
+		return "Keine Verbindung."
+	if not rate_limited(code):
+		return "GitHub antwortet gerade nicht (Fehler %d). Bitte später erneut versuchen." % code
+	var retry := -1
+	var remaining := ""
+	var reset := -1
+	for line in headers:
+		var colon := line.find(":")
+		if colon < 0:
+			continue
+		var key := line.left(colon).strip_edges().to_lower()
+		var value := line.substr(colon + 1).strip_edges()
+		if key == "retry-after" and value.is_valid_int():
+			retry = int(value)
+		elif key == "x-ratelimit-remaining":
+			remaining = value
+		elif key == "x-ratelimit-reset" and value.is_valid_int():
+			reset = int(value)
+	var wait := retry
+	if wait < 0 and remaining == "0" and reset > 0:
+		wait = maxi(0, reset - now_unix)
+	var text := "Zu viele Update-Abfragen aus diesem Netz (GitHub erlaubt 60 pro Stunde)."
+	if wait < 0:
+		return text + " Bitte später erneut versuchen."
+	var minutes := maxi(1, ceili(wait / 60.0))
+	return text + " Wieder möglich in %d %s." % [minutes, "Minute" if minutes == 1 else "Minuten"]
+
+static func release_page(rel: Dictionary, beta_channel: bool) -> String:
+	# Ausweg ohne den Updater (Knopf „Im Browser herunterladen“): die GitHub-Seite des angebotenen Releases, sonst die Release-Liste des Kanals.
+	# Dort lässt sich die APK auch dann laden und installieren, wenn der Updater selbst defekt ist (wie vor Hotfix 0.2.26).
+	var url := str(rel.get("url", ""))
+	var marker := "/releases/download/"
+	if url.begins_with("https://github.com/") and url.contains(marker):
+		return url.get_base_dir().replace(marker, "/releases/tag/")
+	if beta_channel:
+		return "https://github.com/%s/releases" % BETA_REPOSITORY
+	return "https://github.com/%s/releases/latest" % REPOSITORY
+
+func open_release_page() -> void:
+	OS.shell_open(release_page(release, beta()))
+
 func apk_path() -> String:
-	return "%s/%s.apk" % [DIR, release.get("sha256", "none")]
+	return "%s/%s.apk" % [download_dir, release.get("sha256", "none")]
 
 func download() -> void:
 	if busy or release.is_empty():
 		return
-	DirAccess.make_dir_recursive_absolute(DIR)
+	DirAccess.make_dir_recursive_absolute(download_dir)
 	prune()
 	busy = true
 	percent = 0
@@ -305,7 +369,7 @@ func install_file(file: String, version: String) -> String:
 		return "Installation nur auf dem Handy möglich."
 	if not can_install():
 		open_permission()
-		return "Bitte „Apps installieren“ für Draw2Race erlauben und erneut tippen."
+		return "Bitte „Apps installieren“ für Draw2Race erlauben (Android 7: „Unbekannte Herkunft“) und erneut tippen."
 	var path := ProjectSettings.globalize_path(file)
 	var problem := str(a[0].verify(a[1], path, version))
 	if problem != "":
@@ -315,9 +379,9 @@ func install_file(file: String, version: String) -> String:
 
 func prune() -> void:
 	# Alte Downloads entfernen (nur die aktuelle APK behalten).
-	var dir := DirAccess.open(DIR)
+	var dir := DirAccess.open(download_dir)
 	if dir == null:
 		return
 	for name in dir.get_files():
-		if DIR + "/" + name != apk_path():
+		if download_dir + "/" + name != apk_path():
 			dir.remove(name)

@@ -613,9 +613,9 @@ func _refresh_settings() -> void:
 				ab.add_theme_font_size_override("font_size", 20)
 		var contact := hud.toggle(box, "Berührungen zwischen Spielern", Vector2(24, 404), bool(s.contacts) and not drift, func(on: bool): app.lobby.set_contacts(on))
 		contact.disabled = drift
-		# Alle hören die Musik des Gastgebers (gleiches Stück, gleiche Stelle); hier lässt sie sich bei den Mitspielern für diese Sitzung
-		# abschalten – deren eigene Einstellung bleibt unberührt.
-		var tune := hud.toggle(box, "Musik auch bei den Mitspielern", Vector2(24, 452), lb.guest_music, func(on: bool): app.lobby.set_guest_music(on))
+		# Alle hören die Musik des Gastgebers (gleiches Stück, gleiche Stelle); hier lässt sie sich bei allen, auch beim Gastgeber, für
+		# diese Sitzung abschalten – die eigene Einstellung jedes Handys bleibt unberührt.
+		var tune := hud.toggle(box, "Musik bei allen", Vector2(24, 452), lb.guest_music, func(on: bool): app.lobby.set_guest_music(on))
 		tune.name = "GuestMusic"
 	else:
 		hud.label(box, "STRECKE", Vector2(28, 20), 13, MUTED)
@@ -629,7 +629,7 @@ func _refresh_settings() -> void:
 		hud.label(box, "BERÜHRUNGEN ZWISCHEN SPIELERN", Vector2(28, 340), 13, MUTED)
 		hud.label(box, "an" if bool(s.contacts) else "aus", Vector2(28, 364), 22)
 		hud.label(box, "MUSIK", Vector2(28, 408), 13, MUTED)
-		var tune := hud.label(box, "wie beim Gastgeber – alle hören dasselbe" if lb.guest_music else "vom Gastgeber ausgeschaltet (nur in diesem Spiel)",
+		var tune := hud.label(box, "wie beim Gastgeber – alle hören dasselbe" if lb.guest_music else "vom Gastgeber bei allen ausgeschaltet (nur in diesem Spiel)",
 			Vector2(28, 432), 20, INK, 584)
 		tune.name = "GuestMusic"
 		hud.label(box, "Der Gastgeber stellt ein. Ändert er etwas, tippst du erneut „Bereit“.", Vector2(28, 470), 15, MUTED, 584)

@@ -206,15 +206,15 @@ func test_session() -> void:
 	sounds[b].follow_settle_ms = 0
 	ok = pump([host, a, b], 2000, func(): return in_sync(host, [a, b]))
 	check(ok and sounds[b].sync_log.fixes >= 1, "Nach einem Hänger nachgeführt")
-	# Musik der Mitspieler aus/an (Gastgeber, jederzeit, ohne Bereit zurückzusetzen)
+	# Musik bei allen aus/an (Gastgeber, jederzeit, ohne Bereit zurückzusetzen)
 	var settings_before: Dictionary = host.settings.duplicate()
 	a.set_ready(true)
 	pump([host, a, b], 2000, func(): return bool(host.player(a.my_id()).get("ready", false)))
 	host.set_guest_music(false)
 	ok = pump([host, a, b], 2000, func(): return a.music_muted() and b.music_muted())
-	check(ok and not host.music_muted() and host.settings == settings_before and bool(host.player(a.my_id()).ready),
-		"Gastgeber schaltet die Musik der Mitspieler ab (Einstellungen und Bereit bleiben)")
-	check(not music_on(true, a) and not music_on(true, b) and music_on(true, host), "Bei den Mitspielern stumm, beim Gastgeber nicht")
+	check(ok and host.music_muted() and host.settings == settings_before and bool(host.player(a.my_id()).ready),
+		"Gastgeber schaltet die Musik bei allen ab (Einstellungen und Bereit bleiben)")
+	check(not music_on(true, a) and not music_on(true, b) and not music_on(true, host), "Bei allen stumm, auch beim Gastgeber")
 	ok = pump([host, a, b], 600, func(): return false)
 	check(in_sync(host, [a, b]), "Stumm laufen die Mitspieler an derselben Stelle weiter")
 	host.set_guest_music(true)
@@ -237,4 +237,4 @@ func test_session() -> void:
 	host.leave()
 	ok = pump([host, b], 3000, func(): return b.mode == "" and sounds[b].net_role == "")
 	check(ok and not b.music_muted() and music_on(true, b) and str(sounds[b].current.role) == "playlist", "Gastgeber beendet: Mitspieler zurück bei der eigenen Musik")
-	check(host.guest_music and host.music.is_empty(), "Neue Sitzung beginnt ohne Vorgabe (Musik der Mitspieler wieder an)")
+	check(host.guest_music and host.music.is_empty(), "Neue Sitzung beginnt ohne Vorgabe (Musik bei allen wieder an)")

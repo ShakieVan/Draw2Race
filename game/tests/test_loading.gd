@@ -295,6 +295,10 @@ func test_main_flow() -> void:
 	await process_frame
 	await process_frame
 	check(Diorama._unclaimed.is_empty() and LightBake._orphans.is_empty(), "Ende mitten im Laden: Ladeaufträge und Fäden abgeschlossen")
+	# Abgebrochenen Ladefäden vor dem Programmende Zeit lassen (0,5 s ohne weitere Bilder): sonst meldete Godot gelegentlich
+	# „1 RID allocations of type DummyMesh were leaked at exit“, und build.ps1 wertete die bestandene Reihe als Fehler (04.10.2026).
+	# Weitere Bilder nach dem Abbau lösten dagegen „Parameter material is null“ aus.
+	OS.delay_msec(500)
 	for f in [test_path, test_path + ".bak"]:
 		if FileAccess.file_exists(f):
 			DirAccess.remove_absolute(ProjectSettings.globalize_path(f))

@@ -565,3 +565,19 @@ Plan und Nutzerentscheidungen: `docs/MULTIPLAYER_RECHERCHE.md`.
   - Ältere Versionen sehen weiterhin einen lesbaren Ablehnungsgrund, das Format ist kompatibel erweitert. Das Protokoll bleibt bei 7.
 - **Tests:** 19 Testreihen, neu ist `test_apk` mit Übertragung, Abbruch, verfälschtem Byte, falscher Größe und Drossel-Umschaltung. `tools/net_test.ps1 -Apk` läuft mehrprozessig.
 - **Offen (Gerät):** Teilen-Menü mit Quick Share, Installation beim Empfänger, Übertragung im Heim-WLAN und über den Hotspot. Das Angebot hilft erst ab 0.2.32 auf beiden Seiten.
+
+## Musik bei allen (04.10.2026, Beta 0.3.1, Release 1.0.0)
+
+- Der Lobby-Schalter heißt jetzt „Musik bei allen“ und schaltet die Musik auch beim Gastgeber ab (Nutzerwunsch). Der Gastgeber führt die Playlist stumm weiter, damit beim Wiedereinschalten alle an derselben Stelle sind. Gespeichert wird nichts. Nach der Sitzung gilt wieder die eigene Einstellung jedes Handys (`NetLobby.music_muted`).
+
+## Version 1.0 (04.10.2026)
+
+- **Erstes offizielles Release.** Es fasst die Betas 0.2.28–0.3.1 zusammen; das kurzzeitige Release 0.3.0 ist darin aufgegangen. Neu sind die README mit Bildergalerie (`docs/screenshots/`, 10 Bilder in 1600×720) und der GitHub-Auftritt (Beschreibung, Themen).
+- **Nummernschema ab jetzt:** Betas 1.0.1, 1.0.2 …, nächstes Release 1.1.0.
+- **Testreihe:** `test_loading` wartet vor dem Programmende 0,5 s auf abgebrochene Ladefäden. Sonst meldete Godot gelegentlich ein übrig gebliebenes Mesh-RID beim Beenden, was `build.ps1` als Fehler wertete.
+- **Bekannt, offen:**
+  - Im Drift-Modus ragt „noch NN s“ bei 20:9 über das Punktefeld hinaus.
+  - `test_net` (Hänger von 1,6 s bei langer Grenze) scheiterte einmal an der Zeitmessung des PCs.
+  - Holzpfosten sprühen Funken statt Splitter.
+  - In der Stadt bleibt bei Regen in Stufe 3 selten ein Gegner liegen.
+  - Musik-Feinabgleich per Mikrofon als Idee.

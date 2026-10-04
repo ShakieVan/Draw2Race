@@ -1441,7 +1441,7 @@ func go_back() -> void:
 				pause_game()
 
 func music_on() -> bool:
-	# Eigene Einstellung; im WLAN-Mehrspieler kann der Gastgeber die Musik der Mitspieler für die Sitzung abschalten. Der Spielstand
+	# Eigene Einstellung; im WLAN-Mehrspieler kann der Gastgeber die Musik bei allen (auch bei sich) für die Sitzung abschalten. Der Spielstand
 	# bleibt dabei unberührt – nach der Sitzung gilt wieder genau die eigene Einstellung.
 	return bool(store.data.music) and (lobby == null or not lobby.music_muted())
 

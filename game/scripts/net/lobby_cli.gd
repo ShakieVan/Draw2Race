@@ -17,7 +17,7 @@ extends SceneTree
 # die Spielerfarben, wie er sie im Rennen zeigt (farben=ID:Farbe,…; alle Menschen im selben Auto, jede Farbe nur einmal). Danach
 # beendet der Host das Spiel; die Mitspieler erwarten die Nachricht „Gastgeber hat beendet“.
 # Musik (gemeinsam, Nutzerwunsch 04.10.2026): Jeder Prozess rechnet seine Musik ohne Audiogerät (RaceSound.enable_virtual, eigene
-# zufällige Playlist) und gleicht sie wie main.gd über NetLobby.sync_music ab. Der Host schaltet die Musik der Mitspieler beim Einstellen
+# zufällige Playlist) und gleicht sie wie main.gd über NetLobby.sync_music ab. Der Host schaltet die Musik bei allen (auch bei sich) beim Einstellen
 # aus und zum Rennen wieder an, zur Wertung setzt er das gemeinsame Stück (Sieg, wenn ein Mensch gewonnen hat). Jeder meldet Stück und
 # Stelle 0 auf der Host-Uhr 2 s nach dem Start und kurz nach der Wertung (musik=Datei@ms;Datei@ms, tools/net_test.ps1 vergleicht);
 # Mitspieler müssen „stumm“ gesehen haben und am Ende wieder Musik haben, der Abmelder nach dem Abmelden wieder seiner eigenen folgen.
@@ -159,7 +159,7 @@ func _host_tick() -> void:
 		lobby.set_stage(WANT.stage)
 		lobby.set_ai(3)
 		lobby.set_contacts(WANT.contacts)
-		lobby.set_guest_music(false)       # Musik der Mitspieler aus (zum Rennen wieder an)
+		lobby.set_guest_music(false)       # Musik bei allen aus (zum Rennen wieder an)
 	if configured and lobby.phase == "lobby" and lobby.start_problem() == "" and plans_seen.is_empty():
 		lobby.start_round()
 	if race != null and race.final and final_ms > 0 and Time.get_ticks_msec() - final_ms > 1000 and lobby.mode == "host":

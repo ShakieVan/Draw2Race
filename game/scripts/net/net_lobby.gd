@@ -897,15 +897,17 @@ func state_message() -> Dictionary:
 
 # ---------- Musik (alle hören dasselbe) ----------
 func set_guest_music(on: bool) -> void:
-	# Gastgeber: Musik bei allen Mitspielern an/aus – jederzeit während der Sitzung, ohne Bereit zurückzusetzen.
+	# Gastgeber: Musik bei allen an/aus (auch bei ihm selbst; Nutzerwunsch 04.10.2026) – jederzeit während der Sitzung, ohne Bereit
+	# zurückzusetzen. Der Name guest_music bleibt fürs Protokoll.
 	if mode == "host" and on != guest_music:
 		guest_music = on
-		_log("Musik bei den Mitspielern: %s" % ("an" if on else "aus"))
+		_log("Musik bei allen: %s" % ("an" if on else "aus"))
 		_broadcast()
 
 func music_muted() -> bool:
-	# Mitspieler: Der Gastgeber hat die Musik der Mitspieler abgeschaltet (nur für die Sitzung, der Spielstand bleibt unberührt).
-	return mode == "join" and is_joined and not guest_music
+	# Der Gastgeber hat die Musik bei allen abgeschaltet, auch bei sich selbst (nur für die Sitzung, der Spielstand bleibt unberührt).
+	# Er führt die Playlist stumm weiter (Sound.update_music), damit beim Wiedereinschalten alle an derselben Stelle sind.
+	return not guest_music and (mode == "host" or mode == "join" and is_joined)
 
 func publish_music(state: Dictionary) -> void:
 	# Gastgeber, je Bild: Stück und Stelle 0 (RaceSound.music_state, lokale Uhr = Host-Uhr). Ein neuer Einsatz geht sofort an alle, sonst

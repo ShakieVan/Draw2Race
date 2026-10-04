@@ -20,6 +20,7 @@ var cam_zoom := 60.0
 var cam_pitch := PITCH_DRAW
 var sound := RaceSound.new()
 var updater := Updater.new()
+var apk_share := ApkShare.new()    # eigene APK teilen bzw. im WLAN weitergeben (Updates-Dialog, NetLobby)
 var vehicles: Array[RaceVehicle] = []
 var models: Array[Node3D] = []
 var phase := "menu"
@@ -105,6 +106,8 @@ const RIVAL_SKILL := RaceField.RIVAL_SKILL
 var lobby: NetLobby
 var net_round := {}
 var net_count := 0               # Ampel im Netz: zuletzt gezeigte Ziffer (Ton bei jedem Wechsel)
+var net_music_won := false       # Musik der WLAN-Wertung (alle hören dasselbe Stück): Sieg-Stück, wenn ein Mensch gewonnen hat
+var net_reported := -1           # Runde, für die „geladen“ schon gemeldet ist
 
 func _ready() -> void:
 	get_tree().auto_accept_quit = true
@@ -113,9 +116,11 @@ func _ready() -> void:
 	track_id = saved if saved in TRACKS and track_unlocked(TRACKS.find(saved)) else "azure"
 	track = Circuit.load_track(track_id)
 	car_choice = clampi(int(store.data.get("car",0)),0,RaceVehicle.CARS.size()-1)
+	# Leere Welt (Atmosphäre, Marke, Linien), bis die eigentliche im Hintergrund steht: das Menü erscheint sofort.
 	add_child(world)
-	world.low_detail = int(store.data.get("gfx",2)) == 0
-	world.build(track)
+	world.build_shell()
+	get_tree().process_frame.connect(_load_tick)
+	_start_world()
 	apply_atmosphere()
 	add_child(camera)
 	camera.projection = Camera3D.PROJECTION_PERSPECTIVE
@@ -128,6 +133,8 @@ func _ready() -> void:
 	add_child(sound)
 	add_child(updater)
 	updater.setup(store)
+	add_child(apk_share)
+	apk_share.setup()
 	add_child(hud)
 	hud.setup(self)
 	updater.changed.connect(func(): if phase == "menu" and not hud.overlay_open(): hud.menu())
@@ -209,29 +216,137 @@ func track_unlocked(index: int) -> bool:
 	return store.gold_count(TRACKS[index-1]) >= 3
 
 func select_track(new_id: String) -> void:
-	if new_id == track_id:
+	# Strecke wählen und speichern, Welt am Stück (Prüfungen, Werkzeuge). Das Menü nimmt pick_track (Welt im Hintergrund).
+	if new_id == track_id and track_ready():
 		return
 	store.data["track"] = new_id
 	store.save()
 	load_track(new_id)
 
+func pick_track(new_id: String) -> void:
+	# Streckenwahl im Menü: speichern, Welt im Hintergrund (Knöpfe zeigen bis dahin „Strecke lädt …“).
+	if new_id == track_id:
+		return
+	store.data["track"] = new_id
+	store.save()
+	request_track(new_id)
+
 func load_track(new_id: String) -> void:
-	# Strecke laden und die Welt neu aufbauen, ohne den Spielstand anzufassen (Mehrspieler: Wahl gilt nur für die Runde).
+	# Strecke laden und die Welt am Stück neu aufbauen, ohne den Spielstand anzufassen (Mehrspieler: Wahl gilt nur für die Runde).
+	if new_id == track_id and track_ready():
+		return
+	request_track(new_id)
+	finish_track_load()
+	world.visible = phase != "menu"
+
+# ---------- Strecke im Hintergrund laden (Nutzerwunsch 04.10.2026: Oberfläche bleibt bedienbar) ----------
+# Die Streckendaten (Circuit samt Hindernissen aus der Diorama-Begleitdatei) lädt request_track sofort und vollständig – nur sie
+# bestimmen die Simulation. Die sichtbare Welt entsteht danach im Hintergrund: Diorama.build_async in Zeitscheiben (LOAD_SLICE_USEC je
+# Bild), das Diorama-Modell und die Lichtkarte in Arbeitsfäden. Netz, Musik und Bedienung laufen weiter. Bis die neue Welt steht, bleibt
+# die bisherige (ausgeblendete) „world“; Knöpfe, die die Strecke zeigen, sind so lange gesperrt („Strecke lädt …“, RaceHUD.gate).
+# Eine neue Wahl bricht einen laufenden Bau ab. Alte Welten werden Knoten für Knoten abgerissen (WRECK_SLICE_USEC je Bild).
+# finish_track_load() stellt die Welt sofort fertig (am Stück) – Sicherheitsnetz für alles, was sie zeigt oder für ein Rennen braucht.
+const LOAD_SLICE_USEC := 8000
+const WRECK_SLICE_USEC := 4000
+var next_world: Diorama            # Welt im Bau (null: world gehört zu track)
+var wreck: Array = []              # Stapel abzureißender Knoten
+var wreck_open := {}               # Knoten, deren Kinder schon auf dem Stapel liegen
+signal track_loaded
+
+func track_ready() -> bool:
+	return next_world == null
+
+func request_track(new_id: String) -> void:
+	# Strecke wechseln: Streckendaten sofort, die Welt im Hintergrund (Ende: _world_done). Zurück zur gezeigten Welt kostet nichts.
 	if new_id == track_id:
 		return
 	track_id = new_id
-	sound.finish_crossfade()
+	if next_world != null:
+		next_world.abort()
+		next_world = null
+	if world.built and world.track != null and world.track.id == new_id:
+		track = world.track
+		camera_target = track_center()
+		apply_atmosphere()
+		_loaded()
+		return
 	track = Circuit.load_track(new_id)
-	# Welt komplett neu aufbauen (Thema, Deko, Fahrbahn).
-	world.queue_free()
-	world = Diorama.new()
-	add_child(world)
-	move_child(world,0)
-	world.low_detail = int(store.data.get("gfx",2)) == 0
-	world.build(track)
-	apply_atmosphere()
-	world.visible = phase != "menu"
 	camera_target = track_center()
+	_start_world()
+
+func _start_world() -> void:
+	var next := Diorama.new()
+	next.low_detail = int(store.data.get("gfx",2)) == 0
+	next.visible = false
+	next.slice_usec = LOAD_SLICE_USEC
+	add_child(next)
+	move_child(next, 0)
+	next_world = next
+	next.finished.connect(_world_done.bind(next), CONNECT_ONE_SHOT)
+	if is_instance_valid(hud) and hud.root != null:
+		hud.update_gates()
+	next.build_async(track)
+
+func _world_done(w: Diorama) -> void:
+	# Bau beendet: fertige Welt einsetzen (Sichtbarkeit wie die bisherige), die alte abreißen. Abgebrochene Bauten nur abreißen.
+	if w != next_world or not w.built:
+		demolish(w)
+		return
+	next_world = null
+	var old := world
+	world = w
+	world.visible = old.visible
+	demolish(old)
+	apply_atmosphere()
+	_loaded()
+
+func _loaded() -> void:
+	if is_instance_valid(hud) and hud.root != null:
+		hud.update_gates()
+	track_loaded.emit()
+	net_report_loaded()
+
+func finish_track_load() -> void:
+	# Welt sofort fertig (am Stück, blockiert): Sicherheitsnetz vor allem, was die Strecke zeigt (Zeichnen, Vorführfahrt, Rennen).
+	if next_world == null:
+		return
+	sound.finish_crossfade()
+	next_world.finish_now()
+
+func demolish(w: Node) -> void:
+	# Welt ausblenden, anhalten und Knoten für Knoten abreißen (_load_tick); ein queue_free der ganzen Welt kostete ein Bild bis 0,4 s.
+	if not is_instance_valid(w) or wreck.has(w):
+		return
+	(w as Node3D).visible = false
+	w.process_mode = Node.PROCESS_MODE_DISABLED
+	wreck.push_front(w)
+
+func _exit_tree() -> void:
+	# Programmende, auch mitten im Laden: Bau abbrechen, Fäden und Ladeaufträge abschließen.
+	if next_world != null:
+		next_world.abort()
+		next_world = null
+	Diorama.shutdown()
+
+func _load_tick() -> void:
+	# Je Bild (auch ohne _process, z. B. in Prüfungen): Bau fortsetzen, abgebrochene Aufträge abholen, Altes abreißen.
+	Diorama.reap()
+	if next_world != null:
+		next_world.resume.emit()
+	var t0 := Time.get_ticks_usec()
+	while not wreck.is_empty() and Time.get_ticks_usec() - t0 < WRECK_SLICE_USEC:
+		var n = wreck[-1]
+		if not is_instance_valid(n):
+			wreck.pop_back()
+			continue
+		var id: int = n.get_instance_id()
+		if not wreck_open.has(id) and n.get_child_count() > 0:
+			wreck_open[id] = true
+			wreck.append_array(n.get_children())
+			continue
+		wreck.pop_back()
+		wreck_open.erase(id)
+		n.free()
 
 func set_camera(target: Vector3) -> void:
 	# Abstand so, dass im Blickzentrum cam_zoom Meter (senkrecht zur Blickrichtung) sichtbar sind.
@@ -357,6 +472,7 @@ func show_menu() -> void:
 	hud.menu()
 
 func start_drawing() -> void:
+	finish_track_load()
 	paused = false
 	demonstration = false
 	phase = "draw"
@@ -390,6 +506,7 @@ func demo() -> void:
 	begin_race()
 
 func begin_race() -> void:
+	finish_track_load()
 	phase = "countdown"
 	countdown = 3.0
 	race_time = 0.0
@@ -987,13 +1104,18 @@ func _process(dt: float) -> void:
 			hud.progress_bar.value = v.turbo*100
 		if phase=="race":
 			hud.center.text = "LOS" if race_time<0.65 else ""
+	# WLAN-Mehrspieler: Die Musik des Gastgebers gilt auf allen Handys (NetLobby.sync_music), sonst die eigene Playlist.
+	if lobby != null:
+		lobby.sync_music(sound)
+	else:
+		sound.set_net_role("")
 	sound.enabled = bool(store.data.sound)
 	sound.set_style(str(store.data.get("music_style","energie")))
 	sound.set_volumes(float(store.data.get("music_volume",0.8)),float(store.data.get("sfx_volume",1.0)))
 	var heard := sound_phase()
 	if sound.context!=heard:
-		sound.set_context(heard,result_won)
-	sound.tick(vehicles[me] if me < vehicles.size() else null,phase=="race",paused,bool(store.data.sound),bool(store.data.music),track,dt)
+		sound.set_context(heard,net_music_won if lobby != null else result_won)
+	sound.tick(vehicles[me] if me < vehicles.size() else null,phase=="race",paused,bool(store.data.sound),music_on(),track,dt)
 	sound.tick_engines(dt,vehicles,camera,phase,countdown,paused,bool(store.data.sound),me)
 	capture_frames += 1
 	if "--capture" in OS.get_cmdline_user_args() and capture_frames==90:
@@ -1318,6 +1440,11 @@ func go_back() -> void:
 			else:
 				pause_game()
 
+func music_on() -> bool:
+	# Eigene Einstellung; im WLAN-Mehrspieler kann der Gastgeber die Musik der Mitspieler für die Sitzung abschalten. Der Spielstand
+	# bleibt dabei unberührt – nach der Sitzung gilt wieder genau die eigene Einstellung.
+	return bool(store.data.music) and (lobby == null or not lobby.music_muted())
+
 func sound_phase() -> String:
 	# Musik-Zusammenhang je Phase (Mehrspieler-Phasen wie ihre Einzelspieler-Gegenstücke).
 	match phase:
@@ -1368,7 +1495,7 @@ func leave_party() -> void:
 	world.draw_routes([], [])
 	stage = solo_stage
 	if solo_track != "" and track_id != solo_track:
-		load_track(solo_track)
+		request_track(solo_track)
 	apply_atmosphere()
 
 func party_garage(k: int) -> void:
@@ -1391,7 +1518,7 @@ func party_load() -> void:
 	# Strecke und Herausforderung der Runde (ohne Speichern), Bedingungen wie in der Karriere.
 	stage = party.stage
 	if track_id != party.track_id:
-		load_track(party.track_id)
+		request_track(party.track_id)
 	apply_atmosphere()
 
 func party_start() -> void:
@@ -1441,6 +1568,7 @@ func party_pass() -> void:
 
 func party_reveal() -> void:
 	# Alle Linien gleichzeitig in den Spielerfarben, kurz vor dem Start (PassParty.REVEAL_TIME, Tippen startet sofort).
+	finish_track_load()
 	paused = false
 	phase = "reveal"
 	reveal_time = 0.0
@@ -1635,6 +1763,8 @@ func open_wlan() -> void:
 		lobby.status_changed.connect(hud.lobby_ui.refresh)
 		lobby.games_changed.connect(hud.lobby_ui.refresh)
 		lobby.notice.connect(hud.lobby_ui.toast)
+		lobby.apk_changed.connect(hud.lobby_ui.apk_refresh)
+		lobby.apk = apk_share       # neuere Version weitergeben (NetApk)
 		lobby.enter(store.player_name(), car_choice)
 	paused = false
 	phase = "net_menu"
@@ -1659,7 +1789,7 @@ func leave_wlan() -> void:
 	world.draw_routes([], [])
 	stage = solo_stage
 	if solo_track != "" and track_id != solo_track:
-		load_track(solo_track)
+		request_track(solo_track)
 	apply_atmosphere()
 
 func net_host() -> void:
@@ -1700,7 +1830,7 @@ func net_failed(reason: String) -> void:
 	phase = "net_menu"
 	lobby.search()
 	hud.lobby_ui.wlan_screen()
-	hud.lobby_ui.message("Beitritt nicht möglich.", reason)
+	hud.lobby_ui.rejected(reason)     # bei anderer Spielversion mit Angebot der neueren Version (NetApk)
 
 func net_closed(reason: String) -> void:
 	# Gastgeber hat beendet oder die Verbindung ist weg: zurück ins Menü mit Hinweis.
@@ -1746,11 +1876,21 @@ func net_round_started(info: Dictionary) -> void:
 	world.draw_routes([], [])
 	var settings: Dictionary = info.settings
 	stage = int(settings.stage)
+	net_reported = -1
 	if track_id != str(settings.track):
-		load_track(str(settings.track))
+		request_track(str(settings.track))
 	apply_atmosphere()
 	world.visible = false
 	hud.lobby_ui.round_screen()
+	net_report_loaded()
+
+func net_report_loaded() -> void:
+	# „Geladen“ an den Gastgeber erst, wenn die Welt wirklich steht (sonst nach dem Bau aus _loaded); einmal je Runde.
+	if lobby == null or phase != "net_round" or net_round.is_empty() or not track_ready() or lobby.phase != "loading":
+		return
+	if net_reported == lobby.round_id:
+		return
+	net_reported = lobby.round_id
 	lobby.report_loaded(track.file_hash, track)
 
 func net_round_ready(info: Dictionary) -> void:
@@ -1762,6 +1902,7 @@ func net_begin_drawing() -> void:
 	# lobby.draw.draw_at (Host-Uhr), dann zeichnet jeder seine Linie; die der anderen bleiben bis zur Enthüllung verdeckt.
 	if lobby == null or lobby.draw == null:
 		return
+	finish_track_load()
 	var d: NetDraw = lobby.draw
 	d.notice.connect(hud.lobby_ui.toast)
 	d.rejected.connect(net_plan_rejected)
@@ -1836,6 +1977,7 @@ func net_plan_rejected(reason: String) -> void:
 
 func net_reveal() -> void:
 	# Alle Linien gleichzeitig in den Spielerfarben (auf allen Geräten zur selben Zeit), bis zur gemeinsamen Ampel.
+	finish_track_load()
 	paused = false
 	phase = "net_reveal"
 	pointer = -99
@@ -1854,6 +1996,7 @@ func net_begin_race() -> void:
 	# die Marionetten lobby.race.view mit derselben Verzögerung; die Ampel läuft nach der gemeinsamen Uhr. Ohne Rennen (sollte nicht
 	# vorkommen) bleibt die Enthüllung mit einem Hinweis stehen.
 	var r: NetRace = lobby.race if lobby != null else null
+	finish_track_load()
 	if r == null:
 		phase = "net_start"
 		hud.lobby_ui.start_screen()
@@ -1876,6 +2019,7 @@ func net_begin_race() -> void:
 	turbo_actions.clear()
 	result_record = false
 	result_won = false
+	net_music_won = false
 	field = r.view
 	me = maxi(0, r.my_index)
 	race_time = r.display_ticks() / 60.0
@@ -1938,6 +2082,9 @@ func net_finish() -> void:
 	var mine := r.row_of(me)
 	result_record = false
 	result_won = not mine.is_empty() and int(mine.rank) == 1 and not bool(mine.crashed) and bool(mine.get("in_time", true)) and r.my_index >= 0
+	# Musik der Wertung: alle hören dasselbe Stück (der Gastgeber entscheidet, die Mitspieler folgen) – Sieg-Stück, wenn ein Mensch
+	# gewonnen hat, Niederlage-Stück, wenn die KI vorn liegt (statt je Handy eigener Sieg/Niederlage-Klänge).
+	net_music_won = NetRace.human_won(r.rows, field)
 	hud.lobby_ui.net_results(r.rows)
 	if result_won and me < vehicles.size():
 		var v := vehicles[me]

@@ -11,7 +11,9 @@ extends Node
 # wählbar (zusammen höchstens 4 Autos), Berührungen abschaltbar, Drift-Arena ohne KI und ohne Berührungen.
 #
 # Nachrichten (zuverlässig, Kanal 0). Host → alle:
-#   lobby {rev, phase, round, settings {track, stage, ai, contacts}, players [{id, name, car, color, ready, host, away, loaded, ping}]}
+#   lobby {rev, phase, round, settings {track, stage, ai, contacts}, players [{id, name, car, color, ready, host, away, loaded, ping}],
+#          music {file, origin, fade}, guest_music}
+#   music {music {file, origin, fade}}                              neues Stück beim Gastgeber (sofort; sonst jede Sekunde im Zustand)
 #   start {round {id, settings, players [{id, name, car, color}], hash}}   Strecke laden, danach „loaded“ melden
 #   go {id, players, draw_at, now}                                  alle haben geladen → gemeinsames Zeichnen (M4, NetDraw) um draw_at
 #   back {id, reason}                                               zurück in die Lobby
@@ -24,9 +26,24 @@ extends Node
 # umgekehrter Zielreihenfolge (rematch) – ohne Bereit-Runde, alle laden sofort und zeichnen neu.
 #
 # WLAN-Bindung (Nutzerentscheidung 03.10.2026): Beim Betreten (enter) bindet sich das Spiel auf Android ans WLAN, beim Verlassen
-# (exit) wird gelöst, damit Update-Suche und Internet wieder gehen. Ausnahme: Eröffnet ein Handy mit eingeschaltetem eigenem Hotspot
-# das Spiel, bleibt es ungebunden – an ein Netz gebundene Sockets leitet Android nur über dessen Routing-Tabelle, und dort fehlt das
-# Hotspot-Netz der Mitspieler (Gerätetest offen). Die Bindung gilt nur für danach angelegte Sockets: erst binden, dann Sitzung/Suche.
+# (exit) wird gelöst, damit Update-Suche und Internet wieder gehen. Die Bindung gilt nur für danach angelegte Sockets: erst binden,
+# dann Sitzung/Suche. Eigener Hotspot (Gerätetest S24 Ultra 04.10.2026, NetAndroid.host_plan): Ein Gastgeber mit eingeschaltetem
+# Hotspot ist nie ans WLAN gebunden – gebundene Sockets leitet Android nur über die Routing-Tabelle des WLANs, dort fehlt das
+# Hotspot-Netz. Mit Hotspot und WLAN bleibt er ungebunden und erreicht Mitspieler in beiden Netzen; mit nur dem Hotspot bindet er sich
+# (ab Android 16, wo der Hotspot ein eigenes Netz ist) an den Hotspot, wie es im Gerätetest lief. Kommt nach dem Eröffnen ein Netz
+# dazu, das seine Bindung ausschließt, löst er sie, legt die Such-Sockets neu an und – solange noch niemand beigetreten ist – auch
+# den ENet-Host, sonst erscheint ein Hinweis; neu gebunden wird beim Gastgeber nie. Mitspieler binden sich weiter ans WLAN, außer der
+# Gastgeber liegt im eigenen Hotspot.
+#
+# Musik (Nutzerwunsch 04.10.2026): Alle Handys spielen dieselbe Musik. Die Musik des Gastgebers entscheidet (Stück, Musikstil,
+# Überblendungen an den gemessenen Punkten, nächstes Playlist-Stück); er verteilt Stück und Stelle 0 auf der gemeinsamen Uhr
+# (origin, µs Host-Uhr). Mitspieler spielen dasselbe Stück an derselben Stelle (sync_music → RaceSound.follow), auch nach spätem
+# Beitritt und nach dem Laden. Der Gastgeber kann die Musik bei allen Mitspielern für die Sitzung abschalten (guest_music,
+# music_muted); gespeichert wird davon nichts, nach der Sitzung gilt wieder die eigene Einstellung jedes Handys.
+#
+# Neuere Version weitergeben (Nutzerwunsch 04.10.2026, NetApk): Wird ein Beitritt wegen einer anderen Spielversion abgelehnt, darf die
+# Seite mit der älteren Version die APK der neueren übers WLAN holen (apk_offer, apk_fetch) – nie ein Downgrade. Die neuere Seite stellt
+# ihre Datei bereit (apk: ApkShare), bis der WLAN-Mehrspieler verlassen wird. Geprüft und installiert wird über den Updater.
 
 const Proto := preload("res://scripts/net/net_protocol.gd")
 const Session := preload("res://scripts/net/net_session.gd")
@@ -47,11 +64,13 @@ signal round_cancelled(reason: String)      # zurück in die Lobby
 signal custom_message(from: int, msg: Dictionary)   # andere Nachrichtentypen, from = Absender
 signal race_ready                           # alle Linien verteilt: race (NetRace) ist angelegt, Ampel um race.start_at
 signal log_line(text: String)
+signal apk_changed                          # Angebot oder Übertragung der neueren Version (NetApk) hat sich geändert
 
 const MAX_CARS := 4                         # Autos im Feld (Menschen + KI), wie im Einzelspieler
 const STATE_INTERVAL_MS := 1000             # Host verteilt den Zustand (mit Ping) mindestens so oft
 const STATUS_INTERVAL_MS := 2000            # Netzstatus neu lesen (WLAN später verbunden? dann binden)
 const PHASES := ["lobby", "loading", "ready"]
+const APK_ROUND_RATE := 2 * 1048576         # Gastgeber in einer laufenden Runde: Weitergabe gedrosselt (Schnappschüsse haben Vorrang)
 
 # Vorgaben (Tests setzen sie über overrides, bevor die Lobby entsteht)
 static var overrides := {}                  # Feldname -> Wert, z. B. Ports, probe_local, use_broadcast, use_binding, log_path
@@ -112,6 +131,25 @@ var _free_when_closed := false
 var _track_hashes := {}
 var _timeouts := "normal"                   # gerade gesetzte ENet-Zeitgrenze: normal | load
 var _bind_wifi := ""                        # Handle des WLANs, für das zuletzt gebunden (bzw. die Bindung versucht) wurde
+var _host_sockets := ""                     # Gastgeber: Bindung, mit der der ENet-Host entstand ("wifi", "hotspot", "" = ungebunden)
+var _beacon_sockets := ""                   # Gastgeber: ebenso für den Such-/Ankündigungs-Socket
+var guest_music := true                     # Musik bei den Mitspielern (Gastgeber stellt ein, gilt nur für diese Sitzung)
+var music := {}                             # Musik des Gastgebers {file, origin (Host-Uhr, µs, Stelle 0), fade}; Mitspieler: zuletzt empfangen
+var _music_sent := ""                       # Gastgeber: zuletzt sofort verteilter Einsatz („Datei#Nummer“)
+var _join_unanswered := ""                  # Beitritt: Name des Spiels, das nur per Ankündigung zu sehen war (Antworten kamen nie an)
+# Neuere Version weitergeben (NetApk)
+var apk = null                              # Quelle der eigenen APK (ApkShare: available, can_receive, offer, prepare_hash, want_file,
+                                            # file_ready, file_path, release_file); null = keine Weitergabe
+var apk_port := NetApk.PORT                 # eigener Dateidienst (Tests: eigene Ports)
+var apk_dir := "user://updates"             # Ziel geholter APKs (wie Updater.DIR; Tests: eigener Ordner je Prozess)
+var apk_rate := 0                           # nur Tests: Sendetempo begrenzen (Bytes/s, NetApk.max_rate)
+var apk_corrupt := -1                       # nur Tests: ein Byte verfälscht senden (NetApk.corrupt_at)
+var transfer := NetApk.new()
+var apk_offer := {}                         # neuere Version beim anderen Gerät: {version, name, address, port, size, sha256, from: host|guest}
+var apk_pull := {}                          # Mitspieler: der ältere Gastgeber darf die eigene Version holen {version, name}
+var _apk_serve := false                     # eigene Datei bereitstellen (Dienst läuft, Datei folgt, sobald sie bereit ist)
+var _apk_sig := ""
+var _apk_emit_ms := 0
 
 func _init() -> void:
 	for key in overrides:
@@ -138,10 +176,16 @@ func _init() -> void:
 	session.log_line.connect(func(t): _log("ENet: " + t))
 	discovery.log_line.connect(func(t): _log("Suche: " + t))
 	discovery.games_changed.connect(func(): games_changed.emit())
+	session.reject_hook = _reject_extra
+	transfer.log_line.connect(func(t): _log("APK: " + t))
 
 func _process(_delta: float) -> void:
 	if auto_poll:
 		poll()
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE and transfer != null:
+		transfer.close()     # Threads der Weitergabe (NetApk) nie offen zurücklassen
 
 # ---------- Reine Regeln (auch für Tests und M4) ----------
 static func _int(value, fallback: int) -> int:
@@ -195,6 +239,8 @@ func start_problem() -> String:
 		return "Nur der Gastgeber startet das Rennen."
 	if phase != "lobby":
 		return "Das Rennen läuft schon."
+	if transfer.fetching():
+		return "Die neue Version wird gerade geholt – erst abwarten oder abbrechen."
 	var clients := players.filter(func(p): return not p.host)
 	if clients.is_empty():
 		return "Warte auf Mitspieler – sie tippen „Beitreten“."
@@ -273,7 +319,10 @@ func enter(player_name: String, car: int) -> void:
 		Proto.physics_version(), OS.get_name(), OS.get_model_name(), player_name])
 	if android_api.available():
 		_log("Multicast-Sperre: %s" % ("gehalten" if android_api.multicast(true) else "FEHLER (Berechtigung?)"))
-	_bind(false)
+		_log_net(android_api.state())
+	if apk != null and apk.available():
+		apk.prepare_hash()     # Prüfsumme der eigenen APK für ein mögliches Angebot (einmal je Version)
+	_bind("search")
 	refresh_status()
 
 func exit() -> void:
@@ -281,6 +330,12 @@ func exit() -> void:
 	leave()
 	discovery.stop()
 	mode = ""
+	transfer.close()               # Empfang abbrechen, Dateidienst beenden
+	_apk_serve = false
+	apk_offer = {}
+	apk_pull = {}
+	if apk != null:
+		apk.release_file()
 	if android_api.available() and (bound or android_api.is_bound()):
 		_log("WLAN-Bindung gelöst: %s" % ("ja" if android_api.unbind() else "FEHLER"))
 	bound = false
@@ -302,16 +357,30 @@ func dispose() -> void:
 func refresh_status() -> void:
 	_next_status_ms = Time.get_ticks_msec() + STATUS_INTERVAL_MS
 	var raw := _net_state()
+	if mode == "host" and _host_frees(raw):
+		raw = _net_state()
 	var addresses: Array = []
 	for i in raw.get("interfaces", []):
 		if i is Dictionary:
 			addresses.append(str(i.get("address", "")))
 	if bool(raw.get("android", false)):
 		bound = Android.bound_to_wifi(raw)    # gebunden zählt nur, wenn das gebundene Netz das verbundene WLAN ist
-	var fresh := {"android": bool(raw.get("android", false)), "wifi": Android.wifi_connected(raw), "hotspot": Android.hotspot_addresses(raw),
-		"bound": bound, "problem": bind_problem, "addresses": addresses, "gateway": Android.wifi_gateway(raw)}
+	# Erreichbarkeit und Hinweis: beim Gastgeber so, wie seine Sockets tatsächlich entstanden sind, sonst als Vorschau fürs Eröffnen.
+	var plan := Android.host_plan(raw, (_host_sockets if _host_sockets != "" else _beacon_sockets) if mode == "host" else null)
+	var fresh := {"android": bool(raw.get("android", false)), "wifi": Android.wifi_connected(raw), "hotspot": plan.hotspot, "wlan": plan.wlan,
+		"bound": bound, "problem": bind_problem, "addresses": addresses, "gateway": Android.wifi_gateway(raw), "reach": plan.reach,
+		"hint": plan.hint, "warn": plan.warn}
 	var wifi := Android.wifi_handle(raw)
-	if mode == "search" and use_binding and android_api.available() and wifi != "" and wifi != _bind_wifi:
+	var fetching := transfer.fetching()        # Holen der neueren Version: Bindung nicht umwerfen (der Socket hängt an ihr)
+	if mode == "search" and not fetching and use_binding and android_api.available() and wifi == "" and raw.get("bound") is Dictionary and not Android.bound_to_wifi(raw):
+		# Kein WLAN mehr, die Bindung zeigt aber noch auf das verlorene Netz (oder den eigenen Hotspot): neue Sockets gingen ins Leere –
+		# lösen und ungebunden weitersuchen (z. B. ein Spiel im eigenen Hotspot).
+		_log("Kein WLAN mehr – löse die alte Bindung und suche neu")
+		status = fresh
+		search()
+		status_changed.emit()
+		return
+	if mode == "search" and not fetching and use_binding and android_api.available() and wifi != "" and wifi != _bind_wifi:
 		# Anderes WLAN als beim letzten Binden: erst jetzt verbunden (Nutzer kam aus den Einstellungen zurück) oder gewechselt (Heim-WLAN →
 		# Hotspot des Gastgebers). Die alte Bindung zeigte sonst auf ein verlorenes Netz – neu binden und mit neuer Bindung weitersuchen.
 		# Nur einmal je WLAN: Scheitert die Bindung, bleibt es beim Hinweis (keine Suche im Zwei-Sekunden-Takt).
@@ -329,36 +398,119 @@ func refresh_status() -> void:
 func _net_state() -> Dictionary:
 	return forced_status if not forced_status.is_empty() else android_api.state()
 
-func _bind(for_host: bool) -> void:
+func _log_net(raw: Dictionary) -> void:
+	# Netzlage ins Geräteprotokoll (für den nächsten Gerätetest: Netze, Hotspot, Bindung).
+	_log("Netz: " + " | ".join(Android.summary(raw)))
+
+func _host_frees(raw: Dictionary) -> bool:
+	# Gastgeber: Die Bindung seiner Sockets schließt ein inzwischen vorhandenes Netz aus – ans WLAN gebunden und der eigene Hotspot ging
+	# an, oder an den Hotspot gebunden und ein WLAN kam dazu (NetAndroid.host_frees). Dann ungebunden weiter, nie neu binden: Bindung
+	# lösen, Ankündigung mit neuem, ungebundenem Socket fortsetzen und – solange niemand beigetreten ist und keine Runde läuft – auch den
+	# ENet-Host neu anlegen. Sind schon Mitspieler da, bleibt deren Verbindung; der Hinweis (host_plan) bittet ums Neueröffnen, und sobald
+	# alle weg sind, wird neu angelegt. true = Bindung oder Sockets geändert.
 	if not use_binding or not android_api.available():
-		return
+		return false
+	if not Android.host_frees(raw, _host_sockets) and not Android.host_frees(raw, _beacon_sockets):
+		return false
+	var changed := false
+	if raw.get("bound") is Dictionary:
+		_log("Netz kam dazu (Hotspot %s, WLAN %s) – Gastgeber löst die Bindung: %s" % [", ".join(Android.hotspot_addresses(raw)),
+			", ".join(Android.wifi_addresses(raw)), "ja" if android_api.unbind() else "FEHLER"])
+		bound = false
+		changed = true
+		_log_net(raw)
+	if _beacon_sockets != "":
+		_beacon_sockets = ""
+		discovery.restart_host()
+		changed = true
+	if _host_sockets != "" and session.peers.is_empty() and phase == "lobby" and session.enet != null:
+		var err := session.host(session.my_name, game_port)
+		if err != OK:
+			_log("ENet-Host ließ sich nicht neu anlegen (%s) – Spiel beendet" % error_string(err))
+			mode = ""
+			discovery.stop()
+			closed.emit("Das Spiel ließ sich nach dem Netzwechsel nicht neu eröffnen. Bitte neu eröffnen.")
+			return true
+		_host_sockets = ""
+		changed = true
+		_log("ENet-Host ungebunden neu angelegt – jetzt für Mitspieler im WLAN und im Hotspot erreichbar")
+	return changed
+
+func _only_announced(address: String) -> String:
+	# Beitritt: Name des Spiels an address, wenn es bisher nur über seine Ankündigung zu sehen war, auf mindestens drei Suchanfragen aber
+	# nie eine Antwort kam – dann kann der Gastgeber uns nicht erreichen (Gerätetest S24: gebunden ans Heim-WLAN, Mitspieler im Hotspot).
+	for g in discovery.games.values():
+		var via: Dictionary = g.get("via", {})
+		if (g.get("addresses", []) as Array).has(address) and int(via.get("beacon", 0)) >= 3 and via.keys().all(func(k): return k == "beacon"):
+			return str(g.get("name", "?"))
+	return ""
+
+func _bind(purpose: String, address := "") -> String:
+	# Bindung vor dem Anlegen neuer Sockets. purpose: "search" (WLAN-Bildschirm), "join" (Beitritt zu address), "host" (Eröffnen).
+	# Ergebnis: woran die gleich entstehenden Sockets gebunden sind – "wifi", "hotspot" (Android 16: das Netz des eigenen Hotspots) oder "".
+	if not use_binding or not android_api.available():
+		return ""
 	var raw: Dictionary = android_api.state()
 	_bind_wifi = Android.wifi_handle(raw)
-	if for_host and not Android.hotspot_addresses(raw).is_empty():
-		if raw.get("bound") is Dictionary:
-			_log("Eigener Hotspot an – Gastgeber löst die WLAN-Bindung (Hotspot-Mitspieler sonst unerreichbar): %s" % ("ja" if android_api.unbind() else "FEHLER"))
+	var spots := Android.hotspot_addresses(raw)
+	var target := "wifi"
+	var why := ""
+	if purpose == "host" and not spots.is_empty():
+		target = Android.host_plan(raw).bind
+		why = "Eigener Hotspot an (%s)%s" % [", ".join(spots), " und WLAN %s" % ", ".join(Android.wifi_addresses(raw)) if _bind_wifi != "" else ""]
+	elif purpose == "join" and Android.in_hotspot(raw, address):
+		target = Android.join_binding(raw, address)
+		why = "Gastgeber %s liegt im eigenen Hotspot" % address
+	if target == "hotspot":
+		# Nur der eigene Hotspot, und Android führt ihn als Netz (ab Android 16): daran binden – so lief es im Gerätetest.
+		var problem: String = android_api.bind_network(Android.hotspot_handle(raw))
 		bound = false
 		bind_problem = ""
-		return
+		if problem == "":
+			_log("%s – an den eigenen Hotspot gebunden" % why)
+			_log_net(raw)
+			return "hotspot"
+		_log("%s – Bindung an den Hotspot nicht möglich (%s), bleibe ungebunden" % [why, problem])
+		target = ""
+	if target == "":
+		var was_bound: bool = raw.get("bound") is Dictionary
+		var ok: bool = android_api.unbind() if was_bound else true
+		_log("%s – ungebunden%s%s" % [why, " (Mitspieler im Hotspot und im WLAN)" if purpose == "host" and _bind_wifi != "" else "",
+			(", Bindung gelöst: %s" % ("ja" if ok else "FEHLER")) if was_bound else ""])
+		bound = false
+		bind_problem = ""
+		_log_net(raw)
+		return ""
 	if Android.bound_to_wifi(raw):
 		bound = true
 		bind_problem = ""
-		return
+		return "wifi"
 	if raw.get("bound") is Dictionary:
-		# Gebunden an ein Netz, das nicht (mehr) das verbundene WLAN ist – z. B. das Heim-WLAN nach dem Wechsel in den Hotspot.
+		# Gebunden an ein Netz, das nicht (mehr) das verbundene WLAN ist – z. B. das Heim-WLAN nach dem Wechsel in den Hotspot oder (Android
+		# 16) der eigene Hotspot. Ohne WLAN wird nur gelöst.
 		var old: Dictionary = raw.bound
-		_log("Bindung zeigt auf ein verlorenes Netz (%s, %s) – binde neu" % [str(old.get("handle", "?")), str(old.get("transport", "?"))])
+		_log("Bindung zeigt auf ein verlorenes Netz oder den eigenen Hotspot (%s, %s) – %s" % [str(old.get("handle", "?")),
+			str(old.get("transport", "?")), "binde neu" if _bind_wifi != "" else "löse sie"])
+		if _bind_wifi == "":
+			android_api.unbind()
+	if _bind_wifi == "":
+		bound = false
+		bind_problem = "Kein WLAN verbunden."
+		_log("An WLAN binden: nicht möglich – kein WLAN verbunden")
+		_log_net(raw)
+		return ""
 	var problem: String = android_api.bind_wifi()
 	bound = problem == ""
 	bind_problem = problem
 	_log("An WLAN binden: %s" % ("gebunden" if bound else "nicht möglich – " + problem))
+	return "wifi" if bound else ""
 
 # ---------- Suchen, Beitreten, Eröffnen ----------
 func search() -> void:
 	# WLAN-Bildschirm: Spiele suchen (Rundruf, Ankündigung, Gateway-Probe; eingetippte Adressen zusätzlich). Bindet vorher neu, falls
 	# die Bindung nicht (mehr) zum verbundenen WLAN passt; neue Such-Sockets entstehen danach mit der neuen Bindung.
 	leave()
-	_bind(false)
+	_bind("search")
 	var raw := _net_state()
 	discovery.gateway = Android.wifi_gateway(raw)
 	discovery.clear_games()
@@ -368,15 +520,21 @@ func search() -> void:
 
 func join(address: String, port := -1) -> Error:
 	# Beitreten. Ergebnis kommt als joined (angenommen) oder failed(Grund).
+	_join_unanswered = _only_announced(address)
 	leave()
 	discovery.stop()
-	_bind(false)
+	_bind("join", address)
 	mode = "join"
 	_reset_round()
 	players.clear()
 	close_reason = ""
 	session.track_hash = tracks_hash(tracks)
 	session.hello_override = hello_override
+	var mine := own_offer()
+	session.hello_extra = {"apk": mine} if not mine.is_empty() else {}
+	if not transfer.fetching() and str(apk_offer.get("from", "")) == "host":
+		apk_offer = {}
+	apk_pull = {}
 	# Scheitert schon das Anlegen, meldet _on_state() das als failed (Zustand „closed“).
 	return session.join(address, port if port > 0 else game_port, my_name)
 
@@ -388,7 +546,8 @@ func host(track_id: String, stage: int) -> Error:
 	# Spiel eröffnen: ENet-Host und Ankündigung; Einstellungen beginnen mit Strecke und Herausforderung des Menüs.
 	leave()
 	discovery.stop()
-	_bind(true)
+	_host_sockets = _bind("host")  # ENet- und Such-Sockets entstehen gleich mit dieser Bindung
+	_beacon_sockets = _host_sockets
 	session.track_hash = tracks_hash(tracks)
 	session.check_track = true
 	session.join_block = ""
@@ -424,8 +583,16 @@ func leave() -> void:
 	players.clear()
 	_reset_round()
 	_ping.clear()
+	if transfer.fetching():
+		transfer.cancel_fetch()       # Holen der neueren Version endet mit dem Verlassen
+		apk_changed.emit()
 
 func _reset_round() -> void:
+	# Auch Beginn und Ende einer Sitzung (host, leave, Verbindung weg): Musik des Gastgebers und seine Musikvorgabe vergessen.
+	if mode == "":
+		music = {}
+		_music_sent = ""
+		guest_music = true
 	phase = "lobby"
 	current_round = {}
 	draw = null
@@ -687,6 +854,7 @@ func poll() -> void:
 		draw.poll()
 	if race != null:
 		race.poll()
+	_apk_poll()
 	_apply_timeouts()
 	if _free_when_closed and session.enet == null:
 		_free_when_closed = false
@@ -724,7 +892,55 @@ func _broadcast() -> void:
 	changed.emit()
 
 func state_message() -> Dictionary:
-	return {"t": "lobby", "rev": rev, "phase": phase, "round": round_id, "settings": settings.duplicate(), "players": players.duplicate(true)}
+	return {"t": "lobby", "rev": rev, "phase": phase, "round": round_id, "settings": settings.duplicate(), "players": players.duplicate(true),
+		"music": music.duplicate(), "guest_music": guest_music}
+
+# ---------- Musik (alle hören dasselbe) ----------
+func set_guest_music(on: bool) -> void:
+	# Gastgeber: Musik bei allen Mitspielern an/aus – jederzeit während der Sitzung, ohne Bereit zurückzusetzen.
+	if mode == "host" and on != guest_music:
+		guest_music = on
+		_log("Musik bei den Mitspielern: %s" % ("an" if on else "aus"))
+		_broadcast()
+
+func music_muted() -> bool:
+	# Mitspieler: Der Gastgeber hat die Musik der Mitspieler abgeschaltet (nur für die Sitzung, der Spielstand bleibt unberührt).
+	return mode == "join" and is_joined and not guest_music
+
+func publish_music(state: Dictionary) -> void:
+	# Gastgeber, je Bild: Stück und Stelle 0 (RaceSound.music_state, lokale Uhr = Host-Uhr). Ein neuer Einsatz geht sofort an alle, sonst
+	# reist die frische Stelle jede Sekunde im Zustand mit (Nachführen, später Beitritt).
+	if mode != "host" or state.is_empty():
+		return
+	music = {"file": str(state.file), "origin": int(state.origin), "fade": float(state.get("fade", 1.5))}
+	var key := "%s#%d" % [music.file, int(state.get("n", 0))]
+	if key != _music_sent and session.is_ready():
+		_music_sent = key
+		session.send_all({"t": "music", "music": music.duplicate()})
+		_log("Musik: %s" % music.file)
+
+func _take_music(m) -> void:
+	# Mitspieler: Musik des Gastgebers aus einer Nachricht (nur Name und Zahlen; gespielt werden nur Stücke aus der eigenen Liste).
+	if not m is Dictionary or not m.get("file") is String or not m.get("origin") is int:
+		return
+	var f = m.get("fade")
+	music = {"file": str(m.file).left(200), "origin": int(m.origin), "fade": clampf(float(f), 0.0, 6.0) if (f is float or f is int) else 1.5}
+
+func sync_music(sound: RaceSound) -> void:
+	# Je Bild (main.gd, lobby_cli.gd): Gastgeber führt, Mitspieler folgen auf der gemeinsamen Uhr (Host-Zeit → eigene Uhr), sonst eigene
+	# Playlist. Mitspieler folgen erst mit abgeglichener Uhr (nach etwa 1 s), bis dahin läuft ihre eigene Musik weiter.
+	if sound == null:
+		return
+	if mode == "host":
+		sound.set_net_role("lead")
+		publish_music(sound.music_state())
+	elif mode == "join" and is_joined:
+		sound.set_net_role("follow")
+		if not music.is_empty() and session.clock_synced():
+			var to_local := Time.get_ticks_usec() - session.host_time_usec()
+			sound.follow(str(music.file), int(music.origin) + to_local, float(music.fade))
+	else:
+		sound.set_net_role("")
 
 func _smooth_ping(id: int, s: Dictionary) -> void:
 	if s.is_empty() or int(s.get("received", 0)) == 0 or float(s.get("rtt_ms", -1.0)) < 0.0:
@@ -742,6 +958,7 @@ func _on_state(state: String, text: String) -> void:
 		"closed", "rejected":
 			if state == "rejected":
 				_log("Abgelehnt: " + text)
+				_apk_after_reject()
 			if session.enet == null or state == "rejected":
 				var was_joined := is_joined
 				var reason := close_reason if close_reason != "" else text
@@ -753,6 +970,10 @@ func _on_state(state: String, text: String) -> void:
 					# Kein Grund vom Gastgeber (keine Ablehnung, kein „close“): Netz weg, Gastgeber abgestürzt oder nicht erreichbar.
 					reason = "Die Verbindung zum Gastgeber ist abgebrochen." if was_joined else \
 						"Keine Verbindung zum Gastgeber (%s). Seid ihr im selben WLAN – oder im Hotspot des Gastgebers?" % session.host_address
+					if not was_joined and _join_unanswered != "":
+						# Der Gastgeber kündigt sich an (der Rundruf geht über jede Schnittstelle), seine Antworten kommen aber nie an.
+						reason = ("„%s“ ist zu sehen, antwortet aber nicht. Hat der Gastgeber seinen Hotspot und zugleich ein WLAN an? Dann soll er " +
+							"dort das WLAN ausschalten und das Spiel neu eröffnen.") % _join_unanswered
 				if was_joined:
 					_log("Sitzung beendet: %s (%s)" % [reason, text])
 					closed.emit(reason)
@@ -881,6 +1102,8 @@ func _client_message(msg: Dictionary) -> void:
 						q[key] = own[key]       # eigener Wunsch noch unbestätigt
 			players = list
 			settings = clean_settings(msg.settings, players.size(), tracks)
+			_take_music(msg.get("music"))
+			guest_music = _bool(msg.get("guest_music"), true)
 			rev = _int(msg.get("rev"), rev)
 			var p := str(msg.get("phase", "lobby"))
 			phase = p if p in PHASES else "lobby"
@@ -924,9 +1147,14 @@ func _client_message(msg: Dictionary) -> void:
 				var reason := str(msg.get("reason", "")).left(200)
 				_log("Zurück in die Lobby%s" % (": " + reason if reason != "" else ""))
 				round_cancelled.emit(reason)
+		"music":
+			_take_music(msg.get("music"))
 		"close":
 			close_reason = str(msg.get("reason", "Der Gastgeber hat das Spiel beendet.")).left(200)
 			_log("Gastgeber beendet: " + close_reason)
+			# Sofort schließen statt auf die ENet-Trennung zu warten: Hing der Gastgeber danach (früher: Strecke laden am Stück), kam sie
+			# erst nach der Zeitgrenze (bis 45 s beim Laden) – so lange blieb der Mitspieler in der Lobby stehen (Gerätetest 04.10.2026).
+			session.close(close_reason)
 		_:
 			if race != null and str(msg.t).begins_with("race_"):
 				race.on_message(1, msg)
@@ -934,6 +1162,124 @@ func _client_message(msg: Dictionary) -> void:
 				draw.on_message(1, msg)
 			else:
 				custom_message.emit(1, msg)
+
+# ---------- Neuere Version weitergeben (NetApk) ----------
+func own_version() -> String:
+	# Eigene Spielversion, wie sie die Anmeldung meldet (Tests ersetzen sie über hello_override).
+	return str(hello_override.get("game", Proto.game_version()))
+
+func own_offer() -> Dictionary:
+	# Angebot der eigenen APK {size, sha256, port}, {} solange die Prüfsumme fehlt (oder ohne Weitergabe, z. B. am PC).
+	if apk == null or not apk.available():
+		return {}
+	var o: Dictionary = apk.offer()
+	if o.is_empty():
+		return {}
+	o["port"] = apk_port
+	return o
+
+func apk_role_for(version: String) -> String:
+	# Gefundenes Spiel mit anderer Version: "fetch" (dort neuer, holen möglich), "give" (dort älter, eigene Version weitergeben), "".
+	if apk == null or version == own_version():
+		return ""
+	if NetApk.newer(version, own_version()) and apk.can_receive():
+		return "fetch"
+	if NetApk.newer(own_version(), version) and apk.available():
+		return "give"
+	return ""
+
+func _reject_extra(peer_id: int, problem: Dictionary, hello: Dictionary) -> Dictionary:
+	# Gastgeber, NetSession.reject_hook: Zusatz zur Ablehnung bei anderer Spielversion (NetApk.host_decision).
+	var d := NetApk.host_decision(str(problem.get("code", "")), own_version(), hello, own_offer(), apk != null and apk.can_receive())
+	if d.extra.is_empty():
+		return {}
+	d.extra["name"] = session.my_name
+	if d.serve:
+		_log("Ablehnung mit Angebot: Version %s für „%s“ (Version %s)" % [own_version(), Proto.clean_name(str(hello.get("name", ""))), str(hello.get("game", "?"))])
+		_want_serve()
+	if not d.offer.is_empty() and not transfer.fetching():
+		var offer: Dictionary = d.offer
+		offer["address"] = str(session.peers.get(peer_id, {}).get("address", ""))
+		offer["from"] = "guest"
+		if apk_offer.is_empty() or apk_offer.get("sha256") != offer.sha256:
+			apk_offer = offer
+			transfer.reset_fetch()
+			_log("„%s“ hat die neuere Version %s – sie lässt sich von %s:%d holen" % [offer.name, offer.version, offer.address, offer.port])
+			notice.emit("%s hat die neuere Version %s." % [offer.name, offer.version])
+			apk_changed.emit()
+	return d.extra
+
+func _apk_after_reject() -> void:
+	# Mitspieler: Ablehnung des Gastgebers auswerten (NetApk.guest_decision) – neuere Version holen oder die eigene bereitstellen.
+	var d := NetApk.guest_decision(session.reject_code, own_version(), session.reject_extra, not own_offer().is_empty(), apk != null and apk.can_receive())
+	if not d.offer.is_empty() and not transfer.fetching():
+		var offer: Dictionary = d.offer
+		offer["address"] = session.host_address
+		offer["from"] = "host"
+		apk_offer = offer
+		transfer.reset_fetch()
+		_log("Gastgeber hat die neuere Version %s – Angebot %s:%d, %d Byte" % [offer.version, offer.address, offer.port, offer.size])
+		apk_changed.emit()
+	elif d.serve:
+		apk_pull = {"version": d.host_version, "name": d.host_name}
+		_log("Gastgeber „%s“ hat die ältere Version %s – stelle die eigene bereit" % [d.host_name, d.host_version])
+		_want_serve()
+		apk_changed.emit()
+
+func _want_serve() -> void:
+	_apk_serve = true
+	apk.want_file()
+	if not transfer.serving():
+		transfer.max_rate = apk_rate
+		transfer.corrupt_at = apk_corrupt
+		var err := transfer.serve(apk_port)
+		_log("Dateidienst auf Port %d: %s" % [apk_port, "läuft" if err == OK else "nicht möglich (%s)" % error_string(err)])
+	_apk_poll()
+
+func apk_fetch() -> bool:
+	# Angebotene neuere Version holen (Fortschritt: transfer.progress(), apk_changed). Mitspieler binden sich dafür wie beim Beitritt
+	# zu diesem Gastgeber; ein Gastgeber bindet sich nie neu (seine Bindung erreicht seine Mitspieler schon).
+	if apk_offer.is_empty() or transfer.fetching():
+		return false
+	if mode != "host" and str(apk_offer.get("from", "")) == "host":
+		_bind("join", str(apk_offer.address))
+	transfer.fetch(str(apk_offer.address), int(apk_offer.port), int(apk_offer.size), str(apk_offer.sha256), apk_dir)
+	_log("Hole Version %s von „%s“ (%s:%d, %s MB)" % [apk_offer.version, apk_offer.name, apk_offer.address, apk_offer.port, NetApk.megabytes(int(apk_offer.size))])
+	apk_changed.emit()
+	return true
+
+func apk_cancel() -> void:
+	if transfer.fetching():
+		transfer.cancel_fetch()
+		_log("Holen der neuen Version abgebrochen")
+		apk_changed.emit()
+
+func apk_dismiss() -> void:
+	# Angebot verwerfen („Später“); ein laufendes Holen bleibt davon unberührt.
+	if not transfer.fetching() and not apk_offer.is_empty():
+		apk_offer = {}
+		transfer.reset_fetch()
+		apk_changed.emit()
+
+func _apk_poll() -> void:
+	transfer.poll()
+	var cap := apk_rate if mode != "host" or phase == "lobby" else (mini(apk_rate, APK_ROUND_RATE) if apk_rate > 0 else APK_ROUND_RATE)
+	if transfer.max_rate != cap:
+		transfer.max_rate = cap
+	if apk != null and apk.has_method("poll"):
+		apk.poll()
+	if _apk_serve and not transfer.has_file() and apk != null and apk.file_ready():
+		var o: Dictionary = apk.offer()
+		transfer.set_file(apk.file_path(), int(o.size), str(o.sha256))
+		_log("Datei bereit zum Senden: %s (%s MB)" % [apk.file_path().get_file(), NetApk.megabytes(int(o.size))])
+	var p := transfer.progress_raw()
+	var st := transfer.stats()
+	var sig := "%s|%s|%d|%d|%d" % [p.get("state", ""), p.get("error", ""), int(st.served), int(st.aborted), int(st.sending)]
+	var now := Time.get_ticks_msec()
+	if sig != _apk_sig or ((transfer.fetching() or int(st.sending) > 0) and now >= _apk_emit_ms):
+		_apk_sig = sig
+		_apk_emit_ms = now + 200
+		apk_changed.emit()
 
 func _log(text: String) -> void:
 	if netlog != null:

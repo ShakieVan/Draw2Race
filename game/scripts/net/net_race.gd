@@ -726,6 +726,16 @@ static func drift_limit_for(circuit: Circuit) -> float:
 			break
 	return maxf(30.0, bot.finish_time * 1.4)
 
+static func human_won(result_rows: Array, f: RaceField) -> bool:
+	# Gemeinsame Musik der Wertung (Gastgeber entscheidet für alle): Platz 1 gehört einem Menschen (nicht abgestürzt, im Drift im
+	# Zeitlimit) → Sieg-Stück, sonst Niederlage-Stück.
+	if f == null:
+		return false
+	for row in result_rows:
+		if int(row.rank) == 1 and not bool(row.crashed) and bool(row.get("in_time", true)) and f.is_human(int(row.index)):
+			return true
+	return false
+
 static func rank_rows(cars: Array, drift_mode: bool, limit: float, gone_map := {}) -> Array:
 	# Wertung aller Autos wie main.sorted_results (Zielzeit, sonst Fortschritt, Ausgeschiedene hinten) bzw. im Drift wie
 	# main.party_rows (im Zeitlimit im Ziel vor allen anderen, dann Punkte). Gleiche Zeit/Punkte = gleicher Platz.

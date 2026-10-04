@@ -53,13 +53,14 @@ public final class Updater {
             PackageManager pm = activity.getPackageManager();
             PackageInfo installed = pm.getPackageInfo(activity.getPackageName(), PackageManager.GET_SIGNING_CERTIFICATES);
             PackageInfo candidate = pm.getPackageArchiveInfo(path, PackageManager.GET_SIGNING_CERTIFICATES);
-            if (candidate == null) return "APK nicht lesbar";
-            if (!activity.getPackageName().equals(candidate.packageName)) return "Falsches Paket";
-            if (candidate.getLongVersionCode() <= installed.getLongVersionCode()) return "Keine neuere Version";
-            if (!version.equals(candidate.versionName)) return "Versionsangabe passt nicht";
+            if (candidate == null) return "APK nicht lesbar (Datei beschädigt?)";
+            if (!activity.getPackageName().equals(candidate.packageName)) return "Falsches Paket – die Datei ist nicht Draw2Race";
+            if (candidate.getLongVersionCode() <= installed.getLongVersionCode()) return "Keine neuere Version (eine ältere wird nie installiert)";
+            if (!version.equals(candidate.versionName)) return "Versionsangabe passt nicht zur Datei";
+            if (candidate.signingInfo == null) return "Signatur passt nicht – die Datei ist nicht signiert";
             Set<Signature> current = new HashSet<>(Arrays.asList(installed.signingInfo.getApkContentsSigners()));
             Set<Signature> incoming = new HashSet<>(Arrays.asList(candidate.signingInfo.getApkContentsSigners()));
-            if (current.isEmpty() || !current.equals(incoming)) return "Signatur passt nicht";
+            if (current.isEmpty() || !current.equals(incoming)) return "Signatur passt nicht – die Datei stammt nicht vom Draw2Race-Projekt oder wurde verändert";
             return "";
         } catch (Exception e) {
             return "Prüfung fehlgeschlagen: " + e.getMessage();

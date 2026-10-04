@@ -182,6 +182,7 @@ func handover() -> void:
 		app.sound.click()
 		app.party_draw())
 	shade.add_child(tap)
+	hud.gate(tap)        # Strecke lädt noch: Tippen startet das Zeichnen erst danach
 	var card := hud.panel(shade, Rect2((Vector2(1440, 900) - Vector2(640, 600)) * 0.5 + hud.content.position, Vector2(640, 600)))
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var stripe := Panel.new()
@@ -211,6 +212,8 @@ func handover() -> void:
 	go.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var go_text := hud.label(go, "Tippen, wenn du das Handy hast", Vector2(0, 16), 24, Color.WHITE if pt.color(k).get_luminance() < 0.6 else INK, 572)
 	go_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	go_text.name = "HandoverGo"
+	hud.gate(go_text)
 	hud.label(card, "Die Linien der anderen bleiben verdeckt, bis alle gezeichnet haben.", Vector2(34, 520), 15, MUTED, 572)
 	card_shown_at = Time.get_ticks_msec()
 

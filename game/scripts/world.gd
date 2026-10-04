@@ -19,6 +19,158 @@ var atmosphere: Atmosphere
 var main_road_color := Color("394950")    # Farbe der Hauptfahrbahn (Thema "road" oder Standard je Belag); Abkürzungen gleichen Belags übernehmen sie
 var shape_dy := 0.0     # Höhenversatz für Klötzchen-Ersatz eines Laufzeit-Bauteils (build_prop: Bodenhöhe des Dioramas, siehe diorama_ground_y)
 
+# ---------- Bau in Zeitscheiben (Laden im Hintergrund, main.gd request_track) ----------
+# build_async() baut dieselbe Welt in derselben Reihenfolge wie build(), legt aber nach slice_usec Rechenzeit eine Pause bis zum
+# nächsten Bild ein (Signal resume, je Bild vom Lader). Das große Diorama-Modell lädt ein Arbeitsfaden, die Lichtkarte rechnet LightBake
+# parallel. build() ist derselbe Bau am Stück (slice_usec 0: keine Pause, Laden und Lichtkarte blockierend). finish_now() stellt einen
+# laufenden Bau sofort fertig. aborted: andere Strecke gewählt – der Bau endet an der nächsten Pause (die Welt wird danach abgerissen).
+signal resume
+signal finished
+var slice_usec := 0
+var aborted := false
+var built := false
+var building := false
+var _slice_from := 0
+var longest_step := 0               # längste Rechenzeit am Stück im Hintergrund (µs; Messung tests/load_stall.gd)
+var _light_job: LightBake
+static var _unclaimed: Array = []   # Ladeaufträge abgebrochener Bauten: abholen, sobald fertig (reap)
+
+func _pause() -> bool:
+	# Haltepunkt: Pause bis zum nächsten Bild, wenn die Zeitscheibe verbraucht ist. true = abgebrochen (Bau sofort beenden). Nach einem
+	# Abbruch nie mehr warten: niemand stößt diese Welt mehr an, der Bau hinge sonst für immer (und mit ihm die halbe Welt).
+	if aborted:
+		return true
+	if slice_usec > 0 and Time.get_ticks_usec() - _slice_from >= slice_usec:
+		longest_step = maxi(longest_step, Time.get_ticks_usec() - _slice_from)
+		await resume
+		_slice_from = Time.get_ticks_usec()
+	return aborted
+
+func _idle() -> bool:
+	# Warten auf einen Faden: im Hintergrund ein Bild Pause, am Stück sofort zurück (der Aufrufer wartet dann blockierend).
+	if aborted:
+		return true
+	if slice_usec > 0:
+		longest_step = maxi(longest_step, Time.get_ticks_usec() - _slice_from)
+		await resume
+		_slice_from = Time.get_ticks_usec()
+	return aborted
+
+func finish_now() -> void:
+	# Rest des Baus am Stück (blockiert): wer die Welt sofort braucht (Linie zeichnen, Prüfungen). Läuft im selben Aufruf zu Ende.
+	if building:
+		slice_usec = 0
+		resume.emit()
+
+var _dio_requested := false
+
+func _fetch(path: String) -> Resource:
+	# Großes Modell im Arbeitsfaden laden (Anfrage schon in build_async gestellt); am Stück blockierend.
+	if not _dio_requested:
+		return load(path)
+	_dio_requested = false
+	while slice_usec > 0 and ResourceLoader.load_threaded_get_status(path) == ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+		if await _idle():
+			_unclaimed.append(path)
+			return null
+	return ResourceLoader.load_threaded_get(path)
+
+# Vorab laden: Pfade, die der Bau gleich mit load() holt, schon in Arbeitsfäden anfordern. Nur ein Hinweis – fehlt etwas oder ist
+# etwas zu viel, ändert das nichts an der Welt, nur an der Ladezeit. Die geladenen Ressourcen bleiben bis zum Bauende gehalten.
+var _prefetch_pending: Array = []
+var _prefetched: Array = []
+const PROP_MODELS := {"palm": ["kueste_palme"], "parasol": ["kueste_sonnenschirm"], "planter": ["kueste_pflanzkuebel"], "pine": ["wald_kiefer"],
+	"oak": ["wald_eiche"], "rock": ["wald_felsen", "kueste_felsen"], "log": ["wald_baumstamm"], "street_tree": ["stadt_baum"],
+	"fountain": ["stadt_brunnen"], "boathouse": ["kueste_bootshaus"], "cabin": ["wald_huette"], "stand": ["kueste_tribuene"],
+	"tower": ["kueste_zeitnahme"], "pavilion": ["kueste_clubhaus"], "building": ["stadt_altbau", "stadt_eckladen", "stadt_wohnblock", "stadt_buero"],
+	"lamp": ["stadt_laterne_kit", "stadt_laterne", "kueste_laterne"], "floodlight": ["kueste_flutlicht"], "lantern": ["wald_laterne"]}
+
+func _prop_model_paths() -> Array:
+	var names: Array = []
+	for prop in track.props + diorama_lamps.map(func(l): return {"type": "lamp", "model": l.get("model", "")}):
+		var model := str(prop.get("model", ""))
+		var list: Array = PROP_MODELS.get(str(prop.get("type", "")), [])
+		for n in ([model] if model != "" else []) + list:
+			if low_detail and LOW_VARIANTS.has(n):
+				n = LOW_VARIANTS[n]
+			if not names.has(n) and not ai_prop_meshes.has(n):
+				names.append(n)
+	var out: Array = []
+	for n in names:
+		if ResourceLoader.exists(CARD_PATH % n):
+			out.append(CARD_PATH % n)      # Baum als Bildkarte: das Modell braucht es dann nicht
+			continue
+		out.append(AI_PROP_PATH % n)
+		out.append(AI_PROP_PATH % (n + "_lo"))
+	return out
+
+var _prefetch_queue: Array = []
+
+func _prefetch_request(paths: Array) -> void:
+	# Nacheinander statt alle zugleich: Was Arbeitsfäden laden, lädt der Hauptfaden am Bildende in die Grafik (RenderingServer.sync);
+	# viele parallele Ladungen fielen so gesammelt in ein Bild.
+	for path in paths:
+		if _prefetch_queue.has(path) or _prefetch_pending.has(path) or not ResourceLoader.exists(path) or ResourceLoader.has_cached(path):
+			continue
+		_prefetch_queue.append(path)
+	_prefetch_next()
+
+func _prefetch_next() -> void:
+	while _prefetch_pending.is_empty() and not _prefetch_queue.is_empty():
+		var path: String = _prefetch_queue.pop_front()
+		if ResourceLoader.load_threaded_request(path, "", false) == OK:
+			_prefetch_pending.append(path)
+
+func _prefetch_wait() -> bool:
+	# Bis alle angeforderten Ressourcen da sind (Bild für Bild). true = abgebrochen.
+	_prefetch_next()
+	while not _prefetch_pending.is_empty():
+		var path: String = _prefetch_pending[0]
+		if slice_usec > 0 and ResourceLoader.load_threaded_get_status(path) == ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+			if await _idle():
+				return true
+			continue
+		_prefetch_pending.pop_front()
+		_prefetched.append(ResourceLoader.load_threaded_get(path))
+		_prefetch_next()
+	return aborted
+
+func _prefetch_drop() -> void:
+	# Bauende: Halt der Vorab-Ressourcen lösen; noch laufende Anfragen holt reap() ab.
+	_unclaimed.append_array(_prefetch_pending)
+	_prefetch_pending.clear()
+	_prefetch_queue.clear()
+	_prefetched.clear()
+
+static func reap() -> void:
+	# Je Bild (main.gd): Ladeaufträge abgebrochener Bauten abholen, damit der Lader sie freigibt; dazu abgebrochene Lichtkarten.
+	for path in _unclaimed.duplicate():
+		if ResourceLoader.load_threaded_get_status(path) != ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+			_unclaimed.erase(path)
+			if ResourceLoader.load_threaded_get_status(path) == ResourceLoader.THREAD_LOAD_LOADED:
+				ResourceLoader.load_threaded_get(path)
+	LightBake.reap()
+	noise_ready()      # fertige Rausch-Aufgabe abschließen (WorkerThreadPool verlangt das Abwarten)
+
+static func shutdown() -> void:
+	# Programmende (auch mitten im Laden): Ladeaufträge abholen, Fäden abwarten – sonst Lecks oder ein Absturz beim Beenden.
+	for path in _unclaimed:
+		if ResourceLoader.load_threaded_get_status(path) != ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
+			ResourceLoader.load_threaded_get(path)
+	_unclaimed.clear()
+	if _noise_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_noise_task)
+		_noise_task = -1
+	LightBake.shutdown()
+
+func abort() -> void:
+	# Andere Strecke gewählt: Bau an der nächsten Pause beenden, laufende Lichtkarte verwerfen.
+	aborted = true
+	if _light_job != null and not _light_job.done():
+		_light_job.abandon()
+	if building:
+		resume.emit()
+
 func material(color: Color) -> StandardMaterial3D:
 	var key := color.to_html()
 	if not materials.has(key):
@@ -134,10 +286,7 @@ func premium_water() -> ShaderMaterial:
 		water_material = ShaderMaterial.new()
 		water_material.shader = WATER_SHADER
 		for key in ["wave_a", "wave_b"]:
-			var tex := noise_texture(0.02 if key == "wave_a" else 0.035, 3 if key == "wave_a" else 9, 256)
-			tex.as_normal_map = true
-			tex.bump_strength = 6.0
-			water_material.set_shader_parameter(key, tex)
+			water_material.set_shader_parameter(key, noise_texture(0.02 if key == "wave_a" else 0.035, 3 if key == "wave_a" else 9, 256, 6.0))
 		water_material.set_shader_parameter("tint_noise", noise_texture(0.02, 13, 128))
 	return water_material
 
@@ -178,8 +327,39 @@ func named(value, fallback := "f2e9d5") -> Color:
 	var key := str(value) if value != null else ""
 	return Color(NAMED.get(key, key if key.is_valid_html_color() else fallback))
 
+func build_shell() -> void:
+	# Platzhalter beim Programmstart, bis die erste Welt im Hintergrund steht: Atmosphäre und die Knoten, die main.gd anspricht, keine
+	# Strecke. Wird nie gezeigt (alles, was die Strecke zeigt, wartet auf die fertige Welt).
+	atmosphere = Atmosphere.new()
+	add_child(atmosphere)
+	atmosphere.setup(self, Color(THEMES.coast.sky), Rect2(-50.0, -50.0, 100.0, 100.0))
+	atmosphere.premium = premium_rendering()
+	marker = Node3D.new()
+	add_child(marker)
+	line_mesh = MeshInstance3D.new()
+	add_child(line_mesh)
+	open_mesh = MeshInstance3D.new()
+	add_child(open_mesh)
+	ghost_mesh = MeshInstance3D.new()
+	add_child(ghost_mesh)
+	under_mesh = MeshInstance3D.new()
+	add_child(under_mesh)
+	skid_mesh = MeshInstance3D.new()
+	add_child(skid_mesh)
+
 func build(circuit: Circuit) -> void:
+	# Am Stück (wie vor dem Laden im Hintergrund): Aufruf kehrt erst mit fertiger Welt zurück.
+	slice_usec = 0
+	build_async(circuit)
+
+func build_async(circuit: Circuit) -> void:
+	building = true
+	_slice_from = Time.get_ticks_usec()
 	track = circuit
+	if slice_usec > 0:
+		prepare_noise()
+	if slice_usec > 0 and premium_rendering() and ResourceLoader.exists(DIORAMA_PATH % track.id) and track.layout_ok:
+		_dio_requested = ResourceLoader.load_threaded_request(DIORAMA_PATH % track.id) == OK
 	var theme: Dictionary = THEMES.get(track.theme, THEMES.coast)
 	atmosphere = Atmosphere.new()
 	add_child(atmosphere)
@@ -196,13 +376,16 @@ func build(circuit: Circuit) -> void:
 		push_warning("Diorama %s ist veraltet (track_hash/rev): Laufzeitgrafik" % track.id)
 	if diorama:
 		# Gebackenes Diorama (Blender, tools/diorama.py): Boden, Straße, Häuser, Bäume, Umgebungsverdeckung.
-		build_diorama()
+		await build_diorama()
+		if aborted:
+			_stop()
+			return
 		if diorama_runtime_terrain and not track.terrain.is_empty():
 			# Begleitdatei "runtime_terrain": das Geländerelief der Strecke (Berg, Steilküste) kommt weiter aus dem Höhenraster.
-			build_terrain(theme, fancy_ground)
+			await build_terrain(theme, fancy_ground)
 	elif not track.terrain.is_empty():
 		# Gelände mit Höhenrelief (Berg, Steilküste): Netz aus dem Höhenraster der Strecke.
-		build_terrain(theme, fancy_ground)
+		await build_terrain(theme, fancy_ground)
 	elif theme.island:
 		# Insel: Sandsockel, Strand, Wiese mit Mähstreifen.
 		shape("disc", Vector3(c.x,-1.2,c.y), Vector3(half.x*2.35,2.0,half.y*2.35), Color(theme.rim))
@@ -255,20 +438,35 @@ func build(circuit: Circuit) -> void:
 		if track.theme == "city":
 			for gx in range(-8,9):
 				shape("box",Vector3(c.x+gx*9.0,0.09,c.y),Vector3(0.12,0.01,half.y*2+50),Color(theme.stripe))
+	if await _pause():
+		_stop()
+		return
 	if not fancy_ground and not theme.get("planks", false):
-		road_strip(-4.9, 4.9, 0.12, Color(theme.shoulder))
+		await road_strip(-4.9, 4.9, 0.12, Color(theme.shoulder))
 	for zone in track.surfaces:
 		var sides: Array = [[4.05,4.9]] if zone.side=="outer" else ([[-4.9,-4.05]] if zone.side=="inner" else [[4.05,4.9],[-4.9,-4.05]])
 		for band in sides:
-			road_strip(band[0],band[1],0.13,Color(theme.mud),float(zone.from),float(zone.to))
+			await road_strip(band[0],band[1],0.13,Color(theme.mud),float(zone.from),float(zone.to))
+		if await _pause():
+			_stop()
+			return
 	if diorama and not diorama_runtime_road:
 		pass      # Fahrbahn, Randsteine und Linien stecken im Diorama (Begleitdatei "runtime_road": das Spiel baut sie wie ohne Diorama)
 	elif track.road == "gravel":
-		build_gravel_road()
+		await build_gravel_road()
+		if aborted:
+			_stop()
+			return
 		build_sprint_apron()
 	else:
-		build_asphalt_road()
+		await build_asphalt_road()
+		if aborted:
+			_stop()
+			return
 		build_sprint_apron()
+	if await _pause():
+		_stop()
+		return
 	build_edge_posts()
 	# Start/Ziel-Karo quer über die Fahrbahn und Startplätze dahinter.
 	var t0 := track.tangent(0.0)
@@ -296,16 +494,34 @@ func build(circuit: Circuit) -> void:
 		for sign_value in [-1.0,1.0]:
 			var center: Vector2 = p-track.tangent(s)*0.34+track.tangent(s).orthogonal()*sign_value*0.22
 			shape("box", Vector3(center.x,0.20+s*0.004+track.base_height(s),center.y), Vector3(0.85,0.02,0.16), arrow_color, angle-sign_value*0.55)
+	if await _pause():
+		_stop()
+		return
 	build_stunts()
+	if await _pause():
+		_stop()
+		return
 	build_shortcuts()
 	build_seesaw_nodes()
+	if await _pause():
+		_stop()
+		return
 	var layout_world := not diorama and track.obstacle_source == "layout"
+	if slice_usec > 0 and premium_rendering():
+		# KI-Modelle der Bausteine vorab in Arbeitsfäden (am Stück kostete ein Frachter oder Kran bis 0,12 s in einem Bild).
+		_prefetch_request(_prop_model_paths())
+		if await _prefetch_wait():
+			_stop()
+			return
 	for prop in track.props:
 		if diorama and (track.is_baked(prop) or diorama_blocks(prop)):
 			continue   # im Diorama enthalten bzw. läge auf einer Diorama-Straße
 		if layout_world and (track.is_baked(prop) or Circuit.on_layout_road(prop, track_layout_blocked())):
 			continue   # einfache Grafik: Häuser und Bäume stehen dort, wo das Diorama (und damit die Physik) sie hat
 		build_prop(prop)
+		if await _pause():
+			_stop()
+			return
 	if layout_world:
 		build_obstacle_blocks()
 	elif not diorama:
@@ -317,16 +533,30 @@ func build(circuit: Circuit) -> void:
 		if lamp.has("model"):
 			lamp_prop["model"] = str(lamp.model)      # Laternenmodell des Eintrags (z. B. hafen_laterne), sonst die Vorgabe des Spiels
 		build_prop(lamp_prop)
+		if await _pause():
+			_stop()
+			return
 	for light in diorama_lights:
 		add_diorama_light(light)
+	if await _pause():
+		_stop()
+		return
 	flush_ai_props()
 	flush_cards()
-	# Laternenlicht über die ganze Stadt (im Diorama reichen Straßen weit über die Rennstrecke hinaus).
-	atmosphere.bake_rain_lights(diorama_extent if diorama and diorama_extent.has_area() else track.bounds.grow(Circuit.HALF_WIDTH + 12.0),
+	if await _pause():
+		_stop()
+		return
+	# Laternenlicht über die ganze Stadt (im Diorama reichen Straßen weit über die Rennstrecke hinaus). Die Lichtkarte rechnet LightBake in
+	# Arbeitsfäden, während der Bau weiterläuft; gesetzt wird sie am Ende (sie wirkt erst bei Dunkelheit, die Welt ist bis dahin unsichtbar).
+	_light_job = atmosphere.light_job(diorama_extent if diorama and diorama_extent.has_area() else track.bounds.grow(Circuit.HALF_WIDTH + 12.0),
 		512 if diorama else 256)
+	_light_job.start()
 	if diorama and diorama_extent.has_area():
 		atmosphere.set_area(diorama_extent)
 	bake()
+	if await _pause():
+		_stop()
+		return
 	for key in ["ground","stripe","shoulder","rim2"]:
 		atmosphere.register_tint(material(Color(theme[key])))
 	var road_color := main_road_color
@@ -364,16 +594,50 @@ func build(circuit: Circuit) -> void:
 	sort_layers(self)
 	for flat in [line_mesh, open_mesh, ghost_mesh, skid_mesh, under_mesh]:
 		flat.layers = LAYER_FLAT
+	# Lichtkarte abwarten (im Hintergrund Bild für Bild, am Stück blockierend).
+	while slice_usec > 0 and not _light_job.poll():
+		if await _idle():
+			_stop()
+			return
+	if not _light_job.done():
+		_light_job.wait()
+	atmosphere.use_light_map(_light_job)
+	_light_job = null
+	_prefetch_drop()
+	building = false
+	built = true
+	finished.emit()
+
+func _stop() -> void:
+	# Abgebrochener Bau: Lichtkarte verwerfen, Ende melden (der Lader reißt die halbe Welt ab).
+	if _light_job != null and not _light_job.done():
+		_light_job.abandon()
+	_light_job = null
+	_prefetch_drop()
+	if _dio_requested:
+		_dio_requested = false
+		_unclaimed.append(DIORAMA_PATH % track.id)
+	building = false
+	finished.emit()
 
 func build_asphalt_road() -> void:
-	road_mesh = road_strip(-3.5, 3.5, 0.17, Color("394950"), 0.0, 1.0, true, false, false, ROAD_NO_DECK)
-	build_deck_road(Color("394950"))
-	road_strip(-3.37, -3.29, 0.185, Color("e8dfc8"), 0.0, 1.0, true, true)
-	road_strip(3.29, 3.37, 0.185, Color("e8dfc8"), 0.0, 1.0, true, true)
+	# Teilschritte mit Haltepunkten dazwischen (Laden im Hintergrund); einen Abbruch prüft build_async danach.
+	road_mesh = await road_strip(-3.5, 3.5, 0.17, Color("394950"), 0.0, 1.0, true, false, false, ROAD_NO_DECK)
+	if await _pause():
+		return
+	await build_deck_road(Color("394950"))
+	await road_strip(-3.37, -3.29, 0.185, Color("e8dfc8"), 0.0, 1.0, true, true)
+	if await _pause():
+		return
+	await road_strip(3.29, 3.37, 0.185, Color("e8dfc8"), 0.0, 1.0, true, true)
 	# Randsteine als durchgehendes Band je Seite: Segmentgrenzen quer zur Strecke, daher innen kürzer und außen
 	# länger – keine Überlappung (Flackern) in der Innenkurve, keine Lücken außen.
 	for edge in [-1.0, 1.0]:
-		curb_band(edge * 3.46, edge * 4.04)
+		if await _pause():
+			return
+		await curb_band(edge * 3.46, edge * 4.04)
+	if await _pause():
+		return
 	var curb_count := int(track.length/0.86)
 	for i in range(curb_count):
 		var s := float(i) / curb_count
@@ -395,6 +659,8 @@ func build_terrain(theme: Dictionary, fancy: bool) -> void:
 	var vtx := func(ix: int, iz: int) -> Vector3:
 		return Vector3(ox + ix * cell, float(hs[iz * w + ix]) + 0.02, oz + iz * cell)
 	for iz in range(h - 1):
+		if iz % 8 == 7 and await _pause():
+			break      # abgebrochen: die Welt wird abgerissen
 		for ix in range(w - 1):
 			var a: Vector3 = vtx.call(ix, iz)
 			var b: Vector3 = vtx.call(ix + 1, iz)
@@ -426,6 +692,8 @@ func build_terrain(theme: Dictionary, fancy: bool) -> void:
 	cliff.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var any := false
 	for iz in range(h - 1):
+		if iz % 8 == 7 and await _pause():
+			break
 		for ix in range(w - 1):
 			var a: Vector3 = vtx.call(ix, iz)
 			var b: Vector3 = vtx.call(ix + 1, iz)
@@ -654,6 +922,8 @@ func curb_band(inner: float, outer: float) -> void:
 	var lo := minf(inner, outer)
 	var hi := maxf(inner, outer)
 	for b in range(blocks):
+		if b % 32 == 31 and await _pause():
+			break
 		var st: SurfaceTool = tools[CORAL if b % 4 < 2 else CREAM]
 		for k in range(steps):
 			var s0 := (b + float(k) / steps) / blocks
@@ -694,11 +964,15 @@ func curb_band(inner: float, outer: float) -> void:
 
 func build_gravel_road() -> void:
 	# Schotterpiste: braune Fahrbahn mit Körnung, keine Randlinien; Holzpfosten und Feldsteine statt Randsteinen.
-	road_mesh = road_strip(-3.5, 3.5, 0.17, Color("8b6f4e"), 0.0, 1.0, true, false, false, ROAD_NO_DECK)
-	build_deck_road(Color("8b6f4e"))
+	road_mesh = await road_strip(-3.5, 3.5, 0.17, Color("8b6f4e"), 0.0, 1.0, true, false, false, ROAD_NO_DECK)
+	if await _pause():
+		return
+	await build_deck_road(Color("8b6f4e"))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 23
 	for i in range(int(track.length*7.0)):
+		if i % 256 == 255 and await _pause():
+			return
 		var s := rng.randf()
 		var p := track.at(s, rng.randf_range(-3.3,3.3))
 		if track.other_branch_distance(p, s) < Circuit.HALF_WIDTH + 0.2:
@@ -1513,7 +1787,10 @@ func set_windows(level: float) -> void:
 			mat.emission_energy_multiplier = 0.0
 
 func build_diorama() -> void:
-	var scene: Node3D = load(DIORAMA_PATH % track.id).instantiate()
+	var packed := await _fetch(DIORAMA_PATH % track.id) as PackedScene
+	if packed == null or await _prefetch_wait():
+		return
+	var scene: Node3D = packed.instantiate()
 	scene.name = "Diorama"
 	var layout_path: String = (DIORAMA_PATH % track.id).replace(".glb", "_layout.json")
 	diorama_blocked = []
@@ -1567,6 +1844,8 @@ func build_diorama() -> void:
 	var ao: Texture2D = load(ao_path) if ResourceLoader.exists(ao_path) else null
 	var road_shaders := {}
 	for node in scene.find_children("*", "MeshInstance3D", true, false):
+		if await _pause():
+			return
 		var mi := node as MeshInstance3D
 		var lit := true
 		var node_name := String(mi.name)
@@ -1659,7 +1938,7 @@ func build_diorama() -> void:
 			add_overlay(mi, glow, snow_layer)
 		elif lit:
 			add_overlay(mi, lit_overlay(mi.mesh), snow_layer)
-	merge_props(scene)
+	await merge_props(scene)
 
 func add_diorama_light(light: Dictionary) -> void:
 	# Punktlicht aus der Begleitdatei ("lights": Nachttischlampe, Budenbirne, Bildschirmschein, Flutlichtkopf ...). Wie eine Straßenlaterne
@@ -1737,7 +2016,12 @@ func merge_props(scene: Node3D) -> void:
 		overlay_nodes = overlay_nodes.filter(func(e): return not list.has(e[0]))
 		add_overlay(inst, lit_mat, snow_mat)
 		for mi in list:
-			(mi as Node).queue_free()
+			if slice_usec > 0:
+				# Im Hintergrund sofort und in Zeitscheiben freigeben: hunderte queue_free fielen sonst alle in ein Bild (bis 0,2 s).
+				(mi as Node).free()
+				await _pause()
+			else:
+				(mi as Node).queue_free()
 
 func premium_prop(prop: Dictionary) -> bool:
 	# true = als KI-Modell gebaut (samt Licht/Schrift), false = Klötzchen-Fassung verwenden.
@@ -1977,6 +2261,8 @@ func road_strip(inner: float, outer: float, y: float, color: Color, start_s := 0
 	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var count := maxi(1,ceili(track.length/0.5*(end_s-start_s)))
 	for i in range(count):
+		if i % 64 == 63 and await _pause():
+			break      # abgebrochen: Rest egal, die Welt wird abgerissen
 		var a := lerpf(start_s,end_s,float(i)/count)
 		var b := lerpf(start_s,end_s,float(i+1)/count)
 		# Staffelung: späterer Streckenverlauf liegt minimal höher (Acht-Kreuzung ohne Z-Flimmern).
@@ -2197,16 +2483,66 @@ const REFLECT_NEAR := 24.0   # Diorama: nur Bauten bis zu diesem Abstand zur Str
 func premium_rendering() -> bool:
 	return premium and RenderingServer.get_current_rendering_method() != "gl_compatibility"
 
-func noise_texture(frequency: float, seed_value: int, size := 512) -> NoiseTexture2D:
+# Rauschtexturen (Körnung, Pfützen, Wellen, Schnee): früher je Welt eine NoiseTexture2D – deren erstes Bild rechnet Godot am Bildende im
+# Hauptfaden (gemessen bis 0,15 s in einem Bild). Jetzt dasselbe Bild (gleiche Rechnung wie NoiseTexture2D: nahtlos, normalisiert,
+# Mipmaps, ggf. Normalenkarte) einmal je Sitzung, beim Laden im Hintergrund vorab in einem Arbeitsfaden (prepare_noise); je Welt wird
+# daraus nur noch die Textur angelegt.
+const NOISE_SET := [[0.06, 7, 512, 0.0], [0.012, 41, 256, 0.0], [0.03, 77, 256, 0.0], [0.03, 19, 512, 0.0], [0.02, 3, 256, 6.0],
+	[0.035, 9, 256, 6.0], [0.02, 13, 128, 0.0]]
+var _noise_textures := {}           # je Welt (Texturen gehören nicht in statische Variablen: sie überlebten beim Beenden den Grafikserver)
+static var _noise_images := {}      # Bilder (nur Hauptspeicher) für die ganze Sitzung
+static var _noise_mutex := Mutex.new()
+static var _noise_task := -1
+
+static func noise_image(frequency: float, seed_value: int, size: int, bump := 0.0) -> Image:
+	# Wie NoiseTexture2D._generate_texture (seamless, Rand 0,1, normalisiert, Mipmaps; bump > 0: als Normalenkarte).
 	var noise := FastNoiseLite.new()
 	noise.seed = seed_value
 	noise.frequency = frequency
 	noise.fractal_octaves = 4
-	var tex := NoiseTexture2D.new()
-	tex.noise = noise
-	tex.seamless = true
-	tex.width = size
-	tex.height = size
+	var img := noise.get_seamless_image(size, size, false, false, 0.1, true)
+	if bump > 0.0:
+		img.bump_map_to_normal_map(bump)
+	img.generate_mipmaps()
+	return img
+
+static func _noise_key(frequency: float, seed_value: int, size: int, bump: float) -> String:
+	return "%s/%d/%d/%s" % [frequency, seed_value, size, bump]
+
+static func prepare_noise() -> void:
+	# Alle Rauschbilder der Welt in einem Arbeitsfaden (einmal je Sitzung).
+	if _noise_task >= 0 or _noise_images.size() >= NOISE_SET.size():
+		return
+	_noise_task = WorkerThreadPool.add_task(func():
+		for n in NOISE_SET:
+			var img := Diorama.noise_image(n[0], n[1], n[2], n[3])
+			Diorama._noise_mutex.lock()
+			Diorama._noise_images[Diorama._noise_key(n[0], n[1], n[2], n[3])] = img
+			Diorama._noise_mutex.unlock(), false, "Rauschtexturen")
+
+static func noise_ready() -> bool:
+	if _noise_task >= 0 and WorkerThreadPool.is_task_completed(_noise_task):
+		WorkerThreadPool.wait_for_task_completion(_noise_task)
+		_noise_task = -1
+	return _noise_task < 0
+
+func noise_texture(frequency: float, seed_value: int, size := 512, bump := 0.0) -> Texture2D:
+	var key := _noise_key(frequency, seed_value, size, bump)
+	if _noise_textures.has(key):
+		return _noise_textures[key]
+	_noise_mutex.lock()
+	var img: Image = _noise_images.get(key)
+	_noise_mutex.unlock()
+	if img == null and _noise_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_noise_task)   # Vorab-Rechnung läuft noch: abwarten statt doppelt rechnen
+		_noise_task = -1
+		_noise_mutex.lock()
+		img = _noise_images.get(key)
+		_noise_mutex.unlock()
+	if img == null:
+		img = noise_image(frequency, seed_value, size, bump)
+	var tex := ImageTexture.create_from_image(img)
+	_noise_textures[key] = tex
 	return tex
 
 func premium_road(color: Color) -> ShaderMaterial:
@@ -2664,7 +3000,7 @@ func build_deck_road(color: Color) -> void:
 			break
 	if not any:
 		return
-	var part := road_strip(-3.5, 3.5, 0.17, color, 0.0, 1.0, true, false, false, ROAD_ONLY_DECK)
+	var part: MeshInstance3D = await road_strip(-3.5, 3.5, 0.17, color, 0.0, 1.0, true, false, false, ROAD_ONLY_DECK)
 	deck_roads.append(part)
 
 func set_draw_mode(on: bool) -> void:

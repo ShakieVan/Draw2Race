@@ -121,6 +121,9 @@ func setup(progress_store: ProgressStore) -> void:
 		release = cached
 		status = "Neue Version verfügbar."
 		apk_ready = FileAccess.file_exists(apk_path())
+	# Aufräumen beim Start: Reste abgebrochener Downloads und schon installierte oder nicht mehr gebrauchte APKs (auch vom
+	# Nachbargerät geholte, NetApk) – nur die APK des noch offenen GitHub-Updates bleibt.
+	prune()
 
 func available() -> bool:
 	return not release.is_empty()
@@ -289,23 +292,26 @@ func open_permission() -> void:
 		a[0].openInstallPermission(a[1])
 
 func install() -> void:
+	var problem := install_file(apk_path(), str(release.version))
+	apk_ready = FileAccess.file_exists(apk_path())
+	publish("Installer gestartet." if problem == "" else problem)
+
+func install_file(file: String, version: String) -> String:
+	# Gemeinsamer Weg für GitHub-Download und Nachbargerät (NetApk, schon per Größe und SHA-256 geprüft): Installationsberechtigung,
+	# dann Paket, höhere Versionsnummer, angekündigte Version und identische Signatur (Updater.java), dann der System-Installer.
+	# "" = Installer gestartet, sonst deutscher Grund; eine abgelehnte Datei wird gelöscht.
 	var a := android()
 	if a.is_empty():
-		publish("Installation nur auf dem Handy möglich.")
-		return
+		return "Installation nur auf dem Handy möglich."
 	if not can_install():
 		open_permission()
-		publish("Bitte „Apps installieren“ für Draw2Race erlauben und erneut tippen.")
-		return
-	var path := ProjectSettings.globalize_path(apk_path())
-	var problem := str(a[0].verify(a[1], path, str(release.version)))
+		return "Bitte „Apps installieren“ für Draw2Race erlauben und erneut tippen."
+	var path := ProjectSettings.globalize_path(file)
+	var problem := str(a[0].verify(a[1], path, version))
 	if problem != "":
-		apk_ready = false
-		DirAccess.remove_absolute(apk_path())
-		publish("Update abgelehnt: " + problem)
-		return
-	problem = str(a[0].install(a[1], path))
-	publish("Installer gestartet." if problem == "" else problem)
+		DirAccess.remove_absolute(file)
+		return "Update abgelehnt: " + problem
+	return str(a[0].install(a[1], path))
 
 func prune() -> void:
 	# Alte Downloads entfernen (nur die aktuelle APK behalten).

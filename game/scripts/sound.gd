@@ -43,6 +43,23 @@ var special := ""
 var special_played: Array = []
 var headless := false
 var rng := RandomNumberGenerator.new()
+# WLAN-Mehrspieler (Nutzerwunsch 04.10.2026): Alle Handys spielen dieselbe Musik. Der Gastgeber führt (net_role „lead“: eigene Playlist
+# und eigener Musikstil wie sonst, music_state() liefert Stück und Stelle an NetLobby.sync_music), Mitspieler folgen („follow“:
+# follow() spielt dasselbe Stück an derselben Stelle der gemeinsamen Uhr, mit der Überblendung des Gastgebers, und führt nach, wenn
+# es um mehr als SYNC_TOLERANCE abweicht). Ohne Sitzung („“) bleibt alles wie im Einzelspieler.
+const SYNC_TOLERANCE := 0.15         # s: so weit darf die hörbare Stelle vom Gastgeber abweichen, bevor nachgeführt wird
+const SYNC_SETTLE_MS := 2500         # nach einem Einsatz so lange nicht erneut nachführen (Messwerte beruhigen sich)
+const SYNC_FIRST_FADE := 1.5         # erste Überblendung beim Folgen (Beitritt): vom eigenen Stück zu dem des Gastgebers
+const SYNC_FIX_FADE := 0.4           # Nachführen innerhalb desselben Stücks: kurze Überblendung statt eines harten Sprungs
+var net_role := ""                   # "" | "lead" | "follow"
+var virtual := false                 # nur Tests ohne Audiogerät: Musik wird gerechnet (Stück, Stelle nach der Uhr), nicht gespielt
+var started_usec := 0                # lokale Uhr (Time.get_ticks_usec) bei Stelle 0 des aktuellen Stücks (virtuelles Abspielen)
+var track_serial := 0                # Zähler der Einsätze (der Gastgeber verteilt jeden neuen sofort)
+var last_crossfade := CROSSFADE      # Überblendung des letzten Einsatzes (Mitspieler übernehmen sie)
+var latency := 0.0                   # Ausgabeverzug des Audiogeräts (s), beim Wechsel der Rolle gelesen
+var follow_ready := false            # Mitspieler: schon einmal dem Gastgeber gefolgt (danach seine Überblendungen)
+var follow_settle_ms := 0
+var sync_log := {"starts": 0, "fixes": 0}   # Zähler für Tests: Einsätze nach dem Gastgeber, Nachführungen
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -285,8 +302,18 @@ func next_special_track(role: String) -> Dictionary:
 	special_played.append(pick.file)
 	return pick
 
-func start_track(t: Dictionary, crossfade := CROSSFADE) -> void:
+func start_track(t: Dictionary, crossfade := CROSSFADE, from := -1.0) -> void:
+	# from: Startstelle in s (Mitspieler im WLAN), sonst der gemessene Einsatzpunkt mix_in.
 	if t.is_empty():
+		return
+	var at := float(t.get("mix_in",0.0)) if from < 0.0 else from
+	if virtual:
+		current = t
+		started_usec = Time.get_ticks_usec() - int(at * 1000000.0)
+		fade = 0.0 if crossfade>0.0 else 1.0
+		set_meta("crossfade",maxf(crossfade,0.01))
+		track_serial += 1
+		last_crossfade = crossfade
 		return
 	var stream = load(MUSIC_DIR + str(t.file))
 	if stream == null:
@@ -298,9 +325,11 @@ func start_track(t: Dictionary, crossfade := CROSSFADE) -> void:
 	current = t
 	active.stream = stream
 	active.volume_db = -80
-	active.play(float(t.get("mix_in",0.0)))
+	active.play(at)
 	fade = 0.0 if crossfade>0.0 else 1.0
 	set_meta("crossfade",maxf(crossfade,0.01))
+	track_serial += 1
+	last_crossfade = crossfade
 
 func set_style(style: String) -> void:
 	if style == music_style:
@@ -308,13 +337,13 @@ func set_style(style: String) -> void:
 	music_style = style
 	queue.clear()
 	special_played.clear()
-	if not headless and not tracks.is_empty():
+	if music_active() and net_role != "follow":
 		start_track(next_special_track(special) if special!="" else next_playlist_track(),1.5)
 
 func set_context(phase: String, result_won := false) -> void:
 	var previous := context
 	context = phase
-	if headless or tracks.is_empty():
+	if not music_active() or net_role == "follow":
 		return
 	if phase=="result" and previous!="result":
 		special = "sieg" if result_won else "niederlage"
@@ -326,7 +355,7 @@ func set_context(phase: String, result_won := false) -> void:
 func finish_crossfade() -> void:
 	# Vor blockierendem Laden (Streckenwechsel im Menü): laufende Überblendung sofort abschließen. Sonst spielen das
 	# ausklingende Stück (z. B. Sieg/Niederlage) und das neue so lange gemeinsam, bis das Laden fertig ist.
-	if headless or tracks.is_empty() or fade >= 1.0:
+	if not music_active() or virtual or fade >= 1.0:
 		return
 	if active.volume_db > -79.0:
 		active.volume_db -= linear_to_db(maxf(0.0001, fade))
@@ -334,31 +363,119 @@ func finish_crossfade() -> void:
 	fading.stop()
 
 func update_music(paused: bool, music_on: bool, dt: float) -> void:
-	if headless or tracks.is_empty():
+	if not music_active():
 		return
 	if current.is_empty():
 		start_track(next_playlist_track(),0.0)
 		return
 	fade = minf(1.0,fade+dt/float(get_meta("crossfade",CROSSFADE)))
-	var duck: float = PHASE_DUCK.get(context,0.0) + (-8.0 if paused else 0.0)
-	var gain := MUSIC_BASE_DB + float(current.get("gain_db",0.0)) + duck
-	if not music_on:
-		active.volume_db = -80
-		fading.volume_db = -80
-		return
-	active.volume_db = gain + linear_to_db(maxf(0.0001,fade))
-	fading.volume_db = fade_from_db + linear_to_db(maxf(0.0001,1.0-fade))
-	if fade>=1.0 and fading.playing:
-		fading.stop()
+	if not virtual:
+		var duck: float = PHASE_DUCK.get(context,0.0) + (-8.0 if paused else 0.0)
+		var gain := MUSIC_BASE_DB + float(current.get("gain_db",0.0)) + duck
+		if not music_on:
+			active.volume_db = -80
+			fading.volume_db = -80
+			if net_role == "":
+				return
+			# WLAN: stumm weiterlaufen – der Gastgeber führt die Playlist auch ohne eigene Musik, Mitspieler bleiben an seiner Stelle.
+		else:
+			active.volume_db = gain + linear_to_db(maxf(0.0001,fade))
+			fading.volume_db = fade_from_db + linear_to_db(maxf(0.0001,1.0-fade))
+		if fade>=1.0 and fading.playing:
+			fading.stop()
+	if net_role == "follow":
+		return      # Wechsel bestimmt der Gastgeber (follow)
 	# Am vorab gemessenen Ausklingpunkt schon das nächste Stück einblenden.
 	var mix_out := float(current.get("mix_out",0.0))
-	var pos := active.get_playback_position()
-	if (mix_out>0.0 and pos>=mix_out) or not active.playing:
+	var pos := music_position() if virtual else active.get_playback_position()
+	var ended := pos >= float(current.get("duration",INF)) if virtual else not active.playing
+	if (mix_out>0.0 and pos>=mix_out) or ended:
 		if special!="":
 			# Niederlage/Sieg: in der Ergebnisansicht weitere Stücke derselben Rolle, sonst zurück zur Playlist.
 			start_track(next_special_track(special) if context=="result" else next_playlist_track())
 		else:
 			start_track(next_playlist_track())
+
+func music_active() -> bool:
+	# Musik wird gespielt (mit Audiogerät) oder nur gerechnet (virtual, Tests); headless ohne virtual: gar nicht.
+	return not tracks.is_empty() and (virtual or not headless)
+
+func enable_virtual() -> void:
+	# Tests und Mehrprozess-Läufe ohne Audiogerät: Playlist, Überblendungen und Stellen nur rechnen (headless).
+	virtual = true
+	rng.randomize()
+	if tracks.is_empty():
+		load_manifest()
+
+func track_by_file(file: String) -> Dictionary:
+	for t in tracks:
+		if str(t.file) == file:
+			return t
+	return {}
+
+func music_position() -> float:
+	# Hörbare Stelle des aktuellen Stücks in s (Abspielstelle + Zeit seit dem letzten Mischen − Ausgabeverzug, wie in der Godot-Doku
+	# „Sync the gameplay with audio“), virtuell nach der Uhr; −1 = es läuft nichts.
+	if virtual:
+		return float(Time.get_ticks_usec() - started_usec) / 1000000.0 if not current.is_empty() else -1.0
+	if headless or not active.playing:
+		return -1.0
+	return active.get_playback_position() + AudioServer.get_time_since_last_mix() - latency
+
+func music_state() -> Dictionary:
+	# Gastgeber: aktuelles Stück, lokale Uhrzeit (µs) seiner Stelle 0, Überblendung und Einsatz-Nummer – NetLobby rechnet in die
+	# gemeinsame Uhr um.
+	if not music_active() or current.is_empty():
+		return {}
+	var pos := music_position()
+	if pos < 0.0:
+		return {}
+	return {"file": str(current.file), "origin": Time.get_ticks_usec() - int(pos * 1000000.0), "fade": last_crossfade, "n": track_serial}
+
+func set_net_role(role: String) -> void:
+	# "" = eigene Playlist, "lead" = Gastgeber im WLAN, "follow" = Mitspieler (NetLobby.sync_music setzt die Rolle je Bild).
+	if role == net_role:
+		return
+	var was := net_role
+	net_role = role
+	follow_ready = false
+	follow_settle_ms = 0
+	if not headless:
+		latency = AudioServer.get_output_latency()
+	if was == "follow" and music_active() and not current.is_empty():
+		# Sitzung vorbei: wieder die eigene Playlist im eigenen Stil. Ein Stück der Wertung oder im anderen Stil des Gastgebers wird
+		# abgelöst, ein passendes Playlist-Stück läuft einfach weiter.
+		special = ""
+		if str(current.get("role","")) != "playlist" or str(current.get("set","")) != music_style:
+			start_track(next_playlist_track(), SYNC_FIRST_FADE)
+
+func follow(file: String, origin_usec: int, crossfade: float) -> void:
+	# Mitspieler: Stück und Stelle des Gastgebers (origin_usec = lokale Uhr bei Stelle 0, schon aus der gemeinsamen Uhr umgerechnet).
+	# Neues Stück: mit der Überblendung des Gastgebers einsetzen (beim ersten Mal SYNC_FIRST_FADE); dasselbe Stück: nur nachführen,
+	# wenn die hörbare Stelle um mehr als SYNC_TOLERANCE abweicht.
+	if not music_active() or file == "":
+		return
+	var same := str(current.get("file","")) == file
+	var t: Dictionary = current if same else track_by_file(file)
+	if t.is_empty():
+		return
+	var want := float(Time.get_ticks_usec() - origin_usec) / 1000000.0
+	if want >= float(t.get("duration",INF)) - 0.25:
+		return      # beim Gastgeber gleich zu Ende – sein nächster Einsatz kommt sofort
+	want = maxf(0.0, want)
+	var ahead := 0.0 if virtual else latency      # so früh starten, dass das Hörbare genau an der Stelle des Gastgebers liegt
+	var now_ms := Time.get_ticks_msec()
+	if not same:
+		start_track(t, crossfade if follow_ready else SYNC_FIRST_FADE, want + ahead)
+		sync_log.starts += 1
+	elif now_ms >= follow_settle_ms and absf(music_position() - want) > SYNC_TOLERANCE:
+		start_track(t, SYNC_FIX_FADE if follow_ready else SYNC_FIRST_FADE, want + ahead)
+		sync_log.fixes += 1
+	else:
+		follow_ready = true
+		return
+	follow_ready = true
+	follow_settle_ms = now_ms + SYNC_SETTLE_MS
 
 func _exit_tree() -> void:
 	for player in [squeal,gravel,rumble,chime,horn,music_a,music_b]:

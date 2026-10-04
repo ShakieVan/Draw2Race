@@ -8,10 +8,15 @@ extends RefCounted
 # Nachrichten (ENet): 2 Byte Kennung "D2", 1 Byte Protokollversion, dann var_to_bytes(Dictionary) mit dem Typ in "t".
 # Objekte werden nie entpackt (bytes_to_var, nicht bytes_to_var_with_objects). Ablehnungen haben ein eigenes, für alle Versionen
 # gleiches Format (Versionsbyte 0, danach UTF-8 "code\ngrund"), damit auch ein Gerät mit anderer Protokollversion den Grund lesen kann.
+# Seit 0.2.32 darf dahinter ein Nullbyte und ein JSON-Objekt folgen (Zusatz „x“: Spielversion und APK-Angebot, NetApk) – ältere
+# Versionen lesen den Text nur bis zum Nullbyte und zeigen den Grund unverändert. Die Anmeldung („hello“) behält „game“, „name“ und
+# „apk“ in allen künftigen Protokollversionen: Auch bei fremder Protokollversion liest der Gastgeber daraus Spielversion und
+# APK-Angebot (decode → "_foreign"), damit die ältere Seite die neuere Version holen kann.
 # Suche (UDP): JSON-Text mit Kennung "m" – klein, ohne Engine-Fehlermeldungen bei Fremdpaketen prüfbar.
 
-const VERSION := 6                  # Protokollversion: bei jeder inkompatiblen Änderung erhöhen (2 = Lobby, M3; 3 = Zeichnen, M4; 4 = Rennen, M5;
-                                    # 5 = Lebenszeichen im Rennen, race_alive; 6 = Spielerfarben, Autos mehrfach wählbar)
+const VERSION := 7                  # Protokollversion: bei jeder inkompatiblen Änderung erhöhen (2 = Lobby, M3; 3 = Zeichnen, M4; 4 = Rennen, M5;
+                                    # 5 = Lebenszeichen im Rennen, race_alive; 6 = Spielerfarben, Autos mehrfach wählbar;
+                                    # 7 = gemeinsame Musik: music, Musik der Mitspieler abschaltbar)
 const GAME_PORT := 24680            # ENet (UDP), fester Port des Hosts
 const DISCOVERY_PORT := 24681       # Host lauscht hier auf Suchanfragen und Gateway-Proben (UDP)
 const BEACON_PORT := 24682          # Mitspieler lauschen hier auf die Ankündigung des Hosts (UDP-Rundruf, jede Sekunde)
@@ -67,9 +72,13 @@ static func encode(msg: Dictionary) -> PackedByteArray:
 	out.append_array(var_to_bytes(msg))
 	return out
 
-static func encode_reject(code: String, reason: String) -> PackedByteArray:
+static func encode_reject(code: String, reason: String, extra := {}) -> PackedByteArray:
+	# extra: Zusatz als JSON hinter einem Nullbyte (seit 0.2.32; ältere Versionen lesen nur „code\ngrund“ bis zum Nullbyte).
 	var out := PackedByteArray([MAGIC_0, MAGIC_1, 0])
 	out.append_array((code + "\n" + reason).to_utf8_buffer())
+	if not extra.is_empty():
+		out.append(0)
+		out.append_array(JSON.stringify(extra).to_utf8_buffer())
 	return out
 
 static func peek_version(bytes: PackedByteArray) -> int:
@@ -86,17 +95,39 @@ static func decode(bytes: PackedByteArray) -> Dictionary:
 	if version < 0:
 		return {}
 	if version == 0:
-		var text := bytes.slice(3).get_string_from_utf8()
+		var body := bytes.slice(3)
+		var nul := body.find(0)
+		var text := (body.slice(0, nul) if nul >= 0 else body).get_string_from_utf8()
 		var cut := text.find("\n")
-		return {"t": "reject", "code": text.left(cut) if cut >= 0 else "", "reason": text.substr(cut + 1) if cut >= 0 else text}
+		var out := {"t": "reject", "code": text.left(cut) if cut >= 0 else "", "reason": text.substr(cut + 1) if cut >= 0 else text, "x": {}}
+		if nul >= 0 and body.size() - nul - 1 <= 4096:
+			var json := JSON.new()
+			if json.parse(body.slice(nul + 1).get_string_from_utf8()) == OK and json.data is Dictionary:
+				out.x = json.data
+		return out
 	if version != VERSION:
-		return {"t": "_foreign", "proto": version}
+		return _foreign(bytes, version)
 	if bytes.size() < 7:
 		return {}
 	var data = bytes_to_var(bytes.slice(3))
 	if not data is Dictionary or not data.get("t") is String:
 		return {}
 	return data
+
+static func _foreign(bytes: PackedByteArray, version: int) -> Dictionary:
+	# Paket einer anderen Protokollversion: Nur aus einer Anmeldung werden Spielversion, Name und APK-Angebot gelesen (feste Felder,
+	# siehe oben) – damit kann der Gastgeber die neuere Version anbieten bzw. holen. Alles andere bleibt unbeachtet.
+	var out := {"t": "_foreign", "proto": version}
+	if bytes.size() < 7 or bytes.size() > MAX_DISCOVERY_BYTES * 8:
+		return out
+	var data = bytes_to_var(bytes.slice(3))
+	if data is Dictionary and data.get("t") == "hello":
+		for key in ["game", "name"]:
+			if data.get(key) is String:
+				out[key] = str(data[key]).left(32)
+		if data.get("apk") is Dictionary:
+			out["apk"] = data.apk
+	return out
 
 # --- Anmeldung ---
 

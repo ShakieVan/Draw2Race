@@ -69,6 +69,18 @@ func update_host_info(info: Dictionary) -> void:
 	for key in info:
 		host_info[key] = info[key]
 
+func restart_host() -> Error:
+	# Ankündigung mit neuem Socket fortsetzen, gleiche Sitzungskennung (die Suchenden sehen dasselbe Spiel). Nötig, wenn die WLAN-Bindung
+	# gelöst wurde: Android-Sockets behalten die Bindung, mit der sie entstanden – ein gebundener erreicht den eigenen Hotspot nicht.
+	if mode != "host":
+		return ERR_UNCONFIGURED
+	var keep := sid
+	var info := host_info.duplicate()
+	var err := start_host(info)
+	sid = keep
+	host_info["sid"] = keep
+	return err
+
 func start_search() -> Error:
 	stop()
 	mode = "search"

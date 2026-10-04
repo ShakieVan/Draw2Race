@@ -2,11 +2,11 @@
 
 Ein Rennspiel für Android, bei dem du nicht lenkst, sondern planst: Du zeichnest mit dem Finger zwei Runden Ideallinie – **wie schnell** du zeichnest, ist das Tempo, das dein Auto fahren will. Dann startet das Rennen, und die Fahrphysik zeigt, ob deine Linie hält: Bremsweg, Haftungsgrenze, Rutschen und Dreher entstehen aus der Bewegung des Autos, nicht aus einer Animation.
 
-**Version 0.2.27** · Godot 4.6.1 · offline spielbar · nicht-kommerzielles Hobbyprojekt
+**Version 0.3.0** · Godot 4.6.1 · offline spielbar · Mehrspieler mit bis zu 4 Handys · nicht-kommerzielles Hobbyprojekt
 
 ## Spielen
 
-1. Unter [Releases](../../releases) die Datei `Draw2Race-<Version>.apk` herunterladen (spätere Updates bietet das Spiel selbst an).
+1. Unter [Releases](../../releases) die Datei `Draw2Race-<Version>.apk` herunterladen. Spätere Updates bietet das Spiel selbst an. Ohne Internet geht es auch von Handy zu Handy (Optionen → „Updates & Teilen“ → „Draw2Race teilen“).
 2. Auf dem Android-Handy öffnen und die Installation erlauben (Installation aus unbekannten Quellen).
 3. „Linie zeichnen“, am leuchtenden Startpunkt ansetzen und **zwei Runden in Pfeilrichtung** zeichnen.
 
@@ -17,16 +17,22 @@ Ein Rennspiel für Android, bei dem du nicht lenkst, sondern planst: Du zeichnes
 - Ein Finger auf freier Fläche verschiebt die Kamera, zwei Finger zoomen, Doppeltipp zeigt die ganze Strecke.
 - Neben der Fahrbahn darfst du zeichnen (der Untergrund bremst), die Wegpunkt-Tore musst du aber durchfahren.
 
-**Im Rennen:** Turbo halten. Er lädt sich beim Bremsen auf.
+**Im Rennen:** Turbo halten. Der Knopf zeigt den Füllstand, und beim Bremsen lädt er sich auf.
+
+**Mehrspieler** (Menü → „Mehrspieler · 2–4 Spieler“)
+- **Auf einem Handy:** Alle zeichnen nacheinander, das Handy wird weitergegeben. Danach fahren alle gemeinsam, jeder mit eigenem Turbo-Knopf in seiner Ecke.
+- **Im WLAN:** Ein Handy eröffnet das Spiel, im Heim-WLAN oder per Handy-Hotspot, die anderen treten bei. Alle zeichnen gleichzeitig, das Rennen rechnet der Gastgeber, und alle Handys zeigen dasselbe Bild und spielen dieselbe Musik. Hat jemand eine ältere Version, holt er sich die neue direkt in der Lobby.
+- Im Mehrspieler sind alle Strecken und Autos frei. Der eigene Spielstand bleibt davon unberührt.
 
 ## Inhalt
 
-- **Neun Strecken**, jede als gebackenes Diorama mit eigener Kulisse: Azure Coast (Küstenstadion), Downtown L (Stadt), Forest Eight (Schotter-Acht im Wald), Harbour Run (Containerhafen mit Sprung und Abkürzung), Fun Fair Eight (Jahrmarkt), Quarry Loop (Steinbruch mit Looping), Serra Pass (Bergsprint an der Steilküste), Drift Arena (Drift-Modus auf Punkte) und Toy Box Speedway (Kinderzimmer).
+- **Neun Strecken**, jede als gebackenes Diorama mit eigener Kulisse: Azure Coast (Küstenstadion), Downtown L (Stadt), Forest Eight (Schotter-Acht im Wald), Harbour Run (Containerhafen mit Sprung und Abkürzung), Fun Fair Eight (Jahrmarkt), Quarry Loop (Steinbruch mit Looping), Serra Pass (Bergsprint an der Steilküste), Drift Arena (Drift-Modus auf Punkte) und Toy Box Speedway (Kinderzimmer). Dazu kommen Höhenniveaus: im Steinbruch der Sprung über die eigene Strecke, im Hafen eine Containerterrasse, im Wald Kuppen und Senken, im Kinderzimmer ein Lineal als Wippe.
 - **2,5D-Fahrphysik:** Schanzen, Brückenkreuzungen, Loopings, Höhenprofil und Leitplanken entstehen aus der Bewegung des Autos; Deko wie Häuser, Mauern und Bäume hat einen Körper – wer hineinzeichnet, kracht.
 - **Karriere:** je Strecke drei Gold-Herausforderungen mit bis zu drei Rivalen; Gold schaltet Strecken und acht Autos mit eigenen Fahrwerten frei.
 - **Motoren:** jedes Auto klingt wie sein Motor (Dreizylinder bis V12, Big-Block-V8), aufgenommen mit einer physikalischen Motorsimulation, mit Begrenzer, Fehlzündungen und Turbo.
 - **Tageszeit, Wetter, Nebel:** fest je Herausforderung, von Tag bis Nacht mit Regen, Schnee und Nebelschwaden. Nässe und Schnee senken die Haftung.
 - **Bestenliste:** die zehn schnellsten Fahrten je Strecke und Herausforderung.
+- **Namen und Sprechblasen:** Namensschilder über den Autos und kurze Blasen bei Ereignissen wie „Überholt!“ oder „Dreher!“, beides abschaltbar.
 - **Musik:** durchgehende Zufalls-Playlist in zwei Stilen („energiegeladen“ mit Gesang, „ruhig“ instrumental), eigene Stücke für Sieg und Niederlage.
 - **Einstellungen:** Rennkamera, Tempo der Linie, Grafikqualität, getrennte Lautstärken für Musik und Geräusche.
 

@@ -16,6 +16,11 @@ extends SceneTree
 # Netz mit RaceField nach (gleiche Linien, gleiche angewandte Turbo-Wechsel) und vergleicht bitgenau (nachgerechnet=ja). Jeder meldet
 # die Spielerfarben, wie er sie im Rennen zeigt (farben=ID:Farbe,…; alle Menschen im selben Auto, jede Farbe nur einmal). Danach
 # beendet der Host das Spiel; die Mitspieler erwarten die Nachricht „Gastgeber hat beendet“.
+# Musik (gemeinsam, Nutzerwunsch 04.10.2026): Jeder Prozess rechnet seine Musik ohne Audiogerät (RaceSound.enable_virtual, eigene
+# zufällige Playlist) und gleicht sie wie main.gd über NetLobby.sync_music ab. Der Host schaltet die Musik der Mitspieler beim Einstellen
+# aus und zum Rennen wieder an, zur Wertung setzt er das gemeinsame Stück (Sieg, wenn ein Mensch gewonnen hat). Jeder meldet Stück und
+# Stelle 0 auf der Host-Uhr 2 s nach dem Start und kurz nach der Wertung (musik=Datei@ms;Datei@ms, tools/net_test.ps1 vergleicht);
+# Mitspieler müssen „stumm“ gesehen haben und am Ende wieder Musik haben, der Abmelder nach dem Abmelden wieder seiner eigenen folgen.
 # --lobbytest-fake=track|version: absichtlich falsche Streckendaten bzw. Spielversion, erwartet wird die Ablehnung. Optionen:
 # --lobbytest-name, --lobbytest-timeout (s), --lobbytest-car, --lobbytest-color (Wunschfarbe, Index in PlayerColors), --lobbytest-log, --lobbytest-speed (Zeitraffer des Rennens),
 # --lobbytest-drop (Mitspieler: Anteil verworfener Schnappschüsse, z. B. 0.1), --lobbytest-jump (Grenze für Sprünge in m, 0,5),
@@ -51,6 +56,10 @@ var frames := 0
 var final_ms := -1
 var joined_ms := -1
 var signed_off := 0                # Host: sauber abgemeldete Mitspieler
+var sound: RaceSound               # Musik ohne Audiogerät (nur gerechnet), abgeglichen wie in main.gd
+var music_samples: Array = []      # ["Datei@Stelle-0-auf-der-Host-Uhr-in-ms", …] (2 s nach dem Start, nach der Wertung)
+var muted_seen := false            # Mitspieler: Musik war vom Gastgeber abgeschaltet
+var muted_end := true              # Mitspieler: beim letzten Messpunkt noch abgeschaltet?
 
 func _initialize() -> void:
 	for arg: String in OS.get_cmdline_user_args():
@@ -68,6 +77,9 @@ func _initialize() -> void:
 	NetLobby.overrides = {}
 	lobby.tracks = TRACKS.duplicate()
 	root.add_child(lobby)
+	sound = RaceSound.new()
+	root.add_child(sound)
+	sound.enable_virtual()
 	lobby.log_line.connect(func(t): print(t))
 	lobby.round_started.connect(_on_started)
 	lobby.round_ready.connect(_on_ready)
@@ -103,11 +115,12 @@ func _initialize() -> void:
 	else:
 		_finish(false, "unbekannter Modus " + mode)
 
-func _process(_delta: float) -> bool:
+func _process(delta: float) -> bool:
 	if done or lobby == null:
 		return false
 	_bot_tick()
 	_race_tick()
+	_music_tick(delta)
 	var elapsed := (Time.get_ticks_msec() - start_ms) / 1000.0
 	if elapsed > float(opt.get("timeout", "40")):
 		_finish(false, "Zeitgrenze (Modus %s, Phase %s, Spieler %d, Rennen %s)" % [lobby.mode, lobby.phase, lobby.players.size(),
@@ -131,9 +144,12 @@ func _process(_delta: float) -> bool:
 func _sign_off() -> void:
 	# Wie „Verlassen“ in der Lobby: bye, dann sauber trennen (leave() setzt den Modus sofort zurück, darum nur einmal).
 	var who: String = str(lobby.me().get("name", "?"))
+	var role := sound.net_role
 	lobby.leave()
 	await create_timer(1.0).timeout
-	_finish(lobby.session.enet == null, "abgemeldet als %s" % who)
+	# Nach dem Abmelden wieder die eigene Musik (Rolle „“), keine Stummschaltung mehr.
+	var music_ok := role == "follow" and sound.net_role == "" and not lobby.music_muted()
+	_finish(lobby.session.enet == null and music_ok, "abgemeldet als %s, Musik %s → %s" % [who, role, sound.net_role if sound.net_role != "" else "eigene"])
 
 func _host_tick() -> void:
 	var expect := int(opt.get("expect", "3"))
@@ -143,6 +159,7 @@ func _host_tick() -> void:
 		lobby.set_stage(WANT.stage)
 		lobby.set_ai(3)
 		lobby.set_contacts(WANT.contacts)
+		lobby.set_guest_music(false)       # Musik der Mitspieler aus (zum Rennen wieder an)
 	if configured and lobby.phase == "lobby" and lobby.start_problem() == "" and plans_seen.is_empty():
 		lobby.start_round()
 	if race != null and race.final and final_ms > 0 and Time.get_ticks_msec() - final_ms > 1000 and lobby.mode == "host":
@@ -166,7 +183,8 @@ func _host_tick() -> void:
 		var text := "host abgemeldet=%d spieler=%d autos=%s farben=%s namen=%s einstellungen=%s linien=%d digest=%s takte=%d wertung=%s sim=%s nachgerechnet=%s turbo=%d %s" % [signed_off,
 			lobby.players.size(), str(lobby.players.map(func(p): return p.car)), _colors_text(), str(lobby.players.map(func(p): return p.name)), JSON.stringify(lobby.settings),
 			int(plans_seen.get("count", 0)), str(plans_seen.get("digest", "")).left(16), race.tick, _rows_hash(), str(race.final_info.digest).left(16),
-			"ja" if check.ok else "NEIN (%s)" % check.why, _turbo_changes(), _smooth_text()]
+			"ja" if check.ok else "NEIN (%s)" % check.why, _turbo_changes(), _smooth_text()] + " musik=" + ";".join(music_samples)
+		ok = ok and music_samples.size() == 2
 		plans_seen = {}
 		race = null
 		lobby.leave()
@@ -282,6 +300,8 @@ func _on_race() -> void:
 	var h := absi(str(opt.get("name", "PC")).hash())
 	var base := 1.0 + float(h % 7) * 0.31
 	presses = [[base, base + 1.2], [base + 5.0, base + 5.8], [base + 11.0, base + 12.5]]
+	if lobby.is_host():
+		lobby.set_guest_music(true)
 	press_k = 0
 	pressed = false
 	print("RENNEN ANGELEGT: %d Autos, mein Auto %d, Start in %.2f s, Turbo-Plan %s" % [race.view.cars.size(), race.my_index, race.seconds_until_go(), str(presses)])
@@ -320,6 +340,24 @@ func _race_tick() -> void:
 					worst_at = "Auto %d bei Takt %.1f" % [i, t]
 		last_view[i] = [t, v.pos, v.velocity.length(), v.crashed or v.finish_time >= 0.0 or v.in_loop]
 
+func _music_tick(delta: float) -> void:
+	# Wie main.gd je Bild: Gastgeber führt, Mitspieler folgen; Wertung: gemeinsames Stück vom Gastgeber. Messpunkte auf der Host-Uhr.
+	lobby.sync_music(sound)
+	sound.update_music(false, not lobby.music_muted(), delta)
+	if lobby.music_muted():
+		muted_seen = true
+	if race == null or lobby.race != race:
+		return
+	if final_ms > 0 and sound.context != "result":
+		sound.set_context("result", NetRace.human_won(race.rows, race.view))
+	var due := music_samples.size() == 0 and race.race_seconds() >= 2.0 or music_samples.size() == 1 and final_ms > 0 and Time.get_ticks_msec() - final_ms >= 700
+	if due:
+		var state := sound.music_state()
+		var to_host := lobby.session.host_time_usec() - Time.get_ticks_usec()
+		music_samples.append("%s@%d" % [str(state.get("file", "-")), int((int(state.get("origin", 0)) + to_host) / 1000)])
+		muted_end = lobby.music_muted()
+		print("MUSIK %d: %s (Stelle %.2f s%s)" % [music_samples.size(), music_samples[-1], sound.music_position(), ", stumm" if muted_end else ""])
+
 func _smooth_ok() -> bool:
 	return worst_jump <= float(opt.get("jump", "0.5"))
 
@@ -337,13 +375,15 @@ func _on_failed(reason: String) -> void:
 func _on_closed(reason: String) -> void:
 	var final_ok := race != null and race.final and not race.rows.is_empty()
 	var ok := not ready_seen.is_empty() and reason.contains("beendet") and JSON.stringify(ready_seen.settings) == JSON.stringify(WANT) and str(opt.get("fake", "")) == "" \
-		and not plans_seen.is_empty() and bool(plans_seen.own_ok) and final_ok and _smooth_ok() and _colors_ok()
+		and not plans_seen.is_empty() and bool(plans_seen.own_ok) and final_ok and _smooth_ok() and _colors_ok() \
+		and music_samples.size() == 2 and muted_seen and not muted_end
 	var dropped: int = int(race.stats.dropped) if race != null else 0
 	if float(opt.get("drop", "0")) > 0.0 and dropped == 0:
 		ok = false
 	_finish(ok, "join runde=%s auto=%s farben=%s name=%s linien=%d digest=%s wertung=%s sim=%s %s, Ende: %s" % [JSON.stringify(ready_seen.get("settings", {})), str(me_seen.get("car", "?")),
 		_colors_text(), str(me_seen.get("name", "?")), int(plans_seen.get("count", 0)), str(plans_seen.get("digest", "")).left(16),
-		_rows_hash() if final_ok else "-", str(race.final_info.get("digest", "")).left(16) if final_ok else "-", _smooth_text(), reason])
+		_rows_hash() if final_ok else "-", str(race.final_info.get("digest", "")).left(16) if final_ok else "-", _smooth_text(), reason]
+		+ " musik=%s stumm=%s/%s" % [";".join(music_samples), "gesehen" if muted_seen else "nie", "noch" if muted_end else "aufgehoben"])
 
 func _finish(ok: bool, text: String) -> void:
 	if done:

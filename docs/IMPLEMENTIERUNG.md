@@ -518,3 +518,50 @@ Plan und Nutzerentscheidungen: `docs/MULTIPLAYER_RECHERCHE.md`.
 - **Nebenbefund S10:** Der Heim-Router (WPA3, 2,4 GHz) erneuert den Gruppenschlüssel alle 10 Minuten. Das S10 verpasst das gelegentlich und wird abgemeldet (`DISASSOC_STA_HAS_LEFT`), danach schaltet Android das Debugging über WLAN ab. Für den Mehrspieler ist das ein realistischer Störfall.
 - **Tests:** 16 Testreihen, 1402 Prüfungen.
 - **Noch offen:** Hotspot ganz ohne Internet, Mitspieler mit mobilen Daten (S24), Gastgeber mit eigenem Hotspot, Neu-Binden nach WLAN-Wechsel.
+
+## Hotspot zweigleisig, Musik synchron, Strecke im Hintergrund laden (04.10.2026, Release 0.3.0)
+
+- **Hotspot und WLAN beim Gastgeber:**
+  - Ursache laut S24-Protokoll: Android 16 führt den eigenen Hotspot als eigenes Netz (`swlan0`, Fähigkeit LOCAL_NETWORK). Die Hotspot-Erkennung lieferte nichts, der Gastgeber blieb ans Heim-WLAN gebunden, und seine Antworten an 10.110.43.x gingen ins Heim-WLAN.
+  - Neu (`NetAndroid.host_plan`):
+    - kein Hotspot: Bindung an WLAN
+    - Hotspot und WLAN: keine Bindung, erreichbar über beide Netze
+    - nur Hotspot unter Android 16: Bindung an das Hotspot-Netz
+    - nur Hotspot unter Android 15 oder älter: keine Bindung
+  - Geht der Hotspot oder das WLAN erst nach dem Eröffnen an, löst der Gastgeber die Bindung und eröffnet neu, sobald niemand mehr verbunden ist.
+  - Die Lobby zeigt beide Adressen („WLAN 192.168.178.4 · Hotspot 10.110.43.61“).
+  - Hinweis an Mitspieler, die das Spiel nur über die Ankündigung sehen: Der Gastgeber soll das WLAN ausschalten und neu eröffnen.
+  - Neu ist `NetHelper.bindNetwork(handle)`. Am Gerät noch ungeprüft ist, ob der zweigleisige Fall auf Android 16 ohne Bindung klappt.
+- **Musik synchron (WLAN):**
+  - Der Gastgeber bestimmt Stück, Stil, Überblendung und Folgestück. Die Mitspieler spielen dasselbe an derselben Position, über die gemeinsame Uhr. Ab 0,15 s Abweichung gleicht eine kurze 0,4-s-Überblendung aus, höchstens alle 2,5 s.
+  - Auf der Wertung hören alle dasselbe Stück: „sieg“, wenn ein Mensch vorn liegt, sonst „niederlage“.
+  - Lobby-Schalter „Musik auch bei den Mitspielern“: Er gilt nur für die laufende Sitzung, gespeichert wird nichts. Beim Verlassen gilt wieder die eigene Einstellung.
+  - Protokoll 7.
+  - Im PC-Test lagen 4 Geräte höchstens 4 ms auseinander.
+- **Strecke im Hintergrund laden:**
+  - Ursache der langen Hänger: Beim Wechsel blockierte der Weltaufbau 0,9–15,7 s am Stück. 90 % davon war die Lichtkarte (`Atmosphere.bake_rain_lights`).
+  - `Circuit.load_track` lädt die Simulationsdaten weiter vollständig und sofort.
+  - Die Grafik baut `World.build_async` in 8-ms-Scheiben. Diorama und KI-Modelle laden in Hintergrund-Threads, die Lichtkarte entsteht in parallelen Threads und ist bitgleich (`light_bake`).
+  - Solange die Strecke nicht fertig ist, sind „Linie zeichnen“, „Vorführfahrt“ und die Einträge im Entwicklermenü gesperrt und zeigen „Strecke lädt …“.
+  - Am PC ist das längste Bild jetzt 27–72 ms statt bis zu 15,6 s. Das Verlassen des Mehrspielers dauert 36–66 ms statt bis zu 5,2 s.
+  - Beendet der Gastgeber, schließen die Mitspieler die Sitzung sofort.
+- **Tests:** 18 Testreihen mit 1505 Prüfungen, neu sind `test_music` und `test_loading`. `net_test.ps1 -Lobby` hat 7 von 7 Läufen bestanden. Unabhängige Prüfung: alle fünf Punkte „gut“.
+- **Offen (Gerät):**
+  - Zweigleisiger Hotspot auf dem S24.
+  - Musiksynchronität mit echten Audiotakten.
+  - Ladezeiten auf dem S10, geschätzt 2–5 s ohne Einfrieren.
+
+## App teilen ohne Internet (04.10.2026, Release 0.3.0)
+
+- **„Draw2Race teilen“** (nur Android, unter Optionen → „Updates & Teilen“):
+  - `ApkShare.java` kopiert die installierte APK in einem Hintergrund-Thread nach `files/share/Draw2Race-<Version>.apk` und berechnet dabei die SHA-256. Danach öffnet sich das Android-Teilen-Menü (`ACTION_SEND`, `application/vnd.android.package-archive`) über den vorhandenen FileProvider, zum Beispiel für Quick Share oder Bluetooth.
+  - Eine kurze Anleitung für den Empfänger erklärt, die Datei anzutippen und die Installation aus unbekannten Quellen zu erlauben.
+  - Die Kopie wird beim nächsten Start gelöscht.
+- **Update aus der WLAN-Lobby:**
+  - Bei einer Ablehnung wegen anderer Version bekommt nur die ältere Seite ein Angebot: „Neue Version (x.y.z) vom Gastgeber holen“. Ist der Mitspieler neuer, gibt er seine Version an den Gastgeber weiter.
+  - Übertragen wird über einen kleinen HTTP-Dienst auf TCP 24683, der in allen Netzen lauscht, auch im Hotspot. Senden und Empfangen laufen in Threads, mit Fortschritt in MB und Restzeit.
+  - Größe und SHA-256 werden geprüft. Danach installiert `Updater.install_file` mit den bekannten Prüfungen: gleiches Paket, höhere Version, gleiche Signatur. Ein Downgrade gibt es nie.
+  - Während eines Rennens sendet der Gastgeber höchstens 2 MB/s. Die Drossel misst ab der letzten Änderung der Grenze; vorher brach eine schon schnell laufende Sendung beim Rennstart ab, das hatte die Prüfung gefunden.
+  - Ältere Versionen sehen weiterhin einen lesbaren Ablehnungsgrund, das Format ist kompatibel erweitert. Das Protokoll bleibt bei 7.
+- **Tests:** 19 Testreihen, neu ist `test_apk` mit Übertragung, Abbruch, verfälschtem Byte, falscher Größe und Drossel-Umschaltung. `tools/net_test.ps1 -Apk` läuft mehrprozessig.
+- **Offen (Gerät):** Teilen-Menü mit Quick Share, Installation beim Empfänger, Übertragung im Heim-WLAN und über den Hotspot. Das Angebot hilft erst ab 0.2.32 auf beiden Seiten.

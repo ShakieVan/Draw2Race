@@ -5,6 +5,7 @@
     [switch]$Reject,
     [switch]$Search,
     [switch]$Lobby,
+    [switch]$Apk,
     [int]$Duration = 4,
     [double]$Speed = 1.0,
     [double]$Drop = 0.1
@@ -25,7 +26,11 @@
 #   nach Plan; Mitspieler 1 verwirft dabei absichtlich -Drop (10 %) der Schnappschüsse. Geprüft wird: Wertung und Simulation bei allen
 #   gleich (wertung=, sim=; Autowahl: alle im selben Auto, Spielerfarben eindeutig und überall gleich, farben=), der Host rechnet bitgleich wie RaceField ohne Netz (nachgerechnet=ja), keine Sprünge in der Anzeige.
 #   -Speed: Zeitraffer des Rennens (1 = Echtzeit). Lobby-Läufe brauchen in Echtzeit gut eine Minute (-Timeout ab 120 s).
-# Aufruf: powershell -NoProfile -ExecutionPolicy Bypass -File tools/net_test.ps1 [-Clients 3] [-Reject] [-Search] [-Lobby [-Speed 1] [-Drop 0.1]]
+#   -Apk: Weitergabe der neueren Version (game/tests/apk_cli.gd, NetApk): ein Gastgeber mit 40-MB-Testdatei (gedrosselt auf 20 MB/s),
+#   ein älterer Mitspieler holt sie und prüft sie gegen die Quelle, ein zweiter bricht nach 8 MB ab, ein neuerer Mitspieler gibt dem
+#   Gastgeber seine Version; ein zweiter Gastgeber verfälscht ein Byte, sein Mitspieler muss die Datei ablehnen. Jeder misst den
+#   längsten Bildabstand während der Übertragung (Grenze 50 ms).
+# Aufruf: powershell -NoProfile -ExecutionPolicy Bypass -File tools/net_test.ps1 [-Clients 3] [-Reject] [-Search] [-Lobby [-Speed 1] [-Drop 0.1]] [-Apk]
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $exe = Join-Path $root '.tools\Godot_v4.6.1-stable_win64_console.exe'
@@ -40,7 +45,9 @@ if ($Address -eq '') {
 $runs = @()
 function Start-NetRun([string]$Name, [string[]]$UserArgs) {
     $out = Join-Path $env:TEMP ("draw2race_net_{0}_{1}.txt" -f $Name, [guid]::NewGuid().ToString('N'))
-    if ($Lobby) {
+    if ($Apk) {
+        $arguments = @('--headless', '--path', "`"$game`"", '--script', 'res://tests/apk_cli.gd', '--') + $UserArgs + @("--apktest-name=$Name")
+    } elseif ($Lobby) {
         $arguments = @('--headless', '--path', "`"$game`"", '--script', 'res://scripts/net/lobby_cli.gd', '--') + $UserArgs + @("--lobbytest-name=$Name")
     } else {
         $arguments = @('--headless', '--path', "`"$game`"", '--script', 'res://scripts/net/net_cli.gd', '--') + $UserArgs +
@@ -50,7 +57,16 @@ function Start-NetRun([string]$Name, [string[]]$UserArgs) {
     $null = $proc.Handle    # Handle merken, sonst liefert ExitCode nach dem Ende nichts
     $script:runs += [pscustomobject]@{ Name = $Name; Proc = $proc; Out = $out; Args = ($UserArgs -join ' ') }
 }
-if ($Lobby) {
+if ($Apk) {
+    Write-Output 'APK-Weitergabe: Gastgeber + Holer + Abbrecher + Neuling, Fälscher + Opfer (127.0.0.1, eigene Ports 24710–24728)'
+    Start-NetRun 'Quelle' @('--apktest=host', '--apktest-port=24710', '--apktest-mb=40', '--apktest-rate=20', '--apktest-served=1', '--apktest-aborted=1', '--apktest-pull', "--apktest-timeout=$Timeout")
+    Start-NetRun 'Faelscher' @('--apktest=host', '--apktest-port=24720', '--apktest-mb=16', '--apktest-corrupt', '--apktest-served=1', "--apktest-timeout=$Timeout")
+    Start-Sleep -Milliseconds 2500
+    Start-NetRun 'Holer' @('--apktest=fetch', '--apktest-port=24710', '--apktest-source=Quelle', "--apktest-timeout=$([int]($Timeout - 5))")
+    Start-NetRun 'Abbrecher' @('--apktest=fetch', '--apktest-port=24710', '--apktest-cancel=8', "--apktest-timeout=$([int]($Timeout - 5))")
+    Start-NetRun 'Neuling' @('--apktest=give', '--apktest-port=24710', '--apktest-own-port=24718', '--apktest-mb=12', "--apktest-timeout=$([int]($Timeout - 5))")
+    Start-NetRun 'Opfer' @('--apktest=fetch', '--apktest-port=24720', '--apktest-expect=Prüfsumme', "--apktest-timeout=$([int]($Timeout - 5))")
+} elseif ($Lobby) {
     if (-not $PSBoundParameters.ContainsKey('Timeout')) { $Timeout = 150 }
     $speedArg = "--lobbytest-speed=$([string]::Format([Globalization.CultureInfo]::InvariantCulture, '{0}', $Speed))"
     Write-Output ("Lobbytest: 1 Host + {0} Mitspieler + 2 Ablehnungen (Streckendaten, Spielversion), LAN-Adresse {1}, Rennen im Zeitraffer {2}, Mitspieler 1 verwirft {3:P0} der Schnappschüsse" -f $Clients, $(if ($Address) { $Address } else { 'unbekannt' }), $Speed, $Drop)
@@ -93,6 +109,7 @@ $digestSeen = @()
 $rowsSeen = @()
 $simSeen = @()
 $colorsSeen = @()
+$musicSeen = @()
 foreach ($run in $runs) {
     if (-not $run.Proc.WaitForExit(($Timeout + 20) * 1000)) {
         Stop-Process -Id $run.Proc.Id -Force -ErrorAction SilentlyContinue
@@ -103,19 +120,20 @@ Write-Output ''
 foreach ($run in $runs) {
     $lines = @(Get-Content -LiteralPath $run.Out -Encoding UTF8 -ErrorAction SilentlyContinue)
     $errors = @(Get-Content -LiteralPath ($run.Out + '.err') -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_.Trim() -ne '' })
-    $result = @($lines | Where-Object { $_ -match '(NETTEST|LOBBYTEST)-ERGEBNIS: ' }) | Select-Object -Last 1
-    $ok = ($run.Proc.ExitCode -eq 0) -and ("$result" -match '(NETTEST|LOBBYTEST)-ERGEBNIS: OK') -and -not ($lines + $errors | Where-Object { $_ -match 'SCRIPT ERROR|^ERROR:' })
+    $result = @($lines | Where-Object { $_ -match '(NETTEST|LOBBYTEST|APKTEST)-ERGEBNIS: ' }) | Select-Object -Last 1
+    $ok = ($run.Proc.ExitCode -eq 0) -and ("$result" -match '(NETTEST|LOBBYTEST|APKTEST)-ERGEBNIS: OK') -and -not ($lines + $errors | Where-Object { $_ -match 'SCRIPT ERROR|^ERROR:' })
     if ($Lobby -and $run.Name -eq 'Host' -and "$result" -notmatch 'abgemeldet=1 ') { $ok = $false; Write-Output 'FEHLER: Host hat die saubere Abmeldung nicht gesehen (abgemeldet=1 erwartet)' }
     if ($ok -and "$result" -match 'digest=([0-9a-f]+)') { $digestSeen += $Matches[1] }
     if ($ok -and "$result" -match 'wertung=([0-9a-f]+)') { $rowsSeen += $Matches[1] }
     if ($ok -and "$result" -match 'sim=([0-9a-f]+)') { $simSeen += $Matches[1] }
     if ($ok -and "$result" -match 'farben=(\S+)') { $colorsSeen += $Matches[1] }
+    if ($ok -and "$result" -match 'musik=(\S+)') { $musicSeen += [pscustomobject]@{ Name = $run.Name; Samples = @($Matches[1] -split ';') } }
     if (-not $ok) { $failed++ }
     Write-Output ("[{0}] {1} ({2})" -f $(if ($ok) { 'OK    ' } else { 'FEHLER' }), $run.Name, $run.Args)
-    foreach ($line in $lines | Where-Object { $_ -notmatch '(NETTEST|LOBBYTEST)-ERGEBNIS' -and $_ -match 'Gefunden:|Auch |Suchanfrage von|angenommen|abgelehnt|Abgelehnt|Senden an .* fehlgeschlagen|Ziele:|Ping |Start Runde|Alle haben geladen|In der Lobby|ZEICHENSTART|LINIEN DA|RENNEN ANGELEGT|SCHNAPPSCHUSS|Alle Menschen fertig|HÄNGER|weg \(' } | Select-Object -First 20) {
+    foreach ($line in $lines | Where-Object { $_ -notmatch '(NETTEST|LOBBYTEST|APKTEST)-ERGEBNIS' -and $_ -match 'APK: |Ablehnung mit|neuere Version|ältere Version|Dateidienst|Hole Version|Gefunden:|Auch |Suchanfrage von|angenommen|abgelehnt|Abgelehnt|Senden an .* fehlgeschlagen|Ziele:|Ping |Start Runde|Alle haben geladen|In der Lobby|ZEICHENSTART|LINIEN DA|RENNEN ANGELEGT|SCHNAPPSCHUSS|Alle Menschen fertig|HÄNGER|weg \(' } | Select-Object -First 20) {
         Write-Output ("         " + ($line -replace '^\S+ \S+ \[\+\s*[\d.]+\] ', ''))
     }
-    Write-Output ("         " + ("$result" -replace '^.*(NETTEST|LOBBYTEST)-ERGEBNIS: ', ''))
+    Write-Output ("         " + ("$result" -replace '^.*(NETTEST|LOBBYTEST|APKTEST)-ERGEBNIS: ', ''))
     foreach ($line in ($lines + $errors) | Where-Object { $_ -match 'SCRIPT ERROR|^ERROR:' } | Select-Object -First 5) { Write-Output ("         ! " + $line) }
     Remove-Item -LiteralPath $run.Out, ($run.Out + '.err') -ErrorAction SilentlyContinue
 }
@@ -135,8 +153,32 @@ if ($Lobby) {
     $colorSets = @($colorsSeen | Sort-Object -Unique)
     if ($colorsSeen.Count -ne ($Clients + 1) -or $colorSets.Count -ne 1) { $failed++; Write-Output ("FEHLER: Spielerfarben {0}× gemeldet, {1} verschieden ({2})" -f $colorsSeen.Count, $colorSets.Count, ($colorSets -join ' | ')) }
     else { Write-Output ("Spielerfarben bei allen {0} Geräten gleich ({1})." -f $colorsSeen.Count, $colorSets[0]) }
+    # Musik: Alle spielen dasselbe Stück an derselben Stelle (Stelle 0 auf der Host-Uhr, höchstens 150 ms Abstand zum Host), 2 s nach dem
+    # Start und nach der Wertung (gemeinsames Stück der Wertung, auch beim Mitspieler, der beim Laden 6 s hing).
+    $hostMusic = @($musicSeen | Where-Object { $_.Name -eq 'Host' }) | Select-Object -First 1
+    $musicBad = @()
+    if ($musicSeen.Count -ne ($Clients + 1) -or -not $hostMusic) { $musicBad += ("{0}× gemeldet" -f $musicSeen.Count) }
+    else {
+        foreach ($m in $musicSeen) {
+            for ($k = 0; $k -lt 2; $k++) {
+                $want = "$($hostMusic.Samples[$k])" -split '@'
+                $got = "$($m.Samples[$k])" -split '@'
+                if ($got.Count -ne 2 -or $want.Count -ne 2 -or $got[0] -ne $want[0] -or [math]::Abs([long]$got[1] - [long]$want[1]) -gt 150) {
+                    $musicBad += ("{0} Messpunkt {1}: {2} statt {3}" -f $m.Name, ($k + 1), $m.Samples[$k], $hostMusic.Samples[$k])
+                }
+            }
+        }
+    }
+    if ($musicBad.Count -gt 0) { $failed++; Write-Output ("FEHLER: Musik nicht gleich: {0}" -f ($musicBad -join '; ')) }
+    else {
+        $spread = 0
+        foreach ($m in $musicSeen) { for ($k = 0; $k -lt 2; $k++) { $spread = [math]::Max($spread, [math]::Abs([long]("$($m.Samples[$k])" -split '@')[1] - [long]("$($hostMusic.Samples[$k])" -split '@')[1])) } }
+        Write-Output ("Musik bei allen {0} Geräten gleich: {1}, größter Abstand der Stelle {2} ms." -f $musicSeen.Count, ($hostMusic.Samples -join ' / '), $spread)
+    }
 }
+# -Apk: Testdateien (Quellen und empfangene Kopien, gut 100 MB) wieder entfernen.
+if ($Apk) { Remove-Item -LiteralPath (Join-Path $env:APPDATA 'Godot\app_userdata\Draw2Race\apktest') -Recurse -Force -ErrorAction SilentlyContinue }
 if ($failed -gt 0) { Write-Output ("{0} von {1} Läufen fehlgeschlagen." -f $failed, $runs.Count); exit 1 }
-if ($Lobby) { Write-Output ("Alle {0} Läufe OK." -f $runs.Count); exit 0 }
+if ($Lobby -or $Apk) { Write-Output ("Alle {0} Läufe OK." -f $runs.Count); exit 0 }
 Write-Output ("Alle {0} Läufe OK. Protokolle: {1}" -f $runs.Count, (Join-Path $env:APPDATA 'Godot\app_userdata\Draw2Race\netztest_*.log'))
 exit 0

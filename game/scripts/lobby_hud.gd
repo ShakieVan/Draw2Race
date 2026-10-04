@@ -27,6 +27,8 @@ var games_title: Label
 var search_hint: Label
 var count_label: Label
 var address_label: Label
+var lobby_note: Label             # Lobby unten links: allgemeiner Hinweis bzw. Netzhinweis des Gastgebers
+const LOBBY_NOTE := "Alle Strecken und Autos sind frei, Autos auch doppelt – jeder hat seine Farbe. Dein Fortschritt bleibt unberührt."
 var rows: Array = []              # je Platz {panel, chip, name, car, state, ping}
 var settings_box: Control
 var start_button: Button
@@ -51,6 +53,17 @@ var _toast_until := 0
 var _games_sig := "-"
 var _settings_sig := "-"
 var _garage_sig := "-"
+# Neuere Version holen (NetApk): Dialog mit Fortschritt
+var apk_box: Panel
+var apk_state: Label
+var apk_bar: Panel
+var apk_fill: Panel
+var apk_go: Button
+var apk_close: Button
+var _apk_shown := ""              # Prüfsumme des zuletzt gezeigten Angebots (Gastgeber: Dialog je Angebot nur einmal von selbst)
+var _apk_note := ""               # Ergebnis der Installation (z. B. „Update abgelehnt: Signatur passt nicht“)
+var _apk_served := 0
+var _apk_sending := 0
 
 func _init(owner_hud: RaceHUD) -> void:
 	hud = owner_hud
@@ -71,16 +84,40 @@ func status_text() -> Array:
 	# [Text, Hinweis?] zum Netz: WLAN verbunden (und gebunden), eigener Hotspot an, oder klarer Hinweis ohne WLAN.
 	var st: Dictionary = lobby().status
 	var hotspot: Array = st.get("hotspot", [])
+	var wlan: Array = st.get("wlan", [])
+	if not hotspot.is_empty() and not wlan.is_empty():
+		# Hotspot und WLAN zugleich (NetAndroid.host_plan): Ein Gastgeber hier bleibt ungebunden und erreicht beide Netze – außer das WLAN
+		# ist nicht Androids Standardnetz (kein Internet).
+		if not (st.get("reach", []) as Array).has("wlan"):
+			return [("Dein Hotspot (%s) und ein WLAN ohne Internet (%s) sind an. Eröffnest du hier, erreichen dich nur Mitspieler in deinem " +
+				"Hotspot. Für Mitspieler im WLAN schalte den Hotspot aus.") % [hotspot[0], wlan[0]], true]
+		return ["Dein Hotspot (%s) und das WLAN (%s) sind an. Eröffne hier das Spiel – die anderen treten über deinen Hotspot oder das WLAN bei." %
+			[hotspot[0], wlan[0]], false]
 	if not hotspot.is_empty():
 		return ["Dein Handy-Hotspot ist an (%s). Eröffne hier das Spiel – die anderen verbinden sich mit deinem Hotspot und tippen „Beitreten“." % ", ".join(hotspot), false]
 	if bool(st.get("wifi", false)):
-		var ips: Array = st.get("addresses", [])
+		var ips: Array = wlan if not wlan.is_empty() else st.get("addresses", [])
 		var text := "Im WLAN%s." % (" als %s" % ips[0] if not ips.is_empty() else "")
 		if bool(st.get("android", false)):
 			text += " Das Spiel ist ans WLAN gebunden – mobile Daten stören nicht." if bool(st.get("bound", false)) else " WLAN-Bindung nicht möglich%s." % (": " + str(st.problem) if str(st.get("problem", "")) != "" else "")
 		return [text, false]
 	return ["Kein WLAN verbunden. Verbindet alle Handys mit demselben WLAN – oder schaltet auf einem Handy den mobilen Hotspot ein " +
 		"(Einstellungen → Verbindungen → Mobiler Hotspot) und verbindet die anderen damit. Internet braucht ihr nicht.", true]
+
+static func host_addresses(st: Dictionary) -> String:
+	# Gastgeber: Adressen zum Eintippen je erreichbarem Netz („WLAN 192.168.178.4 · Hotspot 10.110.43.61“); am PC die ersten zwei eigenen.
+	var parts: Array = []
+	var reach: Array = st.get("reach", [])
+	if bool(st.get("android", false)):
+		if reach.has("wlan") and not (st.get("wlan", []) as Array).is_empty():
+			parts.append("WLAN %s" % st.wlan[0])
+		if reach.has("hotspot") and not (st.get("hotspot", []) as Array).is_empty():
+			parts.append("Hotspot %s" % st.hotspot[0])
+	if parts.is_empty():
+		for ip in st.get("hotspot", []) + st.get("addresses", []):
+			if not ip in parts and parts.size() < 2:
+				parts.append(ip)
+	return "Zum Eintippen: %s" % ("  ·  ".join(parts) if not parts.is_empty() else "unbekannt")
 
 # ---------- Eröffnen / Beitreten ----------
 func wlan_screen() -> void:
@@ -144,13 +181,19 @@ func _refresh_wlan() -> void:
 		var g: Dictionary = list[k]
 		var full: bool = int(g.players) >= int(g.max)
 		var busy: bool = bool(g.get("busy", false))
+		# Andere Version: antippbar, wenn sich die neuere Version weitergeben lässt (NetApk) – die Ablehnung bringt dann das Angebot.
+		var role := lb.apk_role_for(str(g.game)) if not g.compatible else ""
 		var note := str(g.note) if not g.compatible else ("Rennen läuft" if busy else ("voll" if full else "über " + lb.discovery.via_text(g)))
+		if role == "fetch":
+			note = "Version %s · neuere Version holen" % g.game
+		elif role == "give":
+			note = "ältere Version %s · deine Version weitergeben" % g.game
 		var text := "%s   ·   %d/%d Spieler\n%s  ·  %s" % [g.name, int(g.players), int(g.max), note, g.address]
 		var b := hud.button(games_box, text, Rect2(0, k * 106, 724, 96), app.net_join.bind(str(g.address), int(g.port), str(g.name)), g.compatible and not full and not busy)
 		b.name = "Game%d" % k
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.add_theme_font_size_override("font_size", RaceHUD.readable(19))
-		b.disabled = not g.compatible or full or busy
+		b.disabled = (not g.compatible and role == "") or full or busy
 
 func address_dialog() -> void:
 	# Eigene Ebene mit dem Eingabefeld im oberen Bildteil (die Bildschirmtastatur verdeckt unten).
@@ -201,10 +244,10 @@ func connecting(target: String) -> void:
 	p.get_parent().name = "ConnectCard"
 	hud.button(p, "Abbrechen", Rect2(34, 220, 572, 66), func(): app.net_cancel_join())
 
-func message(title: String, text: String) -> void:
-	var p := hud.overlay(title, text, Vector2(700, 340))
+func message(title: String, text: String, height := 340) -> void:
+	var p := hud.overlay(title, text, Vector2(700, height))
 	p.get_parent().name = "NetMessage"
-	var ok := hud.button(p, "OK", Rect2(34, 244, 632, 66), func(): p.get_parent().queue_free(), true)
+	var ok := hud.button(p, "OK", Rect2(34, height - 96, 632, 66), func(): p.get_parent().queue_free(), true)
 	ok.name = "MessageOk"
 
 func confirm(title: String, text: String, yes: String, action: Callable) -> void:
@@ -213,6 +256,140 @@ func confirm(title: String, text: String, yes: String, action: Callable) -> void
 	var b := hud.button(p, yes, Rect2(34, 250, 632, 66), func(): p.get_parent().queue_free(); action.call(), true)
 	b.name = "ConfirmYes"
 	hud.button(p, "Bleiben", Rect2(34, 336, 632, 66), func(): p.get_parent().queue_free())
+
+func rejected(reason: String) -> void:
+	# Beitritt abgelehnt (main.net_failed). Bei anderer Spielversion zusätzlich die Weitergabe der neueren Version (NetApk): Ist der
+	# Gastgeber neuer, holt man sie hier; ist man selbst neuer, darf der Gastgeber sie holen, solange man im WLAN-Bildschirm bleibt.
+	var lb := lobby()
+	if str(lb.apk_offer.get("from", "")) == "host":
+		apk_dialog(reason)
+		return
+	if not lb.apk_pull.is_empty():
+		message("Beitritt nicht möglich.", reason + ("\n\nDu hast die neuere Version. „%s“ kann sie jetzt von deinem Handy holen – " +
+			"bleib dafür in diesem Bildschirm.") % lb.apk_pull.name, 430)
+		return
+	message("Beitritt nicht möglich.", reason)
+
+# ---------- Neuere Version holen (NetApk) ----------
+func apk_dialog(intro := "") -> void:
+	# Angebot der neueren Version mit Fortschritt (MB, Restzeit), Abbrechen, Prüfung und Installation über den Updater.
+	var lb := lobby()
+	var o: Dictionary = lb.apk_offer
+	if o.is_empty():
+		return
+	_close_apk()
+	_apk_shown = str(o.sha256)
+	_apk_note = ""
+	var mb := NetApk.megabytes(int(o.size))
+	var text := intro + "\n\n" if intro != "" else ""
+	if str(o.from) == "host":
+		text += "Der Gastgeber „%s“ hat die neuere Version %s. Hol sie dir direkt von seinem Handy – übers WLAN, ohne Internet (%s MB)." % [o.name, o.version, mb]
+	else:
+		text += "„%s“ hat die neuere Version %s. Hol sie dir direkt von seinem Handy – übers WLAN, ohne Internet (%s MB). „%s“ muss dafür im WLAN-Bildschirm bleiben." % [
+			o.name, o.version, mb, o.name]
+	var p := hud.overlay("Neue Version %s." % o.version, text, Vector2(780, 560))
+	p.get_parent().name = "ApkDialog"
+	apk_box = p
+	apk_bar = hud.panel(p, Rect2(34, 324, 712, 22), Color("e4e1d6"))
+	apk_bar.name = "ApkBar"
+	apk_fill = hud.panel(apk_bar, Rect2(0, 0, 0, 22), ORANGE)
+	apk_state = hud.label(p, "", Vector2(34, 356), 18, INK, 712)
+	apk_state.name = "ApkState"
+	apk_go = hud.button(p, "", Rect2(34, 456, 552, 70), _apk_action, true)
+	apk_go.name = "ApkGo"
+	apk_close = hud.button(p, "Später" if str(o.from) == "guest" else "Schließen", Rect2(600, 456, 146, 70), func():
+		lobby().apk_cancel()
+		if lobby().transfer.progress_raw().get("state", "") != "done":
+			lobby().apk_dismiss()
+		_close_apk())
+	apk_close.name = "ApkClose"
+	_apk_update()
+
+func _close_apk() -> void:
+	if is_instance_valid(apk_box):
+		apk_box.get_parent().queue_free()
+	apk_box = null
+
+func _apk_action() -> void:
+	var lb := lobby()
+	var p := lb.transfer.progress()
+	match str(p.get("state", "")):
+		"connect", "wait", "load", "check":
+			lb.apk_cancel()
+		"done":
+			_apk_note = app.updater.install_file(str(p.path), str(lb.apk_offer.get("version", "")))
+			if _apk_note == "":
+				_apk_note = "Installer gestartet – bestätige dort „Installieren“."
+			elif not FileAccess.file_exists(str(p.path)):
+				lb.transfer.reset_fetch()    # abgelehnt und gelöscht (Paket, Version oder Signatur passen nicht)
+		_:
+			_apk_note = ""
+			lb.apk_fetch()
+	_apk_update()
+
+func _apk_update() -> void:
+	if not is_instance_valid(apk_box):
+		return
+	var lb := lobby()
+	var o: Dictionary = lb.apk_offer
+	var p := lb.transfer.progress()
+	var state := str(p.get("state", ""))
+	var frac := 0.0
+	var text := _apk_note
+	var go := ("Neue Version (%s) vom Gastgeber holen" % o.get("version", "?")) if str(o.get("from", "")) == "host" else "Neue Version von %s holen" % o.get("name", "?")
+	match state:
+		"connect":
+			text = "Verbinde mit „%s“ …" % o.get("name", "?")
+			go = "Abbrechen"
+		"wait":
+			text = "„%s“ bereitet die Datei vor …" % o.get("name", "?")
+			go = "Abbrechen"
+		"load":
+			frac = float(p.received) / maxf(1.0, float(p.size))
+			text = NetApk.progress_text(p)
+			go = "Abbrechen"
+		"check":
+			frac = 1.0
+			text = "Prüfe die Datei …"
+			go = "Abbrechen"
+		"done":
+			frac = 1.0
+			if text == "":
+				text = "Geladen und geprüft – die Prüfsumme stimmt. Beim Installieren prüft Android noch Paket, Version und Signatur."
+			go = "Installieren"
+		"error", "cancelled":
+			text = str(p.get("error", ""))
+			go = "Erneut versuchen"
+	apk_bar.visible = state in ["load", "check", "done"]
+	apk_fill.size.x = 712.0 * clampf(frac, 0.0, 1.0)
+	apk_state.text = text
+	apk_go.text = go
+	apk_close.visible = not lb.transfer.fetching()
+
+func apk_refresh() -> void:
+	# lobby.apk_changed: Dialog nachführen; ein laufendes Holen nach einem Neuaufbau wieder zeigen; beim Gastgeber ein neues Angebot
+	# eines Mitspielers einmal von selbst öffnen (nur in der Lobby, wenn kein anderer Dialog offen ist).
+	var lb := lobby()
+	if lb == null:
+		return
+	var st := lb.transfer.stats()
+	if int(st.sending) > _apk_sending:
+		toast("Die neue Version wird gerade von deinem Handy geholt …")
+	if int(st.served) > _apk_served:
+		toast("Die neue Version wurde vollständig übertragen.")
+	_apk_sending = int(st.sending)
+	_apk_served = int(st.served)
+	if is_instance_valid(apk_box):
+		if lb.apk_offer.is_empty():
+			_close_apk()
+		else:
+			_apk_update()
+		return
+	if lb.transfer.fetching():
+		apk_dialog()
+	elif screen == "lobby" and app.phase == "net_lobby" and str(lb.apk_offer.get("from", "")) == "guest" and str(lb.apk_offer.sha256) != _apk_shown \
+			and not dialog_open():
+		apk_dialog()
 
 func close_dialogs() -> void:
 	hud.close_overlays()
@@ -252,8 +429,8 @@ func lobby_screen() -> void:
 	own_car_dot.size = Vector2(28, 28)
 	own_car_dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	own_car_button.add_child(own_car_dot)
-	hud.label(left, "Alle Strecken und Autos sind frei, Autos auch doppelt – jeder hat seine Farbe. Dein Fortschritt bleibt unberührt.",
-		Vector2(28, 652), 12, MUTED, 644)
+	lobby_note = hud.label(left, LOBBY_NOTE, Vector2(28, 644), 12, MUTED, 644)
+	lobby_note.name = "LobbyNote"
 	var right := hud.panel(hud.content, Rect2(760, 120, 640, 724))
 	settings_box = Control.new()
 	settings_box.name = "SettingsBox"
@@ -272,6 +449,7 @@ func lobby_screen() -> void:
 		start_button = null
 	_add_toast()
 	refresh()
+	apk_refresh()        # Gastgeber: Angebot einer neueren Version, das während der Runde kam
 
 func _player_row(parent: Control, k: int) -> Dictionary:
 	var row := hud.panel(parent, Rect2(20, 108 + k * 104, 660, 96), Color("ffffff"))
@@ -325,12 +503,12 @@ func _refresh_lobby() -> void:
 		return
 	count_label.text = "%d von %d" % [lb.players.size(), NetProtocol.MAX_PLAYERS]
 	if lb.is_host():
-		var ips: Array = lb.status.get("hotspot", []) + lb.status.get("addresses", [])
-		var unique: Array = []
-		for ip in ips:
-			if not ip in unique:
-				unique.append(ip)
-		address_label.text = "Adresse zum Eintippen: %s" % (", ".join(unique.slice(0, 2)) if not unique.is_empty() else "unbekannt")
+		address_label.text = host_addresses(lb.status)
+		if is_instance_valid(lobby_note):
+			# Netzhinweis des Gastgebers (Hotspot und WLAN, Hotspot erst nach dem Eröffnen an …) statt des allgemeinen Hinweises.
+			var hint := str(lb.status.get("hint", ""))
+			lobby_note.text = hint if hint != "" else LOBBY_NOTE
+			lobby_note.add_theme_color_override("font_color", ORANGE if hint != "" and bool(lb.status.get("warn", false)) else MUTED)
 	else:
 		var ping := lb.ping_of(lb.me())
 		address_label.text = "Gastgeber %s%s" % [lb.session.host_address, "  ·  Ping %d ms" % ping if ping >= 0 else ""]
@@ -397,7 +575,7 @@ func _refresh_settings() -> void:
 	# Einstellungen: beim Gastgeber bedienbar (wie „Weitergeben“), bei Mitspielern nur zur Ansicht. Neu aufgebaut nur bei Änderung.
 	var lb := lobby()
 	var s: Dictionary = lb.settings
-	var sig := "%s %s %d %d %s %d" % [lb.is_host(), s.track, int(s.stage), int(s.ai), s.contacts, lb.players.size()]
+	var sig := "%s %s %d %d %s %d %s" % [lb.is_host(), s.track, int(s.stage), int(s.ai), s.contacts, lb.players.size(), lb.guest_music]
 	if sig == _settings_sig or not is_instance_valid(settings_box):
 		return
 	_settings_sig = sig
@@ -433,8 +611,12 @@ func _refresh_settings() -> void:
 			for n in range(most + 1):
 				var ab := hud.button(box, "%d" % n, Rect2(28 + n * 120, 340, 112, 52), func(): app.lobby.set_ai(n), int(s.ai) == n)
 				ab.add_theme_font_size_override("font_size", 20)
-		var contact := hud.toggle(box, "Berührungen zwischen Spielern", Vector2(24, 412), bool(s.contacts) and not drift, func(on: bool): app.lobby.set_contacts(on))
+		var contact := hud.toggle(box, "Berührungen zwischen Spielern", Vector2(24, 404), bool(s.contacts) and not drift, func(on: bool): app.lobby.set_contacts(on))
 		contact.disabled = drift
+		# Alle hören die Musik des Gastgebers (gleiches Stück, gleiche Stelle); hier lässt sie sich bei den Mitspielern für diese Sitzung
+		# abschalten – deren eigene Einstellung bleibt unberührt.
+		var tune := hud.toggle(box, "Musik auch bei den Mitspielern", Vector2(24, 452), lb.guest_music, func(on: bool): app.lobby.set_guest_music(on))
+		tune.name = "GuestMusic"
 	else:
 		hud.label(box, "STRECKE", Vector2(28, 20), 13, MUTED)
 		var title := hud.label(box, circuit.name, Vector2(24, 44), 40, INK, 590)
@@ -444,11 +626,15 @@ func _refresh_settings() -> void:
 		hud.label(box, "Stufe %d  ·  %s" % [int(s.stage) + 1, Atmosphere.describe(circuit.conditions_for(int(s.stage)))], Vector2(28, 212), 22, INK, 584)
 		hud.label(box, "KI-GEGNER", Vector2(28, 270), 13, MUTED)
 		hud.label(box, "Drift-Arena: ohne KI, nach Punkten" if drift else ("keine" if int(s.ai) == 0 else "%d, Stärke wie in der Karriere" % int(s.ai)), Vector2(28, 296), 22, INK, 584)
-		hud.label(box, "BERÜHRUNGEN ZWISCHEN SPIELERN", Vector2(28, 354), 13, MUTED)
-		hud.label(box, "an" if bool(s.contacts) else "aus", Vector2(28, 380), 22)
-		hud.label(box, "Der Gastgeber stellt ein. Ändert er etwas, tippst du erneut „Bereit“.", Vector2(28, 440), 15, MUTED, 584)
+		hud.label(box, "BERÜHRUNGEN ZWISCHEN SPIELERN", Vector2(28, 340), 13, MUTED)
+		hud.label(box, "an" if bool(s.contacts) else "aus", Vector2(28, 364), 22)
+		hud.label(box, "MUSIK", Vector2(28, 408), 13, MUTED)
+		var tune := hud.label(box, "wie beim Gastgeber – alle hören dasselbe" if lb.guest_music else "vom Gastgeber ausgeschaltet (nur in diesem Spiel)",
+			Vector2(28, 432), 20, INK, 584)
+		tune.name = "GuestMusic"
+		hud.label(box, "Der Gastgeber stellt ein. Ändert er etwas, tippst du erneut „Bereit“.", Vector2(28, 470), 15, MUTED, 584)
 	var total := humans + (0 if drift else int(s.ai))
-	hud.label(box, "%d Spieler%s · %d Autos am Start" % [humans, "" if drift or int(s.ai) == 0 else " + %d KI" % int(s.ai), total], Vector2(28, 500), 18, MUTED, 590)
+	hud.label(box, "%d Spieler%s · %d Autos am Start" % [humans, "" if drift or int(s.ai) == 0 else " + %d KI" % int(s.ai), total], Vector2(28, 516), 18, MUTED, 590)
 
 # ---------- Start (Übergabe an M4) ----------
 func round_screen() -> void:
@@ -528,6 +714,8 @@ func go_back() -> void:
 	# Zurück-Taste: Dialog schließen (Verbinden: abbrechen); sonst einen Schritt zurück – Lobby → Suche, Suche → Menü.
 	var lb := lobby()
 	if dialog_open() or hud.content.has_node("AddressDialog"):
+		if hud.content.has_node("ApkDialog"):
+			lb.apk_cancel()     # Holen der neueren Version endet mit dem Dialog
 		if lb.mode == "join" and not lb.is_joined:
 			app.net_cancel_join()
 		close_dialogs()

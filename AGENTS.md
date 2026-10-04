@@ -20,6 +20,7 @@ Am 24.09.2026 wurden Referenzanalyse, Richtlinien und Umsetzungsplan erstellt un
 - `game/tracks/*.json` und `tools/make_tracks.py`: Strecken als Daten (Mittellinie, Thema, Belag, Deko). Neue Strecken entstehen als Datei, nicht im Code; eine spätere Companion-App soll dieses Format erzeugen.
 - `game/tests/`: Godot-Headless-Prüfungen; `tools/build.ps1 -Target Test` führt sie aus.
 - `tools/diorama.py`: baut aus einer Streckendatei in Blender ein Diorama (Bildebene: Straße, Kreuzungen, Häuser, Bäume, gebackene Umgebungsverdeckung, Szenenrezept `<id>_recipe.json`); Häuser kommen aus dem prozeduralen Bausatz `tools/kit_house.py` mit den Texturen aus `tools/make_kit_textures.py` (`game/assets/kit/`), Laternen aus `tools/make_lamp.py`. Stand und Entscheidungen: `docs/IMPLEMENTIERUNG.md` (Abschnitt 30.09.2026) und `docs/BESPRECHUNG_GRAFIK.md`.
+- `docs/MULTIPLAYER_RECHERCHE.md`: lokaler Mehrspieler (bis 4 Handys, offline), Begründung, Nutzerentscheidungen (Abschnitt 9); Code in `game/scripts/net/`, `pass_party.gd`, `lobby_hud.gd`. Der Einzelspieler muss bitgleich bleiben (`make_golden.gd` FIELD=1 vorher/nachher).
 - `docs/dioramen/README.md`: Dioramen-Pipeline seit 02.10.2026 (Themenmodule `tools/dio_themes/<thema>.py`, Straßenart `runtime` für Strecken mit Stunts, `tools/dio_build.ps1 -Track <id> -Shots`); je Strecke `docs/dioramen/<id>.md`.
 
 ## Dauerhafte fachliche Leitplanken

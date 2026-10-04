@@ -55,6 +55,10 @@ var join_block := ""                 # Host: nicht leer = neue Mitspieler mit di
 # (set_peer_timeout). Wo es schnell gehen muss, wacht die Anwendung selbst über silent_usec() (Turbo im Rennen, NetRace).
 var peer_timeout := [16, 8000, 20000]
 var hello_override := {}             # nur Tests: Felder der eigenen Anmeldung ersetzen (z. B. falsche Spielversion)
+var hello_extra := {}                # weitere Felder der eigenen Anmeldung (NetLobby: „apk“, Angebot der eigenen APK, NetApk)
+# Host: Zusatz zur Ablehnung (NetProtocol.encode_reject, „x“) – Callable(peer_id, problem {code, reason}, hello) -> Dictionary.
+var reject_hook := Callable()
+var reject_extra := {}               # Mitspieler: Zusatz der letzten Ablehnung (z. B. Spielversion und APK-Angebot des Gastgebers)
 var enet: ENetMultiplayerPeer
 var host_address := ""
 var port := 0
@@ -176,6 +180,8 @@ func join(address: String, game_port := Proto.GAME_PORT, player_name := "Fahrer"
 	_wire()
 	is_host = false
 	my_id = 0
+	reject_code = ""
+	reject_extra = {}
 	my_name = Proto.clean_name(player_name)
 	host_address = address
 	port = game_port
@@ -255,10 +261,10 @@ func send_all(msg: Dictionary, mode := MultiplayerPeer.TRANSFER_MODE_RELIABLE, c
 	for id in accepted_ids():
 		send(id, msg, mode, channel)
 
-func kick(peer_id: int, reason: String, code := "kick") -> void:
+func kick(peer_id: int, reason: String, code := "kick", extra := {}) -> void:
 	if not is_host or not peers.has(peer_id):
 		return
-	_put(peer_id, Proto.encode_reject(code, reason), MultiplayerPeer.TRANSFER_MODE_RELIABLE, Proto.CHANNEL_CONTROL)
+	_put(peer_id, Proto.encode_reject(code, reason, extra), MultiplayerPeer.TRANSFER_MODE_RELIABLE, Proto.CHANNEL_CONTROL)
 	_disconnect_later(peer_id)
 
 func stats(peer_id: int) -> Dictionary:
@@ -418,6 +424,7 @@ func _on_peer_connected(id: int) -> void:
 			"since_ms": Time.get_ticks_msec(), "heard_usec": Time.get_ticks_usec(), "stats": PingStats.new()}
 		_set_state("handshake", "Verbunden – Anmeldung läuft …")
 		var hello := Proto.make_hello(my_name, track_hash)
+		hello.merge(hello_extra, true)
 		hello.merge(hello_override, true)
 		_put(1, Proto.encode(hello), MultiplayerPeer.TRANSFER_MODE_RELIABLE, Proto.CHANNEL_CONTROL)
 		_log("ENet-Verbindung zu %s:%d steht nach %d ms – sende Anmeldung" % [host_address, port, Time.get_ticks_msec() - _state_ms])
@@ -489,7 +496,8 @@ func _handle_host(from: int, type: String, msg: Dictionary) -> void:
 		if not problem.is_empty():
 			rejected_count += 1
 			_log("Gerät %d (%s, %s %s, Spiel %s) abgelehnt: %s" % [from, peer.address, peer.os, peer.model, peer.game, problem.reason])
-			kick(from, problem.reason, problem.code)
+			var extra = reject_hook.call(from, problem, msg) if reject_hook.is_valid() else {}
+			kick(from, problem.reason, problem.code, extra if extra is Dictionary else {})
 			return
 		var taken := []
 		for p in players:
@@ -518,6 +526,7 @@ func _handle_client(from: int, type: String, msg: Dictionary) -> void:
 	match type:
 		"reject":
 			reject_code = str(msg.get("code", ""))
+			reject_extra = msg.get("x", {}) if msg.get("x") is Dictionary else {}
 			var reason := str(msg.get("reason", "Abgelehnt.")).left(300)
 			_log("Vom Host abgelehnt (%s): %s" % [reject_code, reason])
 			_set_state("rejected", reason)

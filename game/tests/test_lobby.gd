@@ -34,6 +34,7 @@ func run() -> void:
 	await test_sessions()
 	test_stall()
 	test_binding()
+	test_hotspot()
 	await test_ui()
 	NetLobby.overrides = {}
 	print("RESULT: ", checks - failures, "/", checks, " passed")
@@ -275,6 +276,21 @@ func test_sessions() -> void:
 	ok = pump([g], 5000, func(): return not got(g, "closed").is_empty())
 	check(ok and str(got(g, "closed")[0]).contains("abgebrochen"), "Gastgeber stumm: Mitspieler bekommt „Verbindung abgebrochen“")
 	dispose(host2)
+	# Gastgeber beendet und hängt gleich danach (Gerätetest 04.10.2026: früher Strecke laden am Stück): Die Nachricht „close“ genügt, der
+	# Mitspieler wartet nicht auf die ENet-Trennung (bis zur Zeitgrenze, beim Laden bis 45 s).
+	var host4 := make("Hanna", 0)
+	host4.host("azure", 0)
+	var h := make("Holger", 0)
+	h.join("127.0.0.1", PORT)
+	pump([host4, h], 3000, func(): return h.is_joined)
+	host4.session.send_all({"t": "close", "reason": "Die Gastgeberin „Hanna“ hat das Spiel beendet."})
+	host4.session.flush()
+	var t_close := Time.get_ticks_msec()
+	ok = pump([h], 3000, func(): return not got(h, "closed").is_empty())
+	check(ok and str(got(h, "closed")[0]).contains("beendet") and Time.get_ticks_msec() - t_close < 1000 and h.session.enet == null,
+		"Gastgeber beendet und hängt: Mitspieler ist nach %d ms raus (ohne auf die Trennung zu warten)" % (Time.get_ticks_msec() - t_close))
+	dispose(h)
+	dispose(host4)
 	# Ablehnungen bei der Anmeldung
 	var host3 := make("Ida", 0)
 	host3.host("azure", 0)
@@ -347,9 +363,12 @@ func test_stall() -> void:
 # ---------- WLAN-Bindung nach einem WLAN-Wechsel ----------
 class FakeAndroid extends RefCounted:
 	# Ersatz für NetAndroid wie NetHelper.java: Netze mit Handle. Nach einem WLAN-Wechsel meldet Android das verlorene Netz weiter als
-	# gebunden – ohne Fähigkeiten (Transport „?“) und nicht mehr in der Netzliste.
+	# gebunden – ohne Fähigkeiten (Transport „?“) und nicht mehr in der Netzliste. Netze tragen wie in state() iface, gateway, default,
+	# internet und local (Android 16: eigener Hotspot als lokales Netz); hotspot = Hotspot nur als Schnittstelle (bis Android 15),
+	# extra = weitere Schnittstellen (z. B. rmnet_data0 192.0.0.2/27 des S24).
 	var nets: Array = []
-	var hotspot: Array = []             # eigene Hotspot-Schnittstellen [{name, address}]
+	var hotspot: Array = []             # eigene Hotspot-Schnittstellen [{name, address, prefix}]
+	var extra: Array = []
 	var bound_net := {}
 	var binds := 0
 	var unbinds := 0
@@ -362,11 +381,11 @@ class FakeAndroid extends RefCounted:
 		return not bound_net.is_empty()
 	func state() -> Dictionary:
 		var list: Array = []
-		var ifaces: Array = hotspot.duplicate()
+		var ifaces: Array = hotspot.duplicate() + extra.duplicate()
 		for n in nets:
 			list.append((n as Dictionary).merged({"bound": str(n.handle) == str(bound_net.get("handle", ""))}, true))
 			for addr in n.addresses:
-				ifaces.append({"name": "wlan0", "address": str(addr).get_slice("/", 0)})
+				ifaces.append({"name": str(n.get("iface", "wlan0")), "address": str(addr).get_slice("/", 0), "prefix": int(str(addr).get_slice("/", 1))})
 		var b = null
 		if not bound_net.is_empty():
 			b = {"handle": bound_net.handle, "transport": "?", "addresses": [], "gateway": ""}
@@ -374,16 +393,25 @@ class FakeAndroid extends RefCounted:
 				if str(n.handle) == str(bound_net.handle):
 					b = (n as Dictionary).duplicate()
 		return {"android": true, "networks": list, "bound": b, "interfaces": ifaces, "dhcp_gateway": "",
-			"wifi_gateway": str(nets[0].gateway) if not nets.is_empty() else ""}
+			"wifi_gateway": str(nets[0].get("gateway", "")) if not nets.is_empty() else ""}
 	func bind_wifi() -> String:
+		# wie NetAndroid.bind_wifi: das WLAN nach wifi_handle (nie der eigene Hotspot), Java bindet genau dieses Handle
 		binds += 1
 		if refuse:
 			return "Android hat die Bindung abgelehnt."
+		var handle := NetAndroid.wifi_handle(state())
 		for n in nets:
-			if str(n.transport) == "wifi":
+			if str(n.handle) == handle:
 				bound_net = (n as Dictionary).duplicate()
 				return ""
 		return "Kein WLAN verbunden."
+	func bind_network(handle: String) -> String:
+		binds += 1
+		for n in nets:
+			if str(n.handle) == handle:
+				bound_net = (n as Dictionary).duplicate()
+				return ""
+		return "Das WLAN ist nicht mehr verbunden."
 	func unbind() -> bool:
 		unbinds += 1
 		bound_net = {}
@@ -427,19 +455,197 @@ func test_binding() -> void:
 	fake.refuse = false
 	fake.nets = []
 	lb.refresh_status()
-	check(not lb.status.wifi and fake.binds == 3, "WLAN weg: Hinweis, kein Bindeversuch")
+	check(not lb.status.wifi and fake.binds == 3 and fake.unbinds == 1 and fake.bound_net.is_empty() and lb.mode == "search",
+		"WLAN weg: Hinweis, kein Bindeversuch, die Bindung ans verlorene Netz ist gelöst (neue Sockets gingen sonst ins Leere)")
 	fake.nets = [home.merged({"handle": "400"}, true)]
 	lb.refresh_status()
 	check(fake.binds == 4 and str(fake.bound_net.handle) == "400" and lb.status.bound and lb.status.wifi, "WLAN wieder da (neues Handle): gebunden, Suche läuft")
 	# Gastgeber mit eigenem Hotspot bleibt ungebunden; Verlassen löst die Bindung
 	fake.hotspot = [{"name": "swlan0", "address": "172.17.251.1"}]
-	check(lb.host("azure", 0) == OK and not lb.bound and fake.bound_net.is_empty() and fake.unbinds == 1, "Gastgeber mit eigenem Hotspot: Bindung gelöst")
+	check(lb.host("azure", 0) == OK and not lb.bound and fake.bound_net.is_empty() and fake.unbinds == 2, "Gastgeber mit eigenem Hotspot: Bindung gelöst")
 	fake.hotspot = []
 	lb.search()
 	check(lb.bound and fake.binds == 5, "Zurück zur Suche: wieder gebunden")
 	lb.exit()
-	check(fake.bound_net.is_empty() and not lb.bound and fake.unbinds == 2, "Verlassen löst die Bindung")
+	check(fake.bound_net.is_empty() and not lb.bound and fake.unbinds == 3, "Verlassen löst die Bindung")
 	dispose(lb)
+	lobbies.clear()
+
+# ---------- Eigener Hotspot (Gerätetest S24 Ultra, 04.10.2026) ----------
+# Werte aus dem Geräteprotokoll des S24 (Android 16, Gastgeber mit eigenem Hotspot und zugleich im Heim-WLAN): wlan0 192.168.178.4/16
+# (Gateway 192.168.178.1), Hotspot swlan0 10.110.43.61/24, Mitspieler 10.110.43.150 und 10.110.43.201, nach „WLAN aus“ zusätzlich
+# rmnet_data0 192.0.0.2/27; das verlorene Heim-WLAN hatte das Handle 3233221103629. Android 16 meldet den Hotspot als lokales Netz
+# (Transport WLAN, ohne Gateway); das Handle dieses Netzes stand nicht im Protokoll und ist hier frei gewählt.
+const S24_WLAN := {"handle": "3233221103629", "transport": "wifi", "iface": "wlan0", "addresses": ["192.168.178.4/16"], "gateway": "192.168.178.1",
+	"internet": true, "validated": true, "default": true}
+const S24_SPOT := {"handle": "3237516070925", "transport": "wifi", "iface": "swlan0", "addresses": ["10.110.43.61/24"], "gateway": "",
+	"internet": false, "validated": false, "default": false, "local": true}
+const S24_MOBILE := {"handle": "432902426637", "transport": "mobile", "iface": "rmnet_data0", "addresses": ["192.0.0.2/27"], "gateway": "",
+	"internet": true, "validated": true, "default": true}
+const S24_IFACES := [{"name": "wlan0", "address": "192.168.178.4", "prefix": 16, "broadcast": "192.168.255.255"},
+	{"name": "swlan0", "address": "10.110.43.61", "prefix": 24, "broadcast": "10.110.43.255"}]
+const S24_RMNET := {"name": "rmnet_data0", "address": "192.0.0.2", "prefix": 27, "broadcast": "192.0.0.31"}
+
+func s24(nets: Array, ifaces: Array, bound = null) -> Dictionary:
+	return {"android": true, "networks": nets, "interfaces": ifaces, "bound": bound, "wifi_gateway": "", "dhcp_gateway": ""}
+
+func test_hotspot() -> void:
+	# 1. WLAN und Hotspot zugleich, wie Android 16 es meldet (Hotspot als lokales Netz mit Transport WLAN).
+	var both := s24([S24_WLAN, S24_SPOT], S24_IFACES)
+	var plan := NetAndroid.host_plan(both)
+	check(NetAndroid.hotspot_network(S24_SPOT) and not NetAndroid.hotspot_network(S24_WLAN) and not NetAndroid.hotspot_network(S24_MOBILE),
+		"S24: swlan0 (lokales Netz, ohne Gateway) ist der eigene Hotspot, wlan0 und das Mobilnetz nicht")
+	check(NetAndroid.wifi_networks(both).size() == 1 and NetAndroid.wifi_handle(both) == "3233221103629" and NetAndroid.wifi_addresses(both) == ["192.168.178.4"]
+		and NetAndroid.hotspot_addresses(both) == ["10.110.43.61"], "S24: WLAN = wlan0 (Bindung dorthin), Hotspot = 10.110.43.61 – früher galt der Hotspot als WLAN")
+	check(plan.bind == "" and plan.reach == ["wlan", "hotspot"] and plan.wlan == ["192.168.178.4"] and plan.hotspot == ["10.110.43.61"] and plan.hint != "" and not plan.warn,
+		"S24 als Gastgeber mit WLAN und Hotspot: ungebunden, erreichbar in beiden Netzen („zweigleisig“), Hinweis ohne Warnung")
+	check(NetAndroid.in_hotspot(both, "10.110.43.150") and NetAndroid.in_hotspot(both, "10.110.43.201") and not NetAndroid.in_hotspot(both, "192.168.178.20")
+		and not NetAndroid.in_hotspot(both, "10.110.44.1"), "S24: Mitspieler 10.110.43.150/.201 liegen im eigenen Hotspot, 192.168.178.20 nicht")
+	# Gebunden ans Heim-WLAN (Stand des Gerätetests): Antworten an den Hotspot gehen ins Leere – genau das zeigt der Plan mit gebundenen Sockets.
+	var tied := NetAndroid.host_plan(both, "wifi")
+	check(tied.reach == ["wlan"] and tied.warn and tied.hint.contains("neu eröffnest"), "Gebundene Sockets: nur WLAN erreichbar, Hinweis „neu eröffnen“")
+	# 2. Ohne Kennzeichen „local“ (anderer Hersteller): swlan0 ohne Gateway bleibt Hotspot.
+	var spot_plain: Dictionary = S24_SPOT.duplicate()
+	spot_plain.erase("local")
+	var plain := s24([S24_WLAN, spot_plain], S24_IFACES)
+	check(NetAndroid.hotspot_addresses(plain) == ["10.110.43.61"] and NetAndroid.wifi_handle(plain) == "3233221103629" and NetAndroid.host_plan(plain).reach == ["wlan", "hotspot"],
+		"Ohne „lokales Netz“: Hotspot am Schnittstellennamen swlan0 erkannt")
+	# 3. Bis Android 15 (S21 am 03.10.): Hotspot nur als Schnittstelle, nicht in der Netzliste.
+	var old := s24([S24_WLAN], S24_IFACES)
+	check(NetAndroid.hotspot_addresses(old) == ["10.110.43.61"] and NetAndroid.wifi_handle(old) == "3233221103629" and NetAndroid.host_plan(old).bind == "",
+		"Android 15: Hotspot nur als Schnittstelle erkannt, Gastgeber ungebunden")
+	# 4. Nach „WLAN aus“ (zweite Hälfte des Protokolls): Mobilnetz ist Standard, Bindung zeigt aufs verlorene Heim-WLAN.
+	var lost_bind := {"handle": "3233221103629", "transport": "?", "addresses": [], "gateway": ""}
+	var off := s24([S24_MOBILE, S24_SPOT], [S24_IFACES[1], S24_RMNET], lost_bind)
+	var off_plan := NetAndroid.host_plan(off)
+	check(not NetAndroid.wifi_connected(off) and NetAndroid.wifi_handle(off) == "" and not NetAndroid.bound_to_wifi(off)
+		and NetAndroid.hotspot_addresses(off) == ["10.110.43.61"] and off_plan.bind == "hotspot" and NetAndroid.hotspot_handle(off) == "3237516070925" and off_plan.reach == ["hotspot"] and off_plan.hint == "",
+		"WLAN aus: kein WLAN (der eigene Hotspot zählt nicht), rmnet_data0 192.0.0.2/27 ist kein Hotspot; Gastgeber bindet an den Hotspot (so lief es im Gerätetest)")
+	var off15 := s24([S24_MOBILE], [S24_IFACES[1], S24_RMNET])
+	check(NetAndroid.host_plan(off15).bind == "" and NetAndroid.host_plan(off15).reach == ["hotspot"] and NetAndroid.hotspot_handle(off15) == "",
+		"Nur Hotspot bis Android 15 (kein Netz): ungebunden")
+	var later := NetAndroid.host_plan(both, "hotspot")
+	check(later.reach == ["hotspot"] and later.warn and later.hint.contains("WLAN ging erst") and NetAndroid.host_frees(both, "hotspot")
+		and NetAndroid.host_frees(both, "wifi") and not NetAndroid.host_frees(both, "") and not NetAndroid.host_frees(off, "hotspot")
+		and not NetAndroid.host_frees(s24([S24_WLAN], [S24_IFACES[0]]), "wifi"),
+		"An den Hotspot gebunden, WLAN kam dazu: nur Hotspot erreichbar, Hinweis; host_frees erkennt, wann ungebunden weiter")
+	check(NetAndroid.join_binding(both, "10.110.43.150") == "hotspot" and NetAndroid.join_binding(old, "10.110.43.150") == ""
+		and NetAndroid.join_binding(both, "192.168.178.20") == "wifi", "Beitritt: Gastgeber im eigenen Hotspot → an den Hotspot (Android 16) bzw. ungebunden, sonst WLAN")
+	check(not NetAndroid.bound_to_wifi(s24([S24_MOBILE, S24_SPOT], S24_IFACES, S24_SPOT)), "An den eigenen Hotspot gebunden zählt nicht als WLAN-Bindung")
+	# 5. WLAN ohne Internet (nicht Standardnetz) plus Hotspot: nur Hotspot-Mitspieler erreichbar → Warnung.
+	var dull: Dictionary = S24_WLAN.merged({"validated": false, "default": false}, true)
+	var dull_plan := NetAndroid.host_plan(s24([dull, S24_MOBILE, S24_SPOT], S24_IFACES + [S24_RMNET]))
+	check(dull_plan.reach == ["hotspot"] and dull_plan.warn and dull_plan.hint.contains("kein Internet"),
+		"WLAN ohne Internet und Hotspot: nur Hotspot erreichbar, klare Warnung")
+	# 6. Ohne Hotspot: wie bisher ans WLAN binden.
+	var home := NetAndroid.host_plan(s24([S24_WLAN], [S24_IFACES[0]]))
+	check(home.bind == "wifi" and home.reach == ["wlan"] and home.hint == "" and home.hotspot.is_empty(), "Ohne Hotspot: Gastgeber bindet ans WLAN, kein Hinweis")
+	# 7. AOSP-Namen: ap0 (nur Schnittstelle), softap0, wlan1 ohne Gateway = Hotspot; wlan1 mit Gateway (zweites WLAN) und CLAT nicht.
+	var aosp := {"android": true, "networks": [{"handle": "1", "transport": "wifi", "iface": "wlan0", "addresses": ["192.0.2.5/24"], "gateway": "192.0.2.1", "default": true},
+		{"handle": "2", "transport": "wifi", "iface": "wlan1", "addresses": ["198.51.100.1/24"], "gateway": ""}],
+		"interfaces": [{"name": "wlan0", "address": "192.0.2.5", "prefix": 24}, {"name": "wlan1", "address": "198.51.100.1", "prefix": 24},
+		{"name": "ap0", "address": "192.168.43.1", "prefix": 24}, {"name": "softap0", "address": "192.168.44.1", "prefix": 24},
+		{"name": "v4-rmnet_data1", "address": "192.0.0.4", "prefix": 32}, {"name": "rmnet_data2", "address": "10.20.30.40", "prefix": 30}]}
+	check(NetAndroid.hotspot_addresses(aosp) == ["198.51.100.1", "192.168.43.1", "192.168.44.1"] and NetAndroid.wifi_handle(aosp) == "1",
+		"AOSP: wlan1 ohne Gateway, ap0 und softap0 sind Hotspot; CLAT und Mobilfunk nicht")
+	aosp.networks[1].gateway = "198.51.100.254"
+	check(NetAndroid.hotspot_addresses(aosp) == ["192.168.43.1", "192.168.44.1"] and NetAndroid.wifi_networks(aosp).size() == 2,
+		"wlan1 mit Gateway ist ein zweites WLAN, kein Hotspot")
+	check(NetAndroid.host_plan({"android": false, "interfaces": [{"name": "Ethernet", "address": "192.0.2.7"}]}).hotspot.is_empty()
+		and NetAndroid.in_subnet("10.110.43.150", "10.110.43.61", 24) and not NetAndroid.in_subnet("10.110.44.1", "10.110.43.61", 24)
+		and NetAndroid.in_subnet("192.168.1.9", "192.168.178.4", 16), "PC ohne Hotspot; Netzvergleich mit Präfix")
+
+	# --- Lobby mit Android-Ersatz: S24 eröffnet mit WLAN und Hotspot ---
+	var fake := FakeAndroid.new()
+	fake.nets = [S24_WLAN, S24_SPOT]
+	var lb := make("Chef", 0, false, {"use_binding": true, "android_api": fake})
+	check(str(fake.bound_net.get("handle", "")) == "3233221103629" and lb.bound, "S24 betritt den WLAN-Mehrspieler: ans Heim-WLAN gebunden (nicht an den Hotspot)")
+	check(lb.host("forest", 0) == OK and fake.bound_net.is_empty() and not lb.bound and fake.unbinds == 1, "S24 eröffnet: Bindung gelöst, bevor ENet- und Such-Sockets entstehen")
+	lb.refresh_status()
+	check(lb.status.reach == ["wlan", "hotspot"] and lb.status.hotspot == ["10.110.43.61"] and lb.status.wlan == ["192.168.178.4"]
+		and LobbyScreens.host_addresses(lb.status) == "Zum Eintippen: WLAN 192.168.178.4  ·  Hotspot 10.110.43.61",
+		"Lobby zeigt beide Adressen: %s" % LobbyScreens.host_addresses(lb.status))
+	var binds := fake.binds
+	fake.nets = [S24_MOBILE, S24_SPOT]
+	fake.extra = [S24_RMNET]
+	lb.refresh_status()
+	fake.nets = [S24_WLAN, S24_SPOT]
+	fake.extra = []
+	lb.refresh_status()
+	check(fake.binds == binds and fake.bound_net.is_empty() and lb.mode == "host", "Gastgeber bindet nie neu – auch nicht, wenn das WLAN geht und wiederkommt")
+	lb.search()
+	check(str(fake.bound_net.get("handle", "")) == "3233221103629", "Zurück zur Suche: wieder ans Heim-WLAN gebunden")
+	# Beitritt zu einem Gastgeber im eigenen Hotspot: ungebunden; zu einem im WLAN: gebunden.
+	lb.session.connect_timeout_ms = 300
+	lb.join("10.110.43.150", PORT + 9)
+	check(str(fake.bound_net.get("handle", "")) == "3237516070925" and not lb.bound, "Beitritt zu 10.110.43.150 (im eigenen Hotspot, Android 16): an den Hotspot gebunden")
+	lb.cancel_join()
+	lb.join("192.168.178.20", PORT + 9)
+	check(str(fake.bound_net.get("handle", "")) == "3233221103629", "Beitritt zu 192.168.178.20 (im WLAN): ans WLAN gebunden")
+	lb.cancel_join()
+	dispose(lb)
+	lobbies.clear()
+
+	# --- S24 eröffnet nur mit Hotspot (WLAN aus), danach kommt das WLAN dazu ---
+	fake = FakeAndroid.new()
+	fake.nets = [S24_MOBILE, S24_SPOT]
+	fake.extra = [S24_RMNET]
+	var solo := make("Chef", 0, false, {"use_binding": true, "android_api": fake})
+	check(fake.bound_net.is_empty() and not solo.bound and solo.status.hotspot == ["10.110.43.61"] and not solo.status.wifi,
+		"Nur Hotspot: kein WLAN, nicht gebunden (früher: an den eigenen Hotspot als „WLAN“)")
+	check(solo.host("forest", 0) == OK and str(fake.bound_net.get("handle", "")) == "3237516070925" and not solo.bound,
+		"Nur Hotspot: Gastgeber an den eigenen Hotspot gebunden")
+	solo.refresh_status()
+	check(solo.status.reach == ["hotspot"] and solo.status.hint == "" and LobbyScreens.host_addresses(solo.status) == "Zum Eintippen: Hotspot 10.110.43.61",
+		"Nur Hotspot: erreichbar im Hotspot, %s" % LobbyScreens.host_addresses(solo.status))
+	var solo_enet = solo.session.enet
+	fake.nets = [S24_WLAN, S24_MOBILE.merged({"default": false}, true), S24_SPOT]
+	solo.refresh_status()
+	check(fake.bound_net.is_empty() and solo.session.enet != solo_enet and solo.status.reach == ["wlan", "hotspot"] and not solo.status.warn,
+		"WLAN kam dazu, noch niemand da: Bindung gelöst, ENet-Host ungebunden neu – jetzt zweigleisig")
+	dispose(solo)
+	lobbies.clear()
+
+	# --- Hotspot geht erst nach dem Eröffnen an ---
+	fake = FakeAndroid.new()
+	fake.nets = [S24_WLAN]
+	var host := make("Chef", 0, false, {"use_binding": true, "android_api": fake})
+	check(host.host("forest", 0) == OK and host.bound and str(fake.bound_net.get("handle", "")) == "3233221103629", "Ohne Hotspot: Gastgeber ans WLAN gebunden")
+	# Ein Mitspieler über das WLAN (hier 127.0.0.1) ist schon da: dessen Verbindung bleibt, der ENet-Host wird nicht neu angelegt.
+	var guest := make("Gast", 1)
+	guest.join("127.0.0.1", PORT)
+	var ok := pump([host, guest], 3000, func(): return guest.is_joined and host.players.size() == 2)
+	var sid := host.discovery.sid
+	var enet = host.session.enet
+	fake.nets = [S24_WLAN, S24_SPOT]
+	host.refresh_status()
+	check(ok and fake.bound_net.is_empty() and host.session.enet == enet and host.discovery.sid == sid and host.discovery.mode == "host"
+		and host.status.warn and str(host.status.hint).contains("neu eröffnest") and host.status.reach == ["wlan"],
+		"Hotspot geht an, ein Mitspieler ist da: Bindung gelöst, Ankündigung neu (gleiche Kennung), ENet bleibt, Hinweis „neu eröffnen“")
+	guest.leave()
+	ok = pump([host, guest], 3000, func(): return host.players.size() == 1 and host.session.peers.is_empty())
+	host.refresh_status()
+	check(ok and host.session.enet != enet and host.session.enet != null and host.mode == "host" and host.status.reach == ["wlan", "hotspot"]
+		and not host.status.warn and fake.binds == 1, "Alle weg: ENet-Host ungebunden neu angelegt, jetzt für WLAN und Hotspot erreichbar – ohne neue Bindung")
+	guest.join("127.0.0.1", PORT)
+	ok = pump([host, guest], 3000, func(): return guest.is_joined and host.players.size() == 2)
+	check(ok, "Nach dem Neuanlegen kann man wieder beitreten")
+	dispose(guest)
+	dispose(host)
+	lobbies.clear()
+
+	# --- Mitspieler: Gastgeber sichtbar, antwortet aber nie (wie im Gerätetest) → Hinweis „WLAN ausschalten“ ---
+	var seeker := make("Borst", 0)
+	seeker.discovery.games["abc"] = {"address": "127.0.0.1", "addresses": ["127.0.0.1"], "name": "Chef", "via": {"beacon": 5}, "port": PORT + 9}
+	check(seeker._only_announced("127.0.0.1") == "Chef", "Nur Ankündigungen, nie eine Antwort: erkannt")
+	seeker.session.connect_timeout_ms = 300
+	seeker.join("127.0.0.1", PORT + 9)
+	ok = pump([seeker], 3000, func(): return not got(seeker, "failed").is_empty())
+	var why: Array = got(seeker, "failed")
+	check(ok and str(why[0]).contains("antwortet aber nicht") and str(why[0]).contains("WLAN ausschalten"), "Beitritt scheitert mit Hinweis: %s" % (why[0] if ok else "–"))
+	seeker.discovery.games["abc"].via = {"beacon": 5, "subnet": 3}
+	check(seeker._only_announced("127.0.0.1") == "", "Mit Antworten: kein Hotspot-Hinweis")
+	dispose(seeker)
 	lobbies.clear()
 
 # ---------- Echte Oberfläche ----------

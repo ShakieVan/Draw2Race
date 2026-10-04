@@ -363,103 +363,25 @@ func bake_rain_lights(area: Rect2, cells := 256) -> void:
 	# Autos, Nebel und Niederschlag gelesen. Hindernisse stehen als Höhenmaske (eine Zahl je Zelle) bereit: Licht gelangt
 	# weder hinein noch hindurch; die Sichtprüfung je Zelle ist damit ein Feldzugriff je Schritt. Gebäude zählen als unendlich
 	# hoch, Polygone (occluder_polys) blockieren nur Strahlen, die auf ihrer Höhe noch unter der Oberkante liegen.
-	var data := PackedFloat32Array()
-	data.resize(cells * cells * 3)
-	var cell := area.size / cells
-	var solid := PackedFloat32Array()
-	solid.resize(cells * cells)
-	for o in occluders:
-		var oc: Vector2 = o[0]
-		var oh: Vector2 = o[1]
-		var rot := float(o[2])
-		var rad := oh.length()
-		var bx0 := maxi(0, int((oc.x - rad - area.position.x) / cell.x))
-		var bx1 := mini(cells - 1, int((oc.x + rad - area.position.x) / cell.x))
-		var by0 := maxi(0, int((oc.y - rad - area.position.y) / cell.y))
-		var by1 := mini(cells - 1, int((oc.y + rad - area.position.y) / cell.y))
-		for iy in range(by0, by1 + 1):
-			for ix in range(bx0, bx1 + 1):
-				var local := (area.position + Vector2((ix + 0.5) * cell.x, (iy + 0.5) * cell.y) - oc).rotated(-rot)
-				if absf(local.x) < oh.x and absf(local.y) < oh.y:
-					solid[iy * cells + ix] = SOLID_HIGH
-	for pol in occluder_polys:
-		var pts: PackedVector2Array = pol[0]
-		var ph := float(pol[1])
-		if pts.size() < 3:
-			continue
-		var lo := pts[0]
-		var hi := pts[0]
-		for q in pts:
-			lo = Vector2(minf(lo.x, q.x), minf(lo.y, q.y))
-			hi = Vector2(maxf(hi.x, q.x), maxf(hi.y, q.y))
-		var px0 := maxi(0, int((lo.x - area.position.x) / cell.x) - 1)
-		var px1 := mini(cells - 1, int((hi.x - area.position.x) / cell.x) + 1)
-		var py0 := maxi(0, int((lo.y - area.position.y) / cell.y) - 1)
-		var py1 := mini(cells - 1, int((hi.y - area.position.y) / cell.y) + 1)
-		for iy in range(py0, py1 + 1):
-			for ix in range(px0, px1 + 1):
-				var c0 := area.position + Vector2((ix + 0.5) * cell.x, (iy + 0.5) * cell.y)
-				# Mitte und vier Punkte nahe den Zellecken: auch Streifen, die schmaler als eine Zelle sind, schließen lückenlos
-				var hit := inside_poly(c0, pts)
-				if not hit:
-					for off: Vector2 in [Vector2(-0.3, -0.3), Vector2(0.3, -0.3), Vector2(0.3, 0.3), Vector2(-0.3, 0.3)]:
-						if inside_poly(c0 + off * cell, pts):
-							hit = true
-							break
-				if hit:
-					var k0 := iy * cells + ix
-					solid[k0] = maxf(solid[k0], ph)
-	var step_len := minf(cell.x, cell.y)
-	for lamp in lamps:
-		var p: Vector3 = lamp[0]
-		# Lichtradius am Boden: höher hängende Köpfe leuchten weiter als die frühere Lichtscheibe.
-		var reach: float = lamp[1] * LAMP_REACH
-		var col: Color = lamp[2]
-		var head := Vector2(p.x, p.z)
-		var x0 := maxi(0, int((p.x - reach - area.position.x) / cell.x))
-		var x1 := mini(cells - 1, int((p.x + reach - area.position.x) / cell.x))
-		var y0 := maxi(0, int((p.z - reach - area.position.y) / cell.y))
-		var y1 := mini(cells - 1, int((p.z + reach - area.position.y) / cell.y))
-		for iy in range(y0, y1 + 1):
-			for ix in range(x0, x1 + 1):
-				if solid[iy * cells + ix] > 0.0:
-					continue
-				var q := area.position + Vector2((ix + 0.5) * cell.x, (iy + 0.5) * cell.y)
-				var d := q.distance_to(head)
-				if d >= reach:
-					continue
-				# Sichtlinie Laterne -> Zelle durch die Gebäudemaske (die ersten 1,2 m am Mast zählen nicht).
-				var steps := int(d / step_len)
-				var hidden := false
-				for k in range(1, steps):
-					var t := float(k) / steps
-					if d * t < 1.2:
-						continue
-					var sx := int((lerpf(head.x, q.x, t) - area.position.x) / cell.x)
-					var sy := int((lerpf(head.y, q.y, t) - area.position.y) / cell.y)
-					# Der Strahl vom Lichtkopf (Höhe p.y) zum Boden hat auf halbem Weg nur noch die halbe Höhe.
-					if sx >= 0 and sy >= 0 and sx < cells and sy < cells and solid[sy * cells + sx] > p.y * (1.0 - t):
-						hidden = true
-						break
-				if hidden:
-					continue
-				var f := 1.0 - smoothstep(0.0, reach, d)
-				f = f * f * 1.6
-				var k2 := (iy * cells + ix) * 3
-				data[k2] += col.r * f
-				data[k2 + 1] += col.g * f
-				data[k2 + 2] += col.b * f
-	var img := Image.create_from_data(cells, cells, false, Image.FORMAT_RGBF, data.to_byte_array())
-	# Weiche Schatten: verkleinern und wieder vergrößern (bilinear) wirkt wie eine Unschärfe von ~1 m.
-	img.resize(cells / 3, cells / 3, Image.INTERPOLATE_BILINEAR)
-	img.resize(cells, cells, Image.INTERPOLATE_CUBIC)
+	# Gerechnet wird in LightBake (parallel, bitgleich); hier am Stück, beim Laden im Hintergrund über light_job/use_light_map.
+	var job := light_job(area, cells)
+	job.wait()
+	use_light_map(job)
+
+func light_job(area: Rect2, cells := 256) -> LightBake:
+	# Auftrag mit den bis hierher gesammelten Lampen und Hindernissen (Kopien: spätere Änderungen wirken nicht hinein).
+	return LightBake.new(occluders, occluder_polys, lamps, area, cells)
+
+func use_light_map(job: LightBake) -> void:
+	# Fertige Lichtkarte als globaler Shaderwert (gilt für die ganze Szene; die Welt ist beim Laden noch ausgeblendet).
+	var img := job.image
 	if keep_map:
 		light_map = img
-		light_area = area
+		light_area = job.area
 	var tex := ImageTexture.create_from_image(img)
 	RenderingServer.global_shader_parameter_set("lamp_light", tex)
-	RenderingServer.global_shader_parameter_set("lamp_origin", area.position)
-	RenderingServer.global_shader_parameter_set("lamp_size", area.size)
+	RenderingServer.global_shader_parameter_set("lamp_origin", job.area.position)
+	RenderingServer.global_shader_parameter_set("lamp_size", job.area.size)
 
 func update_rain_cars(cars: Array) -> void:
 	# cars: [Vector3 Position, Fahrtrichtung] je Auto; höchstens 8.

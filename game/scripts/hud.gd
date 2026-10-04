@@ -250,6 +250,30 @@ func button(parent: Node, text: String, rect: Rect2, action: Callable, primary :
 	parent.add_child(b)
 	return b
 
+# Knöpfe und Hinweise, die die Strecke zeigen (Linie zeichnen, Vorführfahrt, Übergabekarte): solange die Welt im Hintergrund entsteht
+# (main.gd request_track), gesperrt und mit „Strecke lädt …“ beschriftet; update_gates() stellt sie danach wieder her.
+const LOADING_TEXT := "Strecke lädt …"
+var gates: Array = []   # [Knopf oder Schrift, eigener Text, ohne Laden gesperrt]
+
+func gate(control: Control) -> Control:
+	var entry := [control, str(control.get("text")), control is BaseButton and (control as BaseButton).disabled]
+	gates.append(entry)
+	_show_gate(entry)
+	return control
+
+func update_gates() -> void:
+	gates = gates.filter(func(e): return is_instance_valid(e[0]))
+	for e in gates:
+		_show_gate(e)
+
+func _show_gate(entry: Array) -> void:
+	var loading: bool = not app.track_ready()
+	var control: Control = entry[0]
+	if str(entry[1]) != "":
+		control.set("text", LOADING_TEXT if loading else str(entry[1]))
+	if control is BaseButton:
+		(control as BaseButton).disabled = loading or bool(entry[2])
+
 func header(tag: String) -> void:
 	var bar := panel(content,Rect2(32,26,1376,84))
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -313,7 +337,7 @@ func menu() -> void:
 		var text: String = short_names.get(tid,tid)
 		if not unlocked and app.BONUS_TRACKS.has(tid):
 			text += " ★%d" % int(app.BONUS_TRACKS[tid])
-		var b := button(card,text,Rect2(28+(i%per_row)*slot,212+(i/per_row)*40,slot-6,36),func(): app.select_track(tid); app.stage=0; menu(),app.track_id==tid)
+		var b := button(card,text,Rect2(28+(i%per_row)*slot,212+(i/per_row)*40,slot-6,36),func(): app.pick_track(tid); app.stage=0; menu(),app.track_id==tid)
 		b.add_theme_font_size_override("font_size",15)
 		b.add_theme_constant_override("h_separation",0)
 		for key in ["normal","hover","pressed","disabled","focus"]:
@@ -340,6 +364,8 @@ func menu() -> void:
 	car_picker(card,428,app.car_choice,unlocked,func(step: int): app.select_car(app.car_choice+step); menu())
 	var go := button(card,"Linie zeichnen     →" if unlocked else "Auto gesperrt",Rect2(28,604,418,64),app.start_drawing,true)
 	go.disabled = not unlocked
+	go.name = "DrawButton"
+	gate(go)
 	var best: Dictionary = app.store.best_time(app.track_id,app.stage)
 	var best_text: String = app.format_time(float(best.time)) if not best.is_empty() else "–"
 	label(card,"BESTZEIT %s · %d/3 GOLD HIER" % [best_text,app.store.gold_count(app.track_id)],Vector2(28,680),12,MUTED,414)
@@ -348,7 +374,7 @@ func menu() -> void:
 	var multi := button(content,"Mehrspieler  ·  2–4 Spieler",Rect2(900,772,480,52),party_ui.mode_dialog)
 	multi.name = "MultiplayerButton"
 	label(content,"Mit dem Finger zeichnen",Vector2(48,852),17,Color("d6ebe1"))
-	button(content,"Vorführfahrt  ↗",Rect2(1160,833,212,48),app.demo)
+	gate(button(content,"Vorführfahrt  ↗",Rect2(1160,833,212,48),app.demo)).name = "DemoButton"
 
 const SHORT_NAMES := {"azure":"Küste","city":"Stadt","forest":"Wald","harbor":"Hafen","serra":"Pass","fair":"Rummel","quarry":"Bruch","arena":"Drift","kids":"Kinder"}
 
@@ -709,7 +735,7 @@ func settings() -> void:
 			p.get_parent().queue_free(); settings(),i==gfx)
 	button(p,"Name, Schilder & Sprechblasen",Rect2(34,588,572,62),func(): p.get_parent().queue_free(); name_settings(settings))
 	button(p,"Sound & Musik  ♪",Rect2(34,664,278,62),func(): p.get_parent().queue_free(); sound_settings())
-	button(p,"Updates",Rect2(328,664,278,62),func(): p.get_parent().queue_free(); update_dialog())
+	button(p,"Updates & Teilen" if OS.get_name() == "Android" else "Updates",Rect2(328,664,278,62),func(): p.get_parent().queue_free(); update_dialog())
 	button(p,"Zurück",Rect2(34,744,572,66),func(): p.get_parent().queue_free(),true)
 
 func name_settings(back := Callable()) -> void:
@@ -771,7 +797,8 @@ func close_overlays() -> void:
 
 func update_dialog() -> void:
 	var up: Updater = app.updater
-	var p := overlay("Updates.","Installiert: Version %s" % Updater.current_version(),Vector2(760,760))
+	var android := OS.get_name() == "Android"
+	var p := overlay("Updates.","Installiert: Version %s" % Updater.current_version(),Vector2(760,840 if android else 760))
 	var y := 132.0
 	if up.available():
 		label(p,"Neu auf GitHub: Version %s%s  (%d MB)" % [up.release.version," · Beta" if up.release.get("beta",false) else "",int(up.release.size/1048576)],Vector2(34,y),20,ORANGE)
@@ -804,6 +831,10 @@ func update_dialog() -> void:
 	var go := button(p,action_text,Rect2(34,580,440,66),action,true)
 	go.disabled = up.busy
 	button(p,"Schließen",Rect2(488,580,238,66),func(): p.get_parent().queue_free())
+	if android:
+		# Ohne Internet: die installierte App per Quick Share, Bluetooth o. Ä. an ein Handy in der Nähe schicken (ApkShare).
+		var send := button(p,"Draw2Race teilen (ohne Internet)",Rect2(34,672,692,62),func(): p.get_parent().queue_free(); share_dialog())
+		send.name = "ShareButton"
 	# Live aktualisieren, solange der Dialog offen ist.
 	var refresh := func():
 		if is_instance_valid(p):
@@ -811,6 +842,30 @@ func update_dialog() -> void:
 			update_dialog()
 	up.changed.connect(refresh, CONNECT_ONE_SHOT)
 	p.tree_exiting.connect(func(): if up.changed.is_connected(refresh): up.changed.disconnect(refresh))
+
+func share_dialog() -> void:
+	# „Draw2Race teilen“ (nur Android, ApkShare): Kopie der installierten APK ins Teilen-Menü – Quick Share, Bluetooth, Messenger …
+	var sh: ApkShare = app.apk_share
+	var p := overlay("Draw2Race teilen.","Schickt diese App (Version %s, %d MB) an ein Handy in der Nähe – per Quick Share, Bluetooth oder Messenger. Internet braucht ihr dafür nicht." % [
+		sh.version(),roundi(sh.size_bytes() / 1048576.0)],Vector2(760,700))
+	label(p,"SO INSTALLIERT DAS ANDERE HANDY",Vector2(34,206),13,ORANGE)
+	label(p,("1.  Die empfangene Datei „%s“ antippen.
+2.  Wenn Android fragt: „Installation aus unbekannten Quellen“ für die App erlauben, " +
+		"über die die Datei kam (z. B. Eigene Dateien oder Quick Share), und zurück.
+3.  „Installieren“ tippen. Den Spielstand hat jedes Handy für sich.") % sh.share_name(),
+		Vector2(34,236),19,INK,692)
+	var state := label(p,"",Vector2(34,486),18,MUTED,692)
+	state.name = "ShareState"
+	var go := button(p,"Teilen …",Rect2(34,580,440,66),func(): sh.share(),true)
+	go.name = "ShareGo"
+	button(p,"Schließen",Rect2(488,580,238,66),func(): p.get_parent().queue_free())
+	var show := func():
+		if is_instance_valid(state):
+			state.text = sh.status + (" %d %%" % sh.percent if sh.job == "copy" and sh.percent >= 0 else "")
+			go.disabled = sh.job == "copy"
+	show.call()
+	sh.changed.connect(show)
+	p.tree_exiting.connect(func(): if sh.changed.is_connected(show): sh.changed.disconnect(show))
 
 func logo_tapped() -> void:
 	var now := Time.get_ticks_msec()
@@ -857,7 +912,7 @@ func debug_menu() -> void:
 	reset.disabled = not debug.get("override") is Dictionary
 	toggle(p,"Alle Strecken & Autos freischalten",Vector2(34,548),bool(debug.get("unlock",false)),func(on: bool): debug["unlock"]=on; refresh.call())
 	toggle(p,"FPS anzeigen",Vector2(34,604),bool(debug.get("fps",false)),func(on: bool): debug["fps"]=on; app.store.save())
-	button(p,"Vorführfahrt starten",Rect2(34,676,368,66),func(): p.get_parent().queue_free(); app.demo(),true)
+	gate(button(p,"Vorführfahrt starten",Rect2(34,676,368,66),func(): p.get_parent().queue_free(); app.demo(),true)).name = "DebugDemo"
 	button(p,"Netztest (Mehrspieler)",Rect2(418,676,368,66),func(): p.get_parent().queue_free(); net_test())
 	button(p,"Schließen",Rect2(34,756,752,66),func(): p.get_parent().queue_free())
 

@@ -26,8 +26,10 @@ import java.util.Collections;
  * JavaClassWrapper (statische Methoden, wie Updater.java):
  * - Prozess an das WLAN binden bzw. lösen (ConnectivityManager.bindProcessToNetwork). Ein Hotspot ohne Internet wird nie zum
  *   Standardnetz; ohne Bindung laufen neue Sockets bei eingeschalteten mobilen Daten ins Mobilnetz. Die Bindung gilt für alle
- *   danach erzeugten Sockets des Prozesses.
- * - Netzwerkzustand als JSON (WLAN/Mobilnetz, Internet geprüft, Standardnetz, gebunden, Adressen, Gateway).
+ *   danach erzeugten Sockets des Prozesses. An welches Netz (WLAN oder ab Android 16 der eigene Hotspot) entscheidet
+ *   net_android.gd und übergibt das Handle (bindNetwork).
+ * - Netzwerkzustand als JSON (WLAN/Mobilnetz, Internet geprüft, Standardnetz, gebunden, lokales Netz = eigener Hotspot, Adressen,
+ *   Gateway).
  * - Eigene Multicast-Sperre (WifiManager.MulticastLock), damit Rundrufe auch auf sparsamen Geräten ankommen.
  * Berechtigungen: ACCESS_NETWORK_STATE, ACCESS_WIFI_STATE, CHANGE_WIFI_MULTICAST_STATE (alle „normal“, ohne Dialog).
  */
@@ -72,6 +74,7 @@ public final class NetHelper {
         o.put("internet", caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET));
         o.put("validated", caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED));
         o.put("not_metered", caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED));
+        o.put("local", isLocal(caps));
         o.put("iface", props != null && props.getInterfaceName() != null ? props.getInterfaceName() : "");
         JSONArray addresses = new JSONArray();
         if (props != null) {
@@ -86,14 +89,34 @@ public final class NetHelper {
         return o;
     }
 
+    /**
+     * Lokales Netz (NET_CAPABILITY_LOCAL_NETWORK = 36, ab Android 15/API 35): So meldet Android 16 den eigenen Hotspot – mit Transport
+     * WLAN, aber ohne Gateway (Gerätetest S24 Ultra 04.10.2026, swlan0). Wert als Zahl, damit es auch mit älterem SDK übersetzt.
+     */
+    private static boolean isLocal(NetworkCapabilities caps) {
+        try {
+            return caps != null && Build.VERSION.SDK_INT >= 35 && caps.hasCapability(36);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static boolean hotspotName(LinkProperties props) {
+        String name = props != null && props.getInterfaceName() != null ? props.getInterfaceName().toLowerCase() : "";
+        return name.startsWith("swlan") || name.startsWith("softap") || name.startsWith("ap");
+    }
+
+    /** Ein WLAN, in dem das Handy Gast ist (mit Gateway zuerst) – nie der eigene Hotspot. Nur noch für bindWifi (Netztest). */
     @SuppressWarnings("deprecation")
     private static Network findWifi(ConnectivityManager cm) {
         Network fallback = null;
         for (Network network : cm.getAllNetworks()) {
             NetworkCapabilities caps = cm.getNetworkCapabilities(network);
             if (caps == null || !caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue;
-            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue;
-            if (!gateway(cm.getLinkProperties(network)).isEmpty()) return network;
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) || isLocal(caps)) continue;
+            LinkProperties props = cm.getLinkProperties(network);
+            if (hotspotName(props)) continue;
+            if (!gateway(props).isEmpty()) return network;
             fallback = network;
         }
         return fallback;
@@ -178,6 +201,25 @@ public final class NetHelper {
             if (network == null) return "Kein WLAN verbunden.";
             if (!cm.bindProcessToNetwork(network)) return "Android hat die Bindung abgelehnt.";
             return "";
+        } catch (Exception e) {
+            return "Bindung fehlgeschlagen: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Leerer Text = Prozess an das Netz mit diesem Handle gebunden (Network.getNetworkHandle(), wie in state()), sonst Grund. Welches Netz
+     * das WLAN ist, entscheidet net_android.gd (wifi_handle) – dort ist die Einordnung getestet.
+     */
+    @SuppressWarnings("deprecation")
+    public static String bindNetwork(Activity activity, String handle) {
+        try {
+            ConnectivityManager cm = connectivity(activity);
+            for (Network network : cm.getAllNetworks()) {
+                if (!String.valueOf(network.getNetworkHandle()).equals(handle)) continue;
+                if (!cm.bindProcessToNetwork(network)) return "Android hat die Bindung abgelehnt.";
+                return "";
+            }
+            return "Das WLAN ist nicht mehr verbunden.";
         } catch (Exception e) {
             return "Bindung fehlgeschlagen: " + e.getMessage();
         }

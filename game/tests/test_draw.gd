@@ -149,6 +149,26 @@ func test_plans() -> void:
 	var drawn := LineRecorder.plan_to_data(pen.route)
 	check(pen.complete and NetDraw.check_plan(t, drawn) == "", "Gezeichnete Linie (LineRecorder) ist plausibel (%d Punkte)" % drawn.size())
 	check(bytes_of(NetDraw.unpack_plan(NetDraw.pack_plan(drawn))) == bytes_of(drawn), "Gezeichnete Linie übersteht das Packen bytegleich")
+	# Gerätetest 04.10.2026: Ein schneller letzter Strich über die Ziellinie (1–4 m je Bild) setzte Punkte hinter das Ziel, nur der
+	# letzte wurde auf s = laps zurückgesetzt – jede so beendete Linie galt als „rückwärts“. Alle Rundkurse mit mehreren Strichtempi.
+	var fast_ok := true
+	var fast_fail := ""
+	for id in ["azure", "city", "forest", "harbor", "fair", "quarry", "kids", "arena"]:
+		var ct := circuit(id)
+		for step in [1.5, 2.5, 4.0]:
+			var fp := LineRecorder.new(ct)
+			fp.begin(ct.at(0.0), 0.0)
+			var fs := 0.0
+			var tick := 0
+			while not fp.complete and fp.active and tick < 20000:
+				tick += 1
+				fs += step / ct.length
+				fp.sample(ct.at(fs, 0.8 * sin(fs * 37.0)), tick / 60.0)
+			var problem := NetDraw.check_plan(ct, LineRecorder.plan_to_data(fp.route)) if fp.complete else "nicht fertig"
+			if problem != "":
+				fast_ok = false
+				fast_fail = "%s bei %.1f m/Bild: %s" % [id, step, problem]
+	check(fast_ok, "Schnell beendete Linien (1,5–4 m je Bild) sind auf allen Rundkursen plausibel %s" % fast_fail)
 	# Ablehnungen
 	var base := bot_line("city", 2.0)
 	var bad := {}

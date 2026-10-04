@@ -287,7 +287,13 @@ func sample(p: Vector2, time: float) -> bool:
 		confirm()
 	if complete:
 		progress = float(track.laps)
-		route[-1].s = float(track.laps)
+		# Ein schneller Strich setzt mehrere Punkte auf einmal; über die Ziellinie hinaus (bis 1/24 Runde) liegen dann einige
+		# schon dahinter. Diese abschneiden, der letzte Punkt liegt genau im Ziel. Vorher sprang s am Ende zurück
+		# (z. B. 2,0119 → 2,0), und die Linienprüfung des WLAN-Mehrspielers lehnte jede schnell beendete Linie als „rückwärts“ ab
+		# (Gerätetest 04.10.2026). finalize() setzt die Position des Zielpunkts aus s neu.
+		while route.size() > 2 and float(route[-2].s) >= progress:
+			route.remove_at(route.size() - 2)
+		route[-1].s = progress
 		finalize()
 	return true
 

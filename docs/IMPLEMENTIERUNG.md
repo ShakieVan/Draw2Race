@@ -506,3 +506,15 @@ Plan und Nutzerentscheidungen: `docs/MULTIPLAYER_RECHERCHE.md`.
 - **Tests:** 16 Testreihen mit 1401 Prüfungen. `tools/net_test.ps1 -Lobby` mit 7 Läufen, darunter Hänger von 5–6 s, eine saubere Abmeldung und vier gleiche Autos.
 - **Hinweis zu den Kontrollbildern:** `-Resolution 2400x1080` begrenzt Windows still auf 1924x1061. Für echtes 20:9 besser `-Resolution 1600x720` nehmen.
 - **Offen (Gerätetest):** WLAN-Rennen auf S10/S21 mit Turbo-Gefühl, Hotspot ganz ohne Internet, Mitspieler mit mobilen Daten, Gastgeber mit eigenem Hotspot, Neu-Binden nach WLAN-Wechsel.
+
+## Linienende und erster WLAN-Gerätetest (04.10.2026, Beta 0.2.31)
+
+- **Fehler im Gerätetest:** „Linie nicht abgegeben – Die Linie läuft rückwärts“ trat auf beiden Handys auf, das Rennen ließ sich nicht starten.
+  - Ursache: Ein zügiger letzter Strich (1–4 m je Bild) setzt mehrere Punkte auf einmal. Einige davon landeten bis zu 1/24 Runde hinter der Ziellinie, und nur der letzte wurde auf `s = laps` zurückgesetzt.
+  - Am PC war das nicht aufgefallen, weil die KI-Linien dort immer exakt im Ziel enden.
+  - Korrektur in `LineRecorder.sample()`: Punkte hinter dem Ziel werden abgeschnitten. Im Einzelspieler entfallen nur Punkte jenseits des Ziels.
+  - Neuer Test in `test_draw`: schnell beendete Linien auf allen 8 Rundkursen mit 1,5, 2,5 und 4 m je Bild.
+- **Gerätetest WLAN (S21 Gastgeber mit Android 15, S10 Mitspieler mit Android 12, Heim-WLAN):** Lobby, Suche, Autowahl, gemeinsames Zeichnen und Rennen liefen laut Nutzer „hervorragend“.
+- **Nebenbefund S10:** Der Heim-Router (WPA3, 2,4 GHz) erneuert den Gruppenschlüssel alle 10 Minuten. Das S10 verpasst das gelegentlich und wird abgemeldet (`DISASSOC_STA_HAS_LEFT`), danach schaltet Android das Debugging über WLAN ab. Für den Mehrspieler ist das ein realistischer Störfall.
+- **Tests:** 16 Testreihen, 1402 Prüfungen.
+- **Noch offen:** Hotspot ganz ohne Internet, Mitspieler mit mobilen Daten (S24), Gastgeber mit eigenem Hotspot, Neu-Binden nach WLAN-Wechsel.

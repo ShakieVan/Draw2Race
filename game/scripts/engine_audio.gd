@@ -105,8 +105,8 @@ func ensure_bus(index: int) -> String:
 		AudioServer.add_bus_effect(idx, AudioEffectPanner.new())
 	return bus_name
 
-func setup(ids: Array) -> void:
-	# Stimmen für die Fahrzeuge eines Rennens anlegen; ids[0] ist das eigene Auto.
+func setup(ids: Array, me := 0) -> void:
+	# Stimmen für die Fahrzeuge eines Rennens anlegen (Index wie im Feld); ids[me] ist das eigene Auto.
 	clear()
 	if headless:
 		return
@@ -116,17 +116,19 @@ func setup(ids: Array) -> void:
 		return
 	var fallback: Dictionary = manifest.cars.values()[0]
 	for i in range(mini(ids.size(), MAX_VOICES)):
-		voices.append(make_voice(manifest.cars.get(str(ids[i]), fallback), i))
+		# Verstimmung nach Reihenfolge ohne das eigene Auto (eigenes 0, die übrigen 1, 2, 3 …)
+		voices.append(make_voice(manifest.cars.get(str(ids[i]), fallback), i, i == me, 0 if i == me else (i if i > me else i + 1)))
 	level = 0.0
 
-func make_voice(car: Dictionary, index: int) -> Voice:
+func make_voice(car: Dictionary, index: int, player: bool, rank: int) -> Voice:
+	# index: Kanal (= Fahrzeugindex); rank: Verstimmungsstufe (0 = eigenes Auto, unverstimmt).
 	var v := Voice.new()
 	v.car = car
-	v.is_player = index == 0
+	v.is_player = player
 	v.bus = ensure_bus(index)
 	v.panner = AudioServer.get_bus_effect(AudioServer.get_bus_index(v.bus), 0) as AudioEffectPanner
 	v.rpm = float(car.idle)
-	v.detune = 1.0 + (0.0 if index == 0 else (0.012 if index % 2 == 1 else -0.015) * float((index + 1) / 2))
+	v.detune = 1.0 + (0.0 if rank == 0 else (0.012 if rank % 2 == 1 else -0.015) * float((rank + 1) / 2))
 	for layer in car.layers:
 		v.rpms.append(float(layer.rpm))
 		layer_stream(layer, "load")              # vorab laden, damit der Wechsel im Rennen nicht hakt
@@ -256,7 +258,7 @@ func preview_step(dt: float, sfx_on: bool) -> void:
 	if t >= PREVIEW_LENGTH:
 		clear()
 
-func update(dt: float, vehicles: Array, camera: Camera3D, phase: String, countdown: float, paused: bool, sfx_on: bool) -> void:
+func update(dt: float, vehicles: Array, camera: Camera3D, phase: String, countdown: float, paused: bool, sfx_on: bool, me := 0) -> void:
 	if headless or voices.is_empty():
 		return
 	if preview_time >= 0.0:
@@ -271,7 +273,7 @@ func update(dt: float, vehicles: Array, camera: Camera3D, phase: String, countdo
 		silence()
 		return
 	var screen := camera.get_viewport().get_visible_rect().size if camera != null else Vector2(1600, 900)
-	var own_pos: Vector2 = vehicles[0].pos if not vehicles.is_empty() else Vector2.ZERO
+	var own_pos: Vector2 = vehicles[me].pos if me >= 0 and me < vehicles.size() else Vector2.ZERO
 	for i in range(mini(voices.size(), vehicles.size())):
 		update_voice(voices[i], vehicles[i], dt, camera, screen, own_pos, phase, countdown)
 

@@ -57,7 +57,21 @@ var camera_target := Vector3.ZERO
 var capture_frames := 0
 var run_record_path := "user://last_run.json"
 var turbo_actions: Array[Dictionary] = []
-var crash_wait := 0.0
+var crash_wait: Array[float] = []   # je Auto: Zeit seit dem Ausscheiden (nur Menschen; bis zum Ergebnis noch kurz zusehen)
+# Mehrere Menschen (M2, docs/MULTIPLAYER_RECHERCHE.md 5.3). me: Index meines Autos in vehicles – nur Darstellung (Kamera, HUD, Ton,
+# Halo, Ergebnis), die Simulation hängt nicht davon ab. Einzelspieler: 0.
+# race_entries: Teilnehmerliste fürs nächste Rennen (RaceField.human_entry/ai_entry, z. B. RaceField.lineup); leer = Einzelspieler mit
+# recorder.route und car_choice. race_me: mein Listenplatz darin. remote_turbo: Turbo-Eingabe der übrigen Menschen je Autoindex
+# (Weitergeben, später das Netz); ohne Eintrag fährt ein Mensch ohne Turbo.
+var me := 0
+var race_entries: Array = []
+var race_me := 0
+var remote_turbo := {}
+var turbo_input: Array[bool] = []
+# Namen und Sprechblasen (M1, MULTIPLAYER_RECHERCHE.md 6) – nur Darstellung: car_names je Auto (NameTags.names_for), chatter liest
+# nach jedem Takt die Fahrzeugzustände und erzeugt daraus die Blasen; gezeichnet wird beides von hud.tags.
+var car_names: Array[String] = []
+var chatter := RaceChatter.new()
 # Geisterauto: beste eigene Fahrt je Strecke/Herausforderung (Linie + Turbo-Einsätze), ungestört wiedergegeben.
 var ghost: RaceVehicle
 var ghost_model: Node3D
@@ -68,7 +82,29 @@ var result_won := false
 # Starterfeld, Wippen und Takt (Aufstellung, Gegnerstärke und -spuren stehen in RaceField).
 var field: RaceField
 const RIVAL_LANES := RaceField.RIVAL_LANES
+# Mehrspieler „Weitergeben“ (M2b): party = Einstellungen und Linien der laufenden Runde (PassParty), null im Einzelspieler.
+# Phasen: party_setup → handover (Übergabekarte) → draw → drawn (Linie fertig) → … → reveal (alle Linien) → countdown → race → result.
+# Nichts davon schreibt in den Spielstand; beim Verlassen gelten wieder Strecke und Herausforderung des Einzelspielers (solo_*).
+var party: PassParty
+var party_memory: PassParty      # zuletzt eingestellte Runde (nur in dieser Sitzung)
+var solo_track := ""
+var solo_stage := 0
+var reveal_time := 0.0
+var pad_touch := {}              # Finger-Index -> Autoindex (Turboknöpfe, mehrere Finger gleichzeitig)
+var pad_held := {}               # Autoindex -> Knopf gehalten
+const PLAYER_KEYS := [KEY_1, KEY_2, KEY_3, KEY_4]   # Turbo am PC je Spieler (zum Ausprobieren ohne Handy)
 const RIVAL_SKILL := RaceField.RIVAL_SKILL
+# Mehrspieler im WLAN (M3/M4): lobby = Netz-Lobby (NetLobby), solange der WLAN-Mehrspieler offen ist, sonst null. Phasen: net_menu
+# (Eröffnen/Beitreten, Suche) → net_lobby (Spieler, Einstellungen, Bereit) → net_round (Strecke laden) → net_countdown (gemeinsames
+# 3-2-1) → draw (jeder zeichnet seine Linie, normale Zeichenansicht) → net_drawn (Linie fertig, abgeben bzw. warten) → net_reveal
+# (alle Linien in Spielerfarben) → countdown (gemeinsame Ampel) → race → result (M5: Wertung vom Gastgeber, Revanche oder Lobby).
+# Zeitpunkte und Linien: lobby.draw (NetDraw), das Rennen: lobby.race (NetRace) – der Gastgeber rechnet dort, alle Geräte zeigen die
+# Marionetten lobby.race.view mit der gemeinsamen Verzögerung (net_race_step). net_start bleibt nur als Rückfall ohne Rennen.
+# net_round = Daten der laufenden Runde (NetLobby.current_round). Wie „Weitergeben“: alles frei, nichts in den Spielstand (außer dem
+# eigenen Namen, den man in der Lobby wie in den Optionen ändert).
+var lobby: NetLobby
+var net_round := {}
+var net_count := 0               # Ampel im Netz: zuletzt gezeigte Ziffer (Ton bei jedem Wechsel)
 
 func _ready() -> void:
 	get_tree().auto_accept_quit = true
@@ -146,7 +182,7 @@ func debug_flag(key: String) -> bool:
 
 func current_conditions() -> Dictionary:
 	var result := track.conditions_for(stage)
-	var override = debug_data().get("override")
+	var override = debug_data().get("override") if party == null and lobby == null else null
 	if override is Dictionary:
 		for key in ["time","weather","fog"]:
 			if override.has(key):
@@ -175,9 +211,15 @@ func track_unlocked(index: int) -> bool:
 func select_track(new_id: String) -> void:
 	if new_id == track_id:
 		return
-	track_id = new_id
 	store.data["track"] = new_id
 	store.save()
+	load_track(new_id)
+
+func load_track(new_id: String) -> void:
+	# Strecke laden und die Welt neu aufbauen, ohne den Spielstand anzufassen (Mehrspieler: Wahl gilt nur für die Runde).
+	if new_id == track_id:
+		return
+	track_id = new_id
 	sound.finish_crossfade()
 	track = Circuit.load_track(new_id)
 	# Welt komplett neu aufbauen (Thema, Deko, Fahrbahn).
@@ -203,11 +245,17 @@ func set_camera(target: Vector3) -> void:
 	camera.look_at(target,Vector3(0,0,-1))
 
 func rival_lineup(player_car: int) -> Array:
+	return rival_lineup_excluding([player_car])
+
+func rival_lineup_excluding(taken: Array) -> Array:
 	# Gegner fahren (physikalisch das Grundmodell, aber) mit Karosserie, Farbe und Motorklang anderer Autos; je Strecke eine feste
-	# Auswahl, das eigene Auto kommt nie doppelt vor.
+	# Auswahl, die Autos der Menschen kommen nie doppelt vor.
 	var others: Array = []
 	for i in range(RaceVehicle.CARS.size()):
-		if i != player_car:
+		if not (i in taken):
+			others.append(i)
+	if others.is_empty():
+		for i in range(RaceVehicle.CARS.size()):
 			others.append(i)
 	var offset := posmod(hash(track_id),others.size())
 	var picked: Array = []
@@ -215,12 +263,45 @@ func rival_lineup(player_car: int) -> Array:
 		picked.append(others[(offset + i) % others.size()])
 	return picked
 
+func car_looks() -> Array:
+	# Karosserie, Farbe und Motor je Auto des Feldes (Index in RaceVehicle.CARS, nur Darstellung): Menschen ihr Auto (Eintrag "look",
+	# sonst "car"), die KI der Reihe nach die übrigen Autos (rival_lineup_excluding). Mehrspieler mit Spielerfarben ("paint"): Die KI
+	# behält die Farben ihrer Autos, nimmt aber zuerst Autos, deren Farbe sich von allen Spielerfarben abhebt (PlayerColors.rival_order).
+	var taken: Array = []
+	var paints: Array = []
+	for e in field.entries:
+		if bool(e.human):
+			taken.append(int(e.get("look", e.car)))
+			if e.has("paint"):
+				paints.append(e.paint)
+	var pool := rival_lineup_excluding(taken) if paints.is_empty() else PlayerColors.rival_order(rival_lineup_excluding([]), taken, paints)
+	var looks: Array = []
+	var k := 0
+	for e in field.entries:
+		if bool(e.human):
+			looks.append(int(e.get("look", e.car)))
+		elif e.has("look"):
+			looks.append(int(e.look))
+		else:
+			looks.append(pool[k % pool.size()])
+			k += 1
+	return looks
+
+func solo() -> bool:
+	# Einzelspieler: Gold, Bestenliste, Geist und letzte Fahrt gelten nur dann (Mehrspieler: 5.5). Nie im Weitergeben-Modus und nie,
+	# solange der WLAN-Mehrspieler offen ist (Lobby, Runde, Rennen) – unabhängig davon, wie viele Menschen gerade im Feld stehen.
+	return party == null and lobby == null and (field == null or field.human_count() <= 1)
+
 func clear_cars() -> void:
 	sound.clear_engines()
 	for model in models:
 		model.queue_free()
 	models.clear()
 	vehicles.clear()
+	me = 0
+	remote_turbo.clear()
+	car_names.clear()
+	chatter.reset(0)
 	if is_instance_valid(ghost_model):
 		ghost_model.queue_free()
 	ghost = null
@@ -233,15 +314,13 @@ func ghost_path() -> String:
 
 func save_ghost() -> void:
 	DirAccess.make_dir_recursive_absolute("user://ghosts")
-	var plan: Array = []
-	for point in recorder.route:
-		plan.append({"x": point.p.x, "z": point.p.y, "speed": point.speed, "s": point.s, "o": point.get("o", 0.0), "sc": point.get("sc", -1)})
+	var plan := LineRecorder.plan_to_data(recorder.route)
 	var file := FileAccess.open(ghost_path(), FileAccess.WRITE)
 	if file:
-		file.store_string(JSON.stringify({"physics": RaceVehicle.VERSION, "track_hash": track.file_hash, "car": car_choice, "time": vehicles[0].finish_time, "plan": plan, "turbo": turbo_actions}))
+		file.store_string(JSON.stringify({"physics": RaceVehicle.VERSION, "track_hash": track.file_hash, "car": car_choice, "time": vehicles[me].finish_time, "plan": plan, "turbo": turbo_actions}))
 
 func spawn_ghost() -> void:
-	if not bool(store.data.get("ghost", true)) or track.mode == "drift" or demonstration or not FileAccess.file_exists(ghost_path()):
+	if not bool(store.data.get("ghost", true)) or track.mode == "drift" or demonstration or not solo() or not FileAccess.file_exists(ghost_path()):
 		return
 	var data = JSON.parse_string(FileAccess.get_file_as_string(ghost_path()))
 	if not data is Dictionary or str(data.get("physics", "")) != RaceVehicle.VERSION:
@@ -249,9 +328,7 @@ func spawn_ghost() -> void:
 	# Geist gilt nur für dieselbe Streckendatei (ohne Hash nur bei Fassung 1, also Geister von vor dem Höhen-Paket).
 	if (data.has("track_hash") and str(data.track_hash) != track.file_hash) or (not data.has("track_hash") and track.rev > 1):
 		return
-	var plan: Array[Dictionary] = []
-	for q in data.plan:
-		plan.append({"p": Vector2(float(q.x), float(q.z)), "speed": float(q.speed), "s": float(q.s), "o": float(q.get("o", 0.0)), "sc": int(q.get("sc", -1))})
+	var plan := LineRecorder.plan_from_data(data.plan)
 	var car := clampi(int(data.get("car", 0)), 0, RaceVehicle.CARS.size() - 1)
 	ghost = RaceVehicle.new(track, plan, 0.0, 0.0, car)
 	if field != null:
@@ -263,13 +340,7 @@ func spawn_ghost() -> void:
 		(node as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 func ghost_boost(time: float) -> bool:
-	var held := false
-	for action in ghost_turbo:
-		if float(action.time) <= time:
-			held = bool(action.held)
-		else:
-			break
-	return held
+	return RaceField.replay_turbo(ghost_turbo, time)
 
 func show_menu() -> void:
 	paused = false
@@ -277,6 +348,8 @@ func show_menu() -> void:
 	pointer = -99
 	turbo_held = false
 	clear_cars()
+	leave_party()
+	leave_wlan()
 	world.line_mesh.mesh = null
 	world.marker.visible = false
 	# Menü mit eigenem Hintergrund; die Strecke erscheint erst beim Zeichnen/Fahren.
@@ -320,29 +393,73 @@ func begin_race() -> void:
 	phase = "countdown"
 	countdown = 3.0
 	race_time = 0.0
-	crash_wait = 0.0
 	turbo_actions.clear()
 	last_boost_input = false
 	world.marker.visible = false
-	world.draw_route(recorder.route,true)
+	release_pads()
 	if not car_unlocked(car_choice):
 		car_choice = 0
-	var spec: Dictionary = RaceVehicle.CARS[car_choice]
-	# Gegner in anderen Farben als das eigene Auto; sie fahren das Grundmodell.
-	var rival_cars := rival_lineup(car_choice)
 	# Drift-Modus: allein gegen Punkteziel und Zeitlimit, keine Rivalen.
-	var engine_ids: Array = [str(spec.id)]
 	field = RaceField.new(track)
-	field.setup(recorder.route, stage, car_choice)
+	if race_entries.is_empty():
+		field.setup(recorder.route, stage, car_choice)
+		me = 0
+	else:
+		# Teilnehmerliste gilt für genau dieses Rennen („Neue Linie“ danach ist wieder Einzelspieler, bis sie neu gesetzt wird).
+		field.setup_entries(race_entries)
+		me = clampi(race_me, 0, field.cars.size() - 1)
+		race_entries = []
+		if party != null:
+			# Lobby-Schalter „Berührungen“; Drift zu mehreren immer ohne (alle gleichzeitig, Wertung nach Punkten).
+			field.contacts = party.contacts and not party.is_drift()
+	prepare_race_view()
+	spawn_ghost()
+	for i in range(vehicles.size()):
+		record_tyre_tracks(i)
+	hud.race()
+	sound.start_signal(false)
+
+func prepare_race_view() -> void:
+	# Darstellung des Starterfelds field: Modelle, Linien, Namen, Motoren. Einzelspieler und „Weitergeben“: das gerechnete Feld;
+	# WLAN-Mehrspieler: die Marionetten (NetRace.view). Reine Darstellung.
 	vehicles = field.cars
 	world.build_seesaws(field.seesaws)
+	# Gegner in anderen Farben als die Autos der Menschen; sie fahren das Grundmodell. Mein Auto trägt den Halo.
+	var looks := car_looks()
+	# Farbe je Auto: Mehrspieler-Menschen ihre Spielerfarbe (Eintrag "paint": Lack, Schild, Lichtkranz, Linie, Turbo-Knopf, Wertung),
+	# sonst die Farbe des Autos (Einzelspieler unverändert).
+	var paints: Array[Color] = []
+	for i in range(field.cars.size()):
+		var e: Dictionary = field.entries[i]
+		paints.append(e.paint if e.has("paint") else Color(RaceVehicle.CARS[looks[i]].color))
+	# Linien im Rennen: im Einzelspieler die eigene; mit mehreren Menschen alle, jede in ihrer Farbe (Weitergeben, Netz).
+	if field.human_count() > 1:
+		var plans: Array = []
+		var tints: Array = []
+		for i in range(field.cars.size()):
+			if field.is_human(i):
+				plans.append(field.entries[i].plan)
+				tints.append(paints[i])
+		world.draw_routes(plans, tints, true)
+	else:
+		world.draw_route(recorder.route if recorder != null else field.entries[me].plan, true)
+	var engine_ids: Array = []
 	for i in range(vehicles.size()):
-		if i == 0:
-			models.append(world.car_model(Color(spec.color),true,str(spec.style)))
-		else:
-			var rival: Dictionary = RaceVehicle.CARS[rival_cars[i-1]]
-			models.append(world.car_model(Color(rival.color),false,str(rival.style)))
-			engine_ids.append(str(rival.id))
+		var look: Dictionary = RaceVehicle.CARS[looks[i]]
+		# Mehrspieler: jeder Mensch trägt einen Lichtkranz in seiner Farbe.
+		var crowned := i == me or ((party != null or lobby != null) and field.is_human(i))
+		models.append(world.car_model(paints[i],crowned,str(look.style)))
+		models[i].set_meta("tag_color", paints[i])
+		if (party != null or lobby != null) and crowned and models[i].has_node("Halo"):
+			var halo_mat: StandardMaterial3D = (models[i].get_node("Halo") as MeshInstance3D).material_override
+			halo_mat.albedo_color = Color(paints[i].lightened(0.25), 0.38)
+		engine_ids.append(str(look.id))
+	car_names = NameTags.names_for(field.entries, looks, me, store.player_name())
+	chatter.reset(vehicles.size())
+	crash_wait.clear()
+	crash_wait.resize(vehicles.size())
+	turbo_input.clear()
+	turbo_input.resize(vehicles.size())
 	was_airborne.clear()
 	was_crashed.clear()
 	last_vz.clear()
@@ -351,15 +468,10 @@ func begin_race() -> void:
 		was_crashed.append(false)
 		last_vz.append(0.0)
 	was_boosting = false
-	sound.prepare_engines(engine_ids)
+	sound.prepare_engines(engine_ids, me)
 	snapshot_vehicles()
 	update_models()
 	place_models()
-	spawn_ghost()
-	for i in range(vehicles.size()):
-		record_tyre_tracks(i)
-	hud.race()
-	sound.start_signal(false)
 
 func record_tyre_tracks(i: int) -> void:
 	var v := vehicles[i]
@@ -521,8 +633,16 @@ func _physics_process(dt: float) -> void:
 	if paused:
 		return
 	snapshot_vehicles()
+	if lobby != null and lobby.race != null and phase in ["countdown", "race", "result"]:
+		net_race_step(dt)
+		return
 	if phase == "draw":
 		draw_clock += dt
+	elif phase == "reveal":
+		reveal_time += dt
+		hud.party_ui.update_reveal(PassParty.REVEAL_TIME - reveal_time)
+		if reveal_time >= PassParty.REVEAL_TIME:
+			party_begin_race()
 	elif phase == "countdown":
 		var previous_count := ceili(countdown)
 		countdown -= dt
@@ -534,20 +654,24 @@ func _physics_process(dt: float) -> void:
 			phase = "race"
 	elif phase == "race":
 		race_time += dt
-		var boost: bool = (turbo_held or Input.is_physical_key_pressed(KEY_SPACE)) if not demonstration else RaceField.rival_boost(vehicles[0])
+		var boost: bool
+		if party != null:
+			boost = party_turbo()
+		else:
+			boost = (turbo_held or Input.is_physical_key_pressed(KEY_SPACE)) if not demonstration else RaceField.rival_boost(vehicles[me])
 		if boost!=last_boost_input:
 			turbo_actions.append({"time":race_time,"held":boost})
 			last_boost_input = boost
-		field.step(dt, race_time, boost, "race", ghost_boost(race_time))
+		field.step_inputs(dt, race_time, turbo_inputs(boost), "race", ghost_boost(race_time))
+		if bool(store.data.get("bubbles", true)):
+			chatter.observe(vehicles, field.impacts, race_time, field.human_mask, me, true)   # nur lesen (Sprechblasen)
 		for hit in field.impacts:
 			contact_sparks(hit[0],hit[1],hit[2])
 		update_tyre_tracks()
 		update_models()
 		race_sounds()
-		# Nach einem Absturz noch kurz zusehen lassen (Fall, Zurückrollen), dann das Ergebnis.
-		if vehicles[0].crashed:
-			crash_wait += dt
-		if vehicles[0].finish_time>=0 or crash_wait > (2.4 if vehicles[0].loop_fall else 1.6) or (track.mode == "drift" and race_time > drift_limit()):
+		# Nach einem Absturz noch kurz zusehen lassen (Fall, Zurückrollen), dann das Ergebnis – sobald alle Menschen fertig sind.
+		if humans_done(dt) or (track.mode == "drift" and race_time > drift_limit()):
 			finish_race()
 		elif race_time > 180.0:
 			pause_game()
@@ -555,10 +679,12 @@ func _physics_process(dt: float) -> void:
 		# Rivals finish normally; their interpolated times update the result table.
 		race_time += dt
 		var unfinished: Array[int] = []
-		for i in range(1,vehicles.size()):
-			if vehicles[i].finish_time<0:
+		for i in range(vehicles.size()):
+			if not field.is_human(i) and vehicles[i].finish_time<0:
 				unfinished.append(i)
 		field.step(dt, race_time, false, "result", ghost_boost(race_time))
+		if bool(store.data.get("bubbles", true)):
+			chatter.observe(vehicles, field.impacts, race_time, field.human_mask, me, false)
 		for hit in field.impacts:
 			contact_sparks(hit[0],hit[1],hit[2])
 		var new_finish := false
@@ -566,10 +692,37 @@ func _physics_process(dt: float) -> void:
 			if vehicles[i].finish_time>=0 and hud.result_times.has(i):
 				new_finish = true
 		if new_finish:
-			var rows := sorted_results()
-			hud.results(rows,player_result_rank(rows),result_record)
+			if party != null:
+				hud.party_ui.results(party_rows())
+			else:
+				var rows := sorted_results()
+				hud.results(rows,player_result_rank(rows),result_record)
 		update_tyre_tracks()
 		update_models()
+
+func turbo_inputs(own: bool) -> Array[bool]:
+	# Turbo je Auto für RaceField.step_inputs: mein Auto aus Knopf/Leertaste, die übrigen Menschen aus remote_turbo (KI: ignoriert).
+	if turbo_input.size() != vehicles.size():
+		turbo_input.resize(vehicles.size())
+	for i in range(turbo_input.size()):
+		turbo_input[i] = own if i == me else bool(remote_turbo.get(i, false))
+	return turbo_input
+
+func humans_done(dt: float) -> bool:
+	# Alle Menschen im Ziel oder ausgeschieden; nach einem Absturz noch kurz zusehen (Fall 1,6 s, aus dem Looping 2,4 s).
+	var people := field.human_indices()
+	if people.is_empty():
+		return field.done()
+	if crash_wait.size() != vehicles.size():
+		crash_wait.resize(vehicles.size())
+	var done := true
+	for i in people:
+		var v := vehicles[i]
+		if v.crashed:
+			crash_wait[i] += dt
+		if not (v.finish_time>=0 or crash_wait[i] > (2.4 if v.loop_fall else 1.6)):
+			done = false
+	return done
 
 func update_models() -> void:
 	for i in range(vehicles.size()):
@@ -580,16 +733,24 @@ func update_models() -> void:
 		var loose: bool = str(track.surface_at(vehicles[i].pos).kind) in ["gravel","dirt","mud","sand","grass"]
 		dust.emitting = loose and world.atmosphere.quality>=1 and vehicles[i].velocity.length()>4.0 and world.atmosphere.conditions.weather!="rain"
 		animate_car(i)
-	if not models.is_empty() and models[0].has_node("Halo"):
+	if party != null or lobby != null:
+		var beat := 0.5 + 0.5*sin(Time.get_ticks_msec()*0.004)
+		for i in range(mini(models.size(), vehicles.size())):
+			if i != me and field.is_human(i) and models[i].has_node("Halo"):
+				var ring: MeshInstance3D = models[i].get_node("Halo")
+				ring.material_override.albedo_color.a = 0.22 + 0.22*beat
+				ring.scale = Vector3.ONE*(0.92 + 0.12*beat)
+	if me < models.size() and models[me].has_node("Halo"):
 		# Sanftes Pulsieren (nur Darstellung) hebt das eigene Auto hervor.
+		var own := models[me]
 		var pulse := 0.5 + 0.5*sin(Time.get_ticks_msec()*0.004)
-		var halo: MeshInstance3D = models[0].get_node("Halo")
+		var halo: MeshInstance3D = own.get_node("Halo")
 		halo.material_override.albedo_color.a = 0.22 + 0.22*pulse
 		halo.scale = Vector3.ONE*(0.92 + 0.12*pulse)
-		if models[0].has_meta("paint_shader"):
-			models[0].get_meta("paint_shader").set_shader_parameter("glow",0.12 + 0.18*pulse)
-		elif models[0].has_meta("paint"):
-			var paint: StandardMaterial3D = models[0].get_meta("paint")
+		if own.has_meta("paint_shader"):
+			own.get_meta("paint_shader").set_shader_parameter("glow",0.12 + 0.18*pulse)
+		elif own.has_meta("paint"):
+			var paint: StandardMaterial3D = own.get_meta("paint")
 			paint.emission_energy_multiplier = 0.18 + 0.22*pulse
 
 func screen_pan(pos: Vector2) -> float:
@@ -600,16 +761,16 @@ func screen_pan(pos: Vector2) -> float:
 
 func sound_distance_db(pos: Vector2) -> float:
 	# Leiser mit dem Abstand zum eigenen Auto.
-	if vehicles.is_empty():
+	if me >= vehicles.size():
 		return 0.0
-	return -clampf((pos.distance_to(vehicles[0].pos) - 6.0) * 0.5, 0.0, 26.0)
+	return -clampf((pos.distance_to(vehicles[me].pos) - 6.0) * 0.5, 0.0, 26.0)
 
 func race_sounds() -> void:
 	# Stoßgeräusche aus Zustandswechseln der Fahrzeuge (nur lesen; die Simulation bleibt unberührt): Landung, Absturz, Leitplanke, Turbo.
 	for i in range(mini(vehicles.size(), was_airborne.size())):
 		var v := vehicles[i]
-		var pan := 0.0 if i == 0 else screen_pan(v.pos)
-		var far := 0.0 if i == 0 else sound_distance_db(v.pos)
+		var pan := 0.0 if i == me else screen_pan(v.pos)
+		var far := 0.0 if i == me else sound_distance_db(v.pos)
 		if v.airborne:
 			last_vz[i] = v.vz
 		elif was_airborne[i] and not v.crashed:
@@ -634,17 +795,17 @@ func race_sounds() -> void:
 		for w in field.seesaws:
 			if w.clack > 0.15:
 				sound.impact("land", clampf(w.clack * 0.6, 0.15, 0.5), screen_pan(w.c), sound_distance_db(w.c))
-	if not vehicles.is_empty():
-		if vehicles[0].boosting and not was_boosting:
+	if me < vehicles.size():
+		if vehicles[me].boosting and not was_boosting:
 			sound.impact("kick", 0.9)
-		was_boosting = vehicles[0].boosting
+		was_boosting = vehicles[me].boosting
 
 func contact_sparks(a: int, b: int, impact: float) -> void:
 	# Funken am Berührpunkt ab spürbarem Stoß (nur Darstellung), dazu der Stoß als Geräusch.
 	if impact < 0.8:
 		return
 	var p := (vehicles[a].pos+vehicles[b].pos)*0.5
-	var own := a == 0 or b == 0
+	var own := a == me or b == me
 	sound.impact("car", clampf(impact/6.0,0.25,1.0), 0.0 if own else screen_pan(p), 0.0 if own else sound_distance_db(p))
 	var away := (vehicles[b].pos-vehicles[a].pos).normalized().orthogonal()
 	world.sparks(Vector3(p.x,0.45,p.y),Vector3(away.x,0,away.y),clampf(impact/5.0,0.2,1.0))
@@ -753,6 +914,10 @@ func road_fill_size() -> float:
 	return road if screen.y<=screen.x else road*screen.y/screen.x
 
 func _process(dt: float) -> void:
+	if lobby != null and lobby.race != null and phase in ["countdown", "race", "result"] and lobby.race.view == field:
+		# WLAN-Rennen: Marionetten je Bild genau auf die Anzeigezeit stellen (feiner als der 60-Hz-Takt), ohne Zwischenwerte.
+		lobby.race.apply_view(lobby.race.display_ticks())
+		snapshot_vehicles()
 	if not vehicles.is_empty():
 		place_models()
 	# Detailstufe nach Zoom: nah volle KI-Modelle, in der Übersicht die vereinfachten.
@@ -765,16 +930,23 @@ func _process(dt: float) -> void:
 		zoom = view_zoom
 		target = view_focus
 		target.z -= band_shift(zoom)
+	elif phase in ["race","countdown"] and bool(store.data.camera) and party != null:
+		var view := party_view()
+		target = view[0]
+		zoom = view[1]
 	elif phase in ["race","countdown"] and bool(store.data.camera):
 		# Zoom-Regler: 0 = bisherige Folgeansicht (48), 1 = Fahrbahnbreite füllt die kürzere Bildschirmseite.
 		var f := clampf(float(store.data.get("camera_zoom",0.4)),0.0,1.0)
-		var p := render_pos(0) + vehicles[0].velocity*0.28
+		var p := render_pos(me) + vehicles[me].velocity*0.28
 		var follow := lerpf(0.45,1.0,sqrt(f))
 		var c := track_center()
-		target = c + (Vector3(p.x,vehicles[0].z,p.y)-c)*follow
 		zoom = minf(overview_size(),48.0*pow(road_fill_size()/48.0,f))
+		# Vorhalt zur Streckenmitte (zeigt auf Rundkursen mehr Strecke), aber höchstens 30 % des Bildausschnitts: auf langen Strecken
+		# (Serra-Pass) lag das eigene Auto sonst gut ein Viertel der Zeit außerhalb des Bildes (Prüfung 03.10.2026).
+		var me_pos := Vector3(p.x,vehicles[me].z,p.y)
+		target = me_pos + ((c-me_pos)*(1.0-follow)).limit_length(zoom*0.3)
 	if not paused:
-		var pitch_goal := PITCH_DRAW if phase in ["draw","menu"] else PITCH_RACE
+		var pitch_goal := PITCH_DRAW if phase in ["draw","menu","drawn","handover","reveal","party_setup","party_garage"] or phase.begins_with("net_") else PITCH_RACE
 		cam_pitch = lerpf(cam_pitch,pitch_goal,1.0-exp(-dt*2.0))
 		if phase=="draw":
 			# Handkamera folgt den Fingern unmittelbar.
@@ -790,15 +962,19 @@ func _process(dt: float) -> void:
 			record_point(touches[pointer])
 		if phase=="draw" and recorder!=null:
 			refresh_line()
-	if phase == "menu" and hud.backdrop.visible:
+	if (phase in ["menu","party_setup","party_garage"] or phase.begins_with("net_")) and hud.backdrop.visible:
 		hud.backdrop.queue_redraw()
+	if lobby != null and lobby.draw != null:
+		net_tick()
 	if phase == "draw" and hud.status!=null:
 		hud.status.text = lap_text(recorder.progress)
 		hud.detail.text = "%d %% geplant" % int(recorder.progress*100.0/track.laps)
 		hud.progress_bar.value = recorder.progress*100.0/track.laps
 		hud.instruction_label.text = recorder.hint
+	elif phase in ["race","countdown"] and party != null:
+		hud.party_ui.update_race()
 	elif phase in ["race","countdown"]:
-		var v := vehicles[0]
+		var v := vehicles[me]
 		hud.status.text = lap_text(v.progress)
 		hud.time_label.text = format_time(race_time)
 		hud.speed_label.text = str(int(v.velocity.length()*3.6))
@@ -807,16 +983,18 @@ func _process(dt: float) -> void:
 			hud.status.text = "%s   ×%.1f   noch %d s" % [lap_text(v.progress), v.drift_multiplier, maxi(0, int(ceil(drift_limit() - race_time)))]
 		else:
 			hud.rank_label.text = "%d / %d" % [live_rank(),vehicles.size()]
-		hud.progress_bar.value = v.turbo*100
+		if hud.progress_bar != null:
+			hud.progress_bar.value = v.turbo*100
 		if phase=="race":
 			hud.center.text = "LOS" if race_time<0.65 else ""
 	sound.enabled = bool(store.data.sound)
 	sound.set_style(str(store.data.get("music_style","energie")))
 	sound.set_volumes(float(store.data.get("music_volume",0.8)),float(store.data.get("sfx_volume",1.0)))
-	if sound.context!=phase:
-		sound.set_context(phase,result_won)
-	sound.tick(vehicles[0] if not vehicles.is_empty() else null,phase=="race",paused,bool(store.data.sound),bool(store.data.music),track,dt)
-	sound.tick_engines(dt,vehicles,camera,phase,countdown,paused,bool(store.data.sound))
+	var heard := sound_phase()
+	if sound.context!=heard:
+		sound.set_context(heard,result_won)
+	sound.tick(vehicles[me] if me < vehicles.size() else null,phase=="race",paused,bool(store.data.sound),bool(store.data.music),track,dt)
+	sound.tick_engines(dt,vehicles,camera,phase,countdown,paused,bool(store.data.sound),me)
 	capture_frames += 1
 	if "--capture" in OS.get_cmdline_user_args() and capture_frames==90:
 		get_viewport().get_texture().get_image().save_png("user://preview.png")
@@ -843,6 +1021,9 @@ func world_point(screen: Vector2) -> Vector2:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.physical_keycode==KEY_ESCAPE:
+		if party != null or lobby != null:
+			go_back()
+			return
 		if paused:
 			resume_game()
 		elif phase!="menu":
@@ -954,6 +1135,10 @@ func refresh_line() -> void:
 	world.marker.position = Vector3(tip.x,0.31 + track.draw_height(recorder.last_phase, tip_sc, tip),tip.y)
 
 func _input(event: InputEvent) -> void:
+	# Mehrspieler: Turboknöpfe mit mehreren Fingern gleichzeitig (vor der Oberfläche, die nur einen Finger kennt).
+	if party != null and phase in ["countdown","race"] and not paused and pad_input(event):
+		get_viewport().set_input_as_handled()
+		return
 	# Ein begonnener Strich läuft weiter, auch wenn der Finger über eine Leiste gleitet.
 	if phase=="draw" and not paused and recorder!=null:
 		if event is InputEventMouseMotion and event.device!=InputEvent.DEVICE_ID_EMULATION and touches.has(MOUSE_ID):
@@ -973,15 +1158,16 @@ func record_point(screen: Vector2) -> void:
 		if recorder.complete:
 			pointer = -99
 			release_touches()
-			begin_race()
+			line_complete()
 	elif not recorder.active and pointer!=-99:
 		end_stroke()
 		hud.detail.text = "Im schimmernden Ende neu ansetzen"
 
 func live_rank() -> int:
+	# Platz meines Autos im laufenden Rennen.
 	var rank := 1
-	for i in range(1,vehicles.size()):
-		if not vehicles[i].crashed and (vehicles[i].finish_time>=0 or vehicles[i].progress>vehicles[0].progress):
+	for i in range(vehicles.size()):
+		if i != me and not vehicles[i].crashed and (vehicles[i].finish_time>=0 or vehicles[i].progress>vehicles[me].progress):
 			rank += 1
 	return rank
 
@@ -1003,22 +1189,26 @@ func sorted_results() -> Array:
 
 func player_result_rank(rows: Array) -> int:
 	for row in rows:
-		if row.index==0:
+		if row.index==me:
 			return row.rank
 	return 1
 
 func finish_race() -> void:
+	if party != null:
+		party_finish()
+		return
 	phase = "result"
 	turbo_held = false
 	var rows := sorted_results()
 	var rank := player_result_rank(rows)
 	var record := false
+	var own := vehicles[me]
 	if track.mode == "drift":
 		# Drift: gewonnen = im Zeitlimit ins Ziel und Punkteziel der Herausforderung erreicht.
-		var v0 := vehicles[0]
+		var v0 := own
 		var in_time := v0.finish_time >= 0.0 and v0.finish_time <= drift_limit() and not v0.crashed
 		rank = 1 if in_time and v0.drift_score >= drift_target() else 2
-		if not demonstration and in_time:
+		if not demonstration and in_time and solo():
 			record = store.result_drift(track_id, stage, car_choice, int(v0.drift_score), rank == 1)
 		result_record = record
 		result_won = rank == 1
@@ -1026,35 +1216,46 @@ func finish_race() -> void:
 		if result_won:
 			world.confetti(Vector3(v0.pos.x, 0.3 + v0.z, v0.pos.y))
 		return
-	if vehicles[0].crashed:
+	if own.crashed:
 		# Absturz: verloren, keine Zeit für Bestenliste oder Bestzeit.
 		rank = vehicles.size()
 		for row in rows:
-			if row.index == 0:
+			if row.index == me:
 				row.rank = rank
-	elif not demonstration:
-		record = store.result(track_id,stage,car_choice,vehicles[0].finish_time,rank==1)
+	elif not demonstration and solo():
+		# Mehrspieler (mehrere Menschen): kein Gold, keine Bestenliste, kein Geist (docs/MULTIPLAYER_RECHERCHE.md 5.5).
+		record = store.result(track_id,stage,car_choice,own.finish_time,rank==1)
 		if record:
 			save_ghost()
 		var plan: Array = []
 		for point in recorder.route:
 			plan.append({"x":point.p.x,"z":point.p.y,"speed":point.speed,"s":point.s})
-		var run := {"version":1,"physics":RaceVehicle.VERSION,"track":track_id,"track_hash":track.file_hash,"rev":track.rev,"car":car_choice,"stage":stage,"time":vehicles[0].finish_time,"raw":recorder.raw,"plan":plan,"turbo":turbo_actions}
+		var run := {"version":1,"physics":RaceVehicle.VERSION,"track":track_id,"track_hash":track.file_hash,"rev":track.rev,"car":car_choice,"stage":stage,"time":own.finish_time,"raw":recorder.raw,"plan":plan,"turbo":turbo_actions}
 		var file := FileAccess.open(run_record_path,FileAccess.WRITE)
 		if file:
 			file.store_string(JSON.stringify(run))
 	result_record = record
 	result_won = rank==1
 	hud.results(rows,rank,record)
-	if result_won and not vehicles[0].crashed:
-		world.confetti(Vector3(vehicles[0].pos.x, 0.3 + vehicles[0].z, vehicles[0].pos.y))
+	if result_won and not own.crashed:
+		world.confetti(Vector3(own.pos.x, 0.3 + own.z, own.pos.y))
 
 func pause_game() -> void:
+	if lobby != null:
+		# WLAN-Mehrspieler: niemand hält das gemeinsame Spiel an (Zurück-Taste: go_back). Ein laufender Strich endet trotzdem.
+		if phase == "draw" and recorder != null:
+			recorder.end()
+			release_touches()
+			refresh_line()
+		return
+	if party != null and phase in ["party_setup","party_garage","result"]:
+		return   # nichts anzuhalten; die Zurück-Taste führt hier über go_back() zurück
 	if paused or phase in ["menu","result"]:
 		if phase=="result": show_menu()
 		return
 	paused = true
 	turbo_held = false
+	release_pads()
 	if recorder!=null: recorder.end()
 	release_touches()
 	refresh_line()
@@ -1062,16 +1263,704 @@ func pause_game() -> void:
 
 func resume_game() -> void:
 	paused = false
+	if party != null:
+		match phase:
+			"handover": hud.party_ui.handover()
+			"drawn": hud.party_ui.drawn_card()
+			"reveal": hud.party_ui.reveal()
+			"draw": hud.drawing()
+			_: hud.race()
+		return
 	if phase=="draw": hud.drawing()
 	else: hud.race()
 
 func _notification(what: int) -> void:
+	# WLAN-Mehrspieler: Hintergrund melden, bevor Android die App anhält (die anderen sehen „im Hintergrund“).
+	if lobby != null and lobby.race != null and (what==NOTIFICATION_APPLICATION_FOCUS_OUT or what==NOTIFICATION_APPLICATION_PAUSED):
+		# WLAN-Rennen: Turbo loslassen, bevor Android die App anhält (sonst bliebe er beim Gastgeber gedrückt).
+		turbo_held = false
+		last_boost_input = false
+		lobby.race.set_turbo(false)
+	if lobby != null and (what==NOTIFICATION_APPLICATION_PAUSED or what==NOTIFICATION_APPLICATION_RESUMED):
+		lobby.set_away(what==NOTIFICATION_APPLICATION_PAUSED)
 	if what==NOTIFICATION_APPLICATION_FOCUS_OUT or what==NOTIFICATION_APPLICATION_PAUSED:
 		if is_instance_valid(hud) and hud.root!=null:
 			pause_game()
 	elif what==NOTIFICATION_WM_GO_BACK_REQUEST:
-		pause_game()
+		go_back()
 
 func format_time(value: float) -> String:
 	var ms := maxi(0,int(value*1000))
 	return "%02d:%02d.%03d" % [ms/60000,(ms/1000)%60,ms%1000]
+
+func go_back() -> void:
+	# Android-Zurück: offene Dialoge schließen; im Mehrspieler einen Schritt zurück (Einstellungen → Menü, Wertung → Einstellungen,
+	# sonst Pause bzw. weiter); im Einzelspieler wie bisher die Pause. WLAN-Mehrspieler: siehe LobbyScreens.go_back().
+	if lobby != null:
+		hud.lobby_ui.go_back()
+		return
+	if phase in ["menu","party_setup","party_garage","result"] and hud.overlay_open():
+		hud.close_overlays()
+		return
+	if party == null:
+		pause_game()
+		return
+	match phase:
+		"party_setup":
+			show_menu()
+		"party_garage":
+			close_garage()
+		"result":
+			open_party()
+		_:
+			if paused:
+				resume_game()
+			else:
+				pause_game()
+
+func sound_phase() -> String:
+	# Musik-Zusammenhang je Phase (Mehrspieler-Phasen wie ihre Einzelspieler-Gegenstücke).
+	match phase:
+		"party_setup", "party_garage", "handover", "net_menu", "net_lobby", "net_garage", "net_round":
+			return "menu"
+		"drawn", "net_countdown", "net_drawn":
+			return "draw"
+		"reveal", "net_reveal", "net_start":
+			return "countdown"
+	return phase
+
+func line_complete() -> void:
+	# Linie fertig gezeichnet: Einzelspieler fährt sofort los, im Mehrspieler ist der Nächste dran.
+	if party != null:
+		party_line_done()
+	elif lobby != null and lobby.draw != null:
+		net_line_done()
+	else:
+		begin_race()
+
+# ---------- Mehrspieler „Weitergeben“ (M2b) ----------
+func open_party() -> void:
+	# Einstellungen der Runde. Aus dem Menü: Einzelspieler-Strecke und -Herausforderung merken (danach wiederhergestellt), die Runde
+	# beginnt mit dem gespeicherten Namen und Auto als Spieler 1. Aus einer laufenden Runde: Einstellungen bleiben erhalten.
+	if party == null:
+		solo_track = track_id
+		solo_stage = stage
+		if party_memory == null:
+			party_memory = PassParty.create(store.player_name(), car_choice, track_id, stage)
+		party = party_memory
+	paused = false
+	phase = "party_setup"
+	turbo_held = false
+	release_touches()
+	release_pads()
+	clear_cars()
+	world.draw_routes([], [])
+	world.marker.visible = false
+	world.visible = false
+	hud.party_ui.setup_screen()
+
+func leave_party() -> void:
+	# Zurück in den Einzelspieler: dessen Strecke und Herausforderung gelten wieder (nichts davon wurde gespeichert).
+	if party == null:
+		return
+	party = null
+	release_pads()
+	world.draw_routes([], [])
+	stage = solo_stage
+	if solo_track != "" and track_id != solo_track:
+		load_track(solo_track)
+	apply_atmosphere()
+
+func party_garage(k: int) -> void:
+	# Garage für Spieler k (Auto und Spielerfarbe, wie im Einzelspieler; nichts wird gespeichert). Zurück: close_garage().
+	if party == null or phase != "party_setup":
+		return
+	phase = "party_garage"
+	hud.party_ui.garage_screen(k)
+
+func close_garage() -> void:
+	# Aus der Mehrspieler-Garage zurück zu den Einstellungen („Weitergeben“) bzw. in die Lobby (WLAN).
+	if phase == "party_garage" and party != null:
+		phase = "party_setup"
+		hud.party_ui.setup_screen()
+	elif phase == "net_garage" and lobby != null:
+		phase = "net_lobby"
+		hud.lobby_ui.lobby_screen()
+
+func party_load() -> void:
+	# Strecke und Herausforderung der Runde (ohne Speichern), Bedingungen wie in der Karriere.
+	stage = party.stage
+	if track_id != party.track_id:
+		load_track(party.track_id)
+	apply_atmosphere()
+
+func party_start() -> void:
+	party.start_round()
+	party_load()
+	party_handover()
+
+func party_rematch() -> void:
+	party.rematch()
+	party_load()
+	party_handover()
+
+func party_handover() -> void:
+	# Übergabekarte: verdeckt alle Linien; der nächste Spieler tippt, wenn er das Handy hat.
+	paused = false
+	phase = "handover"
+	turbo_held = false
+	release_touches()
+	release_pads()
+	clear_cars()
+	world.draw_routes([], [])
+	world.marker.visible = false
+	world.visible = false
+	hud.party_ui.handover()
+
+func party_draw() -> void:
+	# Der Spieler am Zug zeichnet mit der normalen Zeichenansicht (Neu zeichnen, Fahrhilfe, Handkamera).
+	party.routes[party.turn] = []
+	start_drawing()
+
+func party_redraw() -> void:
+	party_draw()
+
+func party_line_done() -> void:
+	phase = "drawn"
+	party.store_line(recorder.route)
+	world.marker.visible = false
+	world.draw_route(recorder.route)
+	hud.party_ui.drawn_card()
+
+func party_pass() -> void:
+	party.turn += 1
+	if party.turn < party.count():
+		party_handover()
+	else:
+		party_reveal()
+
+func party_reveal() -> void:
+	# Alle Linien gleichzeitig in den Spielerfarben, kurz vor dem Start (PassParty.REVEAL_TIME, Tippen startet sofort).
+	paused = false
+	phase = "reveal"
+	reveal_time = 0.0
+	clear_cars()
+	world.visible = true
+	world.marker.visible = false
+	apply_atmosphere()
+	world.draw_routes(party.routes, party.colors(), false)
+	camera_target = track_center()
+	hud.party_ui.reveal()
+
+func party_begin_race() -> void:
+	if phase != "reveal":
+		return
+	race_entries = party.entries()
+	race_me = party.slot_of(0)
+	begin_race()
+
+func party_turbo() -> bool:
+	# Turbo aller Menschen aus ihren Knöpfen (Tastatur am PC: 1–4 je Spieler, Leertaste für Spieler 1); Rückgabe: mein Auto (me).
+	for i in range(vehicles.size()):
+		if field.is_human(i):
+			var k := party.player_at(i)
+			remote_turbo[i] = bool(pad_held.get(i, false)) or (k >= 0 and k < PLAYER_KEYS.size() and Input.is_physical_key_pressed(PLAYER_KEYS[k])) \
+				or (k == 0 and Input.is_physical_key_pressed(KEY_SPACE))
+	return bool(remote_turbo.get(me, false))
+
+func pad_input(event: InputEvent) -> bool:
+	# Jeder Finger hält genau einen Turboknopf, mehrere Finger gleichzeitig; Maus (PC) als eigener Finger.
+	# Aus Berührungen nachgebildete Mausereignisse (Android) zählen nicht.
+	var id := -1
+	var pressed := false
+	var pos := Vector2.ZERO
+	if event is InputEventScreenTouch:
+		id = event.index
+		pressed = event.pressed
+		pos = event.position
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.device != InputEvent.DEVICE_ID_EMULATION:
+		id = MOUSE_ID
+		pressed = event.pressed
+		pos = event.position
+	else:
+		return false
+	if pressed:
+		var car := hud.pads.pad_at(pos)
+		if car < 0:
+			return false
+		pad_touch[id] = car
+	elif pad_touch.has(id):
+		pad_touch.erase(id)
+	else:
+		return false
+	pad_held.clear()
+	for car in pad_touch.values():
+		pad_held[car] = true
+	return true
+
+func release_pads() -> void:
+	pad_touch.clear()
+	pad_held.clear()
+
+func leading_human() -> int:
+	# Bester Mensch im Rennen (für Runde und Zeit oben): im Ziel vor unterwegs, sonst weitester Fortschritt.
+	var best := -1
+	for i in range(vehicles.size()):
+		if field == null or not field.is_human(i):
+			continue
+		if best < 0 or car_rank(i) < car_rank(best):
+			best = i
+	return best
+
+func car_rank(i: int) -> int:
+	# Platz eines Autos im laufenden Rennen (alle Autos): im Ziel nach Zielzeit, unterwegs nach Fortschritt, Ausgeschiedene hinten.
+	var v := vehicles[i]
+	var rank := 1
+	for j in range(vehicles.size()):
+		if j == i:
+			continue
+		var o := vehicles[j]
+		if v.crashed:
+			if not o.crashed or o.progress > v.progress:
+				rank += 1
+		elif o.crashed:
+			continue
+		elif o.finish_time >= 0.0:
+			if v.finish_time < 0.0 or o.finish_time < v.finish_time:
+				rank += 1
+		elif v.finish_time < 0.0 and o.progress > v.progress:
+			rank += 1
+	return rank
+
+func party_view() -> Array:
+	# Gemeinsame Rennkamera: alle Menschen, die noch fahren (sonst alle Menschen), sollen im Bild bleiben. Mitte ihres Rahmens (mit
+	# etwas Vorhalt), herausgezoomt so weit wie nötig, mindestens der Folge-Zoom der Einstellungen, höchstens die Übersicht. Je weiter
+	# herausgezoomt, desto mehr rückt die Mitte zur Streckenmitte (wie im Einzelspieler).
+	var f := clampf(float(store.data.get("camera_zoom",0.4)),0.0,1.0)
+	var widest := overview_size()
+	var base := minf(widest,48.0*pow(road_fill_size()/48.0,f))
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	var height := 0.0
+	var n := 0
+	for pass_all in [false, true]:
+		for i in range(vehicles.size()):
+			if not field.is_human(i):
+				continue
+			var v := vehicles[i]
+			if not pass_all and (v.crashed or v.finish_time >= 0.0):
+				continue
+			var p := render_pos(i) + v.velocity*0.28
+			lo = Vector2(minf(lo.x, p.x), minf(lo.y, p.y))
+			hi = Vector2(maxf(hi.x, p.x), maxf(hi.y, p.y))
+			height += v.z
+			n += 1
+		if n > 0:
+			break
+	var c := track_center()
+	if n == 0:
+		return [c, widest]
+	var mid := (lo + hi)*0.5
+	var screen := get_viewport().get_visible_rect().size
+	var aspect := screen.x/maxf(1.0,screen.y)
+	# Rand für Autos, Schilder und Vorausblick; nutzbar sind etwa 85 % der Breite und 70 % der Höhe (Kopfleiste, Knöpfe in den Ecken).
+	var extent := hi - lo + Vector2(12.0, 12.0)
+	var need := maxf(extent.x/aspect/0.85, extent.y*maxf(0.5,sin(cam_pitch))/0.7)
+	var zoom := clampf(maxf(base, need), base, widest)
+	var follow := lerpf(0.45,1.0,sqrt(f))
+	var spread := clampf((zoom - base)/maxf(1.0, widest - base), 0.0, 1.0)
+	var mid3 := Vector3(mid.x, height/float(n), mid.y)
+	# Vorhalt zur Streckenmitte wie im Einzelspieler, aber nur so weit, wie der Bildausschnitt über den Rahmen der Menschen hinaus Luft
+	# hat (zoom − need). Vorher wanderte die Mitte auf langen Strecken (Serra) so weit, dass 3 von 4 Autos unter dem Bildrand lagen.
+	var room := maxf(0.0, (zoom - need)*0.5)
+	var target := mid3 + ((c - mid3)*(1.0 - follow*(1.0 - spread*spread))).limit_length(room)
+	return [target, zoom]
+
+func party_rows() -> Array:
+	# Wertung aller Autos: Rundkurs/Sprint wie sorted_results(); Drift nach Punkten (im Zeitlimit im Ziel vor allen anderen).
+	if track.mode != "drift":
+		return sorted_results()
+	var rows: Array = []
+	var limit := drift_limit()
+	for i in range(vehicles.size()):
+		var v := vehicles[i]
+		var in_time := v.finish_time >= 0.0 and v.finish_time <= limit and not v.crashed
+		rows.append({"index": i, "time": v.finish_time, "score": int(v.drift_score), "in_time": in_time, "crashed": v.crashed})
+	rows.sort_custom(func(a: Dictionary, b: Dictionary):
+		if a.in_time != b.in_time: return a.in_time
+		if a.score != b.score: return a.score > b.score
+		return a.index < b.index)
+	for i in range(rows.size()):
+		rows[i].rank = i + 1
+		if i > 0 and rows[i].score == rows[i-1].score and rows[i].in_time == rows[i-1].in_time:
+			rows[i].rank = rows[i-1].rank
+	return rows
+
+func party_finish() -> void:
+	# Mehrspieler-Wertung: keine Bestenliste, kein Gold, kein Geist, keine letzte Fahrt (nichts wird gespeichert).
+	phase = "result"
+	turbo_held = false
+	release_pads()
+	var rows := party_rows()
+	var order: Array = []
+	for row in rows:
+		order.append(int(row.index))
+	party.note_result(order)
+	result_record = false
+	var winner: int = int(rows[0].index) if not rows.is_empty() else -1
+	result_won = winner >= 0 and field.is_human(winner) and not vehicles[winner].crashed
+	hud.party_ui.results(rows)
+	if result_won:
+		var v := vehicles[winner]
+		world.confetti(Vector3(v.pos.x, 0.3 + v.z, v.pos.y))
+
+# ---------- Mehrspieler im WLAN (M3: Lobby und Verbindung) ----------
+func open_wlan() -> void:
+	# „Mehrspieler → Im WLAN“: bindet das Spiel auf Android ans WLAN (NetLobby.enter) und zeigt Eröffnen/Beitreten mit laufender Suche.
+	# Aus der Lobby zurück: Sitzung verlassen, wieder suchen.
+	if lobby == null:
+		solo_track = track_id
+		solo_stage = stage
+		lobby = NetLobby.new()
+		lobby.name = "NetLobby"
+		lobby.tracks = TRACKS.duplicate()
+		add_child(lobby)
+		lobby.joined.connect(net_joined)
+		lobby.failed.connect(net_failed)
+		lobby.closed.connect(net_closed)
+		lobby.round_started.connect(net_round_started)
+		lobby.round_ready.connect(net_round_ready)
+		lobby.round_cancelled.connect(net_round_cancelled)
+		lobby.changed.connect(hud.lobby_ui.refresh)
+		lobby.status_changed.connect(hud.lobby_ui.refresh)
+		lobby.games_changed.connect(hud.lobby_ui.refresh)
+		lobby.notice.connect(hud.lobby_ui.toast)
+		lobby.enter(store.player_name(), car_choice)
+	paused = false
+	phase = "net_menu"
+	net_round = {}
+	turbo_held = false
+	release_touches()
+	clear_cars()
+	world.marker.visible = false
+	world.visible = false
+	lobby.search()
+	hud.lobby_ui.wlan_screen()
+
+func leave_wlan() -> void:
+	# Zurück in den Einzelspieler: Sitzung beenden, WLAN-Bindung lösen (Update-Suche und Internet gehen wieder), Strecke und
+	# Herausforderung des Einzelspielers wiederherstellen (nichts davon wurde gespeichert).
+	if lobby == null:
+		return
+	var old := lobby
+	lobby = null
+	net_round = {}
+	old.dispose()
+	world.draw_routes([], [])
+	stage = solo_stage
+	if solo_track != "" and track_id != solo_track:
+		load_track(solo_track)
+	apply_atmosphere()
+
+func net_host() -> void:
+	if lobby == null:
+		return
+	if lobby.host(track_id, stage) != OK:
+		var reason: String = lobby.session.detail
+		lobby.search()
+		hud.lobby_ui.wlan_screen()
+		hud.lobby_ui.message("Eröffnen nicht möglich.", reason)
+		return
+	phase = "net_lobby"
+	hud.lobby_ui.lobby_screen()
+
+func net_join(address: String, port: int, label := "") -> void:
+	# Beitreten (gefundenes Spiel oder eingetippte Adresse); Ergebnis über net_joined / net_failed.
+	if lobby == null:
+		return
+	lobby.join(address, port)
+	if lobby != null and lobby.mode == "join" and not lobby.is_joined:
+		hud.lobby_ui.connecting(label if label != "" else address)
+
+func net_cancel_join() -> void:
+	if lobby == null:
+		return
+	lobby.cancel_join()
+	lobby.search()
+	hud.lobby_ui.wlan_screen()
+
+func net_joined() -> void:
+	phase = "net_lobby"
+	hud.lobby_ui.lobby_screen()
+
+func net_failed(reason: String) -> void:
+	# Beitritt abgelehnt (Version, Strecken, voll, Rennen läuft) oder Gastgeber nicht erreichbar: Grund zeigen, weiter suchen.
+	if lobby == null:
+		return
+	phase = "net_menu"
+	lobby.search()
+	hud.lobby_ui.wlan_screen()
+	hud.lobby_ui.message("Beitritt nicht möglich.", reason)
+
+func net_closed(reason: String) -> void:
+	# Gastgeber hat beendet oder die Verbindung ist weg: zurück ins Menü mit Hinweis.
+	show_menu()
+	hud.lobby_ui.message("Mehrspieler beendet.", reason)
+
+func net_set_name(text: String) -> void:
+	# Eigener Name aus der Lobby: wie in den Optionen gespeichert, der Gastgeber macht ihn in der Runde eindeutig.
+	if lobby == null or ProgressStore.clean_name(text) == "" or ProgressStore.clean_name(text) == store.player_name():
+		return
+	store.set_player_name(text)
+	lobby.set_player_name(store.player_name())
+
+func net_garage() -> void:
+	# Garage im WLAN: eigenes Auto und eigene Farbe; jede Wahl geht sofort an den Gastgeber (NetLobby.set_car / set_color).
+	if lobby == null or phase != "net_lobby" or lobby.phase != "lobby" or lobby.me().is_empty():
+		return
+	phase = "net_garage"
+	hud.lobby_ui.garage_screen()
+
+func net_start() -> void:
+	if lobby != null:
+		lobby.start_round()
+
+func net_leave_lobby() -> void:
+	# Lobby verlassen (Gastgeber: Spiel beenden, alle Mitspieler kehren ins Menü zurück) → wieder suchen.
+	if lobby == null:
+		return
+	lobby.leave()
+	open_wlan()
+
+func net_back_to_lobby() -> void:
+	if lobby != null:
+		lobby.back_to_lobby()
+
+func net_round_started(info: Dictionary) -> void:
+	# Start: Strecke und Herausforderung der Runde laden (ohne Speichern, Bedingungen wie in der Karriere, keine Debug-Vorgaben),
+	# dann „geladen“ mit der Prüfsumme melden. Der Gastgeber wartet auf alle.
+	net_round = info
+	phase = "net_round"
+	turbo_held = false
+	clear_cars()          # Revanche: Autos, Motoren und Linien des letzten Rennens weg
+	world.draw_routes([], [])
+	var settings: Dictionary = info.settings
+	stage = int(settings.stage)
+	if track_id != str(settings.track):
+		load_track(str(settings.track))
+	apply_atmosphere()
+	world.visible = false
+	hud.lobby_ui.round_screen()
+	lobby.report_loaded(track.file_hash, track)
+
+func net_round_ready(info: Dictionary) -> void:
+	net_round = info
+	net_begin_drawing()
+
+func net_begin_drawing() -> void:
+	# M4: Alle Geräte haben Strecke und Herausforderung der Runde mit gleicher Prüfsumme geladen. Gemeinsames 3-2-1 bis
+	# lobby.draw.draw_at (Host-Uhr), dann zeichnet jeder seine Linie; die der anderen bleiben bis zur Enthüllung verdeckt.
+	if lobby == null or lobby.draw == null:
+		return
+	var d: NetDraw = lobby.draw
+	d.notice.connect(hud.lobby_ui.toast)
+	d.rejected.connect(net_plan_rejected)
+	paused = false
+	phase = "net_countdown"
+	pointer = -99
+	release_touches()
+	clear_cars()
+	recorder = null
+	world.visible = true
+	apply_atmosphere()
+	world.draw_routes([], [])
+	world.draw_route([])
+	world.tyre_tracks.clear()
+	world.update_tracks(0.0)
+	world.marker.visible = true
+	var start := track.at(0.0)
+	world.marker.position = Vector3(start.x,0.31 + track.surface_z(0.0),start.y)
+	camera_target = track_center()
+	cam_zoom = overview_size()
+	set_camera(camera_target)
+	hud.lobby_ui.draw_countdown()
+
+func net_tick() -> void:
+	# Gemeinsame Zeitpunkte des Zeichnens (Host-Uhr über den Uhrabgleich): Zeichenstart, Enthüllung, Ampel. Nur Ablauf und Anzeige.
+	var d: NetDraw = lobby.draw
+	match phase:
+		"net_countdown":
+			var left := d.seconds_until(d.draw_at)
+			hud.lobby_ui.update_countdown(left)
+			if left <= 0.0:
+				start_drawing()
+		"draw":
+			if recorder != null:
+				d.set_progress(recorder.progress / float(track.laps))
+		"net_reveal":
+			var left := d.seconds_until(d.start_at)
+			hud.lobby_ui.update_reveal(left)
+			if left <= 0.0:
+				net_begin_race()
+	if d.phase == "plans" and phase in ["net_countdown", "draw", "net_drawn"] and d.seconds_until(d.reveal_at) <= 0.0:
+		net_reveal()
+
+func net_line_done() -> void:
+	# Linie fertig gezeichnet: ansehen, dann „Fertig“ (abgeben) oder neu zeichnen.
+	phase = "net_drawn"
+	lobby.draw.set_progress(1.0)
+	world.marker.visible = false
+	world.draw_route(recorder.route)
+	hud.lobby_ui.drawn_card()
+
+func net_submit() -> void:
+	# „Fertig“: Linie an den Gastgeber (er prüft sie und wartet auf alle). Danach Warteansicht mit dem Stand der anderen.
+	if lobby == null or lobby.draw == null or phase != "net_drawn" or recorder == null:
+		return
+	var problem: String = lobby.draw.submit(LineRecorder.plan_to_data(recorder.route))
+	hud.lobby_ui.drawn_card()
+	if problem != "":
+		hud.lobby_ui.message("Linie nicht abgegeben.", problem)
+
+func net_redraw() -> void:
+	# Neu zeichnen – auch nach „Fertig“, solange noch nicht alle fertig sind (die abgegebene Linie wird zurückgezogen).
+	if lobby == null or lobby.draw == null or lobby.draw.phase != "draw":
+		return
+	lobby.draw.withdraw()
+	start_drawing()
+
+func net_plan_rejected(reason: String) -> void:
+	if phase == "net_drawn":
+		hud.lobby_ui.drawn_card()
+	hud.lobby_ui.message("Linie nicht angenommen.", reason)
+
+func net_reveal() -> void:
+	# Alle Linien gleichzeitig in den Spielerfarben (auf allen Geräten zur selben Zeit), bis zur gemeinsamen Ampel.
+	paused = false
+	phase = "net_reveal"
+	pointer = -99
+	release_touches()
+	clear_cars()
+	world.visible = true
+	world.marker.visible = false
+	apply_atmosphere()
+	var round_party: PassParty = lobby.draw.party()
+	world.draw_routes(round_party.routes, round_party.colors(), false)
+	camera_target = track_center()
+	hud.lobby_ui.reveal_screen()
+
+func net_begin_race() -> void:
+	# M5: gemeinsame Ampel und Rennen. Der Gastgeber rechnet (lobby.race.sim, in NetLobby.poll – auch ohne Oberfläche), jedes Gerät zeigt
+	# die Marionetten lobby.race.view mit derselben Verzögerung; die Ampel läuft nach der gemeinsamen Uhr. Ohne Rennen (sollte nicht
+	# vorkommen) bleibt die Enthüllung mit einem Hinweis stehen.
+	var r: NetRace = lobby.race if lobby != null else null
+	if r == null:
+		phase = "net_start"
+		hud.lobby_ui.start_screen()
+		return
+	paused = false
+	demonstration = false
+	pointer = -99
+	release_touches()
+	release_pads()
+	clear_cars()
+	world.draw_routes([], [])
+	world.visible = true
+	world.marker.visible = false
+	world.tyre_tracks.clear()
+	skid_tick = 0
+	world.update_tracks(0.0)
+	apply_atmosphere()
+	turbo_held = false
+	last_boost_input = false
+	turbo_actions.clear()
+	result_record = false
+	result_won = false
+	field = r.view
+	me = maxi(0, r.my_index)
+	race_time = r.display_ticks() / 60.0
+	countdown = -race_time
+	net_count = mini(ceili(countdown), 4)
+	phase = "countdown" if countdown > 0.0 else "race"
+	prepare_race_view()
+	for i in range(vehicles.size()):
+		record_tyre_tracks(i)
+	hud.race()
+	hud.lobby_ui.race_overlay()
+	if not r.results_changed.is_connected(net_results_changed):
+		r.results_changed.connect(net_results_changed)
+		r.notice.connect(hud.lobby_ui.toast)
+
+func net_race_step(_dt: float) -> void:
+	# Ein Darstellungstakt des WLAN-Rennens (nur Anzeige, die Simulation läuft beim Gastgeber): eigener Turbo an den Gastgeber,
+	# Marionetten auf die Anzeigezeit, Ampel nach der gemeinsamen Uhr, Ereignisse (Funken, Ton, Blasen), Wertung vom Gastgeber.
+	var r: NetRace = lobby.race
+	var ticks := r.display_ticks()
+	race_time = ticks / 60.0
+	var held := (turbo_held or Input.is_physical_key_pressed(KEY_SPACE)) and phase != "result"
+	if held != last_boost_input:
+		last_boost_input = held
+		r.set_turbo(held)
+	r.apply_view(ticks)
+	hud.lobby_ui.update_race(r)
+	if phase == "countdown":
+		countdown = -race_time
+		var count := ceili(countdown)
+		if count != net_count:
+			net_count = count
+			# Ampel: dreimal Rot (bei 3, 2, 1), dann Grün beim Start – auf allen Geräten zur selben Zeit.
+			sound.start_signal(countdown <= 0.0)
+		if hud.center != null:
+			hud.center.text = str(count) if countdown > 0.0 else "LOS"
+		if countdown > 0.0:
+			return
+		phase = "race"
+	var hits := r.take_events(ticks)
+	if bool(store.data.get("bubbles", true)):
+		chatter.observe(vehicles, hits, race_time, field.human_mask, me, phase == "race")   # nur lesen (Sprechblasen)
+	for hit in hits:
+		contact_sparks(hit[0], hit[1], hit[2])
+	update_tyre_tracks()
+	update_models()
+	if phase == "race":
+		race_sounds()
+		if r.result_shown(ticks):
+			net_finish()
+
+func net_finish() -> void:
+	# Alle Menschen fertig (Anzeigezeit des Gastgebers erreicht): Wertung mit Namen und Zeiten bzw. Punkten. Nichts wird gespeichert.
+	var r: NetRace = lobby.race
+	phase = "result"
+	turbo_held = false
+	if last_boost_input:
+		last_boost_input = false
+		r.set_turbo(false)
+	var mine := r.row_of(me)
+	result_record = false
+	result_won = not mine.is_empty() and int(mine.rank) == 1 and not bool(mine.crashed) and bool(mine.get("in_time", true)) and r.my_index >= 0
+	hud.lobby_ui.net_results(r.rows)
+	if result_won and me < vehicles.size():
+		var v := vehicles[me]
+		world.confetti(Vector3(v.pos.x, 0.3 + v.z, v.pos.y))
+
+func net_results_changed() -> void:
+	# Neue Wertung (KI im Ziel, endgültig): Ergebnisbildschirm neu, solange keine Nachfrage offen ist.
+	if lobby != null and lobby.race != null and phase == "result" and not hud.lobby_ui.dialog_open():
+		hud.lobby_ui.net_results(lobby.race.rows)
+
+func net_rematch() -> void:
+	# Gastgeber: Revanche (neue Linien, gleiche Einstellungen, der Sieger startet hinten).
+	if lobby != null and not lobby.rematch() and lobby.mode == "host" and lobby.phase == "ready":
+		hud.lobby_ui.message("Revanche nicht möglich.", "Die Wertung ist noch nicht da.")
+
+func net_round_cancelled(reason: String) -> void:
+	net_round = {}
+	phase = "net_lobby"
+	release_touches()
+	clear_cars()
+	world.draw_routes([], [])
+	world.marker.visible = false
+	world.visible = false
+	hud.lobby_ui.lobby_screen()
+	if reason != "":
+		hud.lobby_ui.message("Zurück in der Lobby.", reason)

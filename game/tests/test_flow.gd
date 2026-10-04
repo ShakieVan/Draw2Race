@@ -145,6 +145,24 @@ func run() -> void:
 	DirAccess.remove_absolute(app.ghost_path())
 	for suffix in ["",".bak",".tmp",".run"]:
 		if FileAccess.file_exists(test_path+suffix): DirAccess.remove_absolute(test_path+suffix)
+	# Netztest (M0-Gerätetest) ist im Spiel erreichbar: Entwickler-Menü → „Netztest“, auch aus dem Zeichnen heraus; Zurück schließt ihn.
+	app.start_drawing()
+	app.hud.debug_menu()
+	var net_buttons: Array = app.hud.find_children("*","Button",true,false).filter(func(b): return b.text.begins_with("Netztest"))
+	check(net_buttons.size()==1,"Entwickler-Menü hat den Knopf „Netztest“")
+	if net_buttons.size()==1:
+		net_buttons[0].pressed.emit()
+	await process_frame
+	await process_frame
+	var screens: Array = app.get_children().filter(func(c): return c is NetTestScreen)
+	check(screens.size()==1 and app.phase=="menu" and not app.hud.overlay_open(),"Netztest öffnet über dem Menü, Zeichnen und Entwickler-Menü sind beendet")
+	app.hud.net_test()
+	check(app.get_children().filter(func(c): return c is NetTestScreen).size()==1,"Netztest öffnet sich nicht doppelt")
+	if screens.size()==1:
+		screens[0].notification(Node.NOTIFICATION_WM_GO_BACK_REQUEST)
+		await process_frame
+		await process_frame
+		check(not is_instance_valid(screens[0]) and app.phase=="menu","Zurück-Taste schließt den Netztest, das Menü bleibt")
 	app.queue_free()
 	await process_frame
 	print("RESULT: ",checks-failures,"/",checks," passed")

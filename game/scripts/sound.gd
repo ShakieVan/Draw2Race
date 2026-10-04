@@ -235,8 +235,9 @@ func tick(vehicle: RaceVehicle, racing: bool, paused: bool, sfx: bool, music_on:
 
 # ---------- Motoren ----------
 
-func prepare_engines(ids: Array) -> void:
-	engines.setup(ids)
+func prepare_engines(ids: Array, me := 0) -> void:
+	# ids je Fahrzeug (Index wie im Feld), me = eigenes Auto (lauter, mittig, mit Turbo-Pfeifen).
+	engines.setup(ids, me)
 
 func clear_engines() -> void:
 	engines.clear()
@@ -245,8 +246,8 @@ func preview_engine(id: String) -> void:
 	if enabled:
 		engines.preview(id)
 
-func tick_engines(dt: float, vehicles: Array, camera: Camera3D, phase: String, countdown: float, paused: bool, sfx: bool) -> void:
-	engines.update(dt,vehicles,camera,phase,countdown,paused,sfx)
+func tick_engines(dt: float, vehicles: Array, camera: Camera3D, phase: String, countdown: float, paused: bool, sfx: bool, me := 0) -> void:
+	engines.update(dt,vehicles,camera,phase,countdown,paused,sfx,me)
 
 # ---------- Musik ----------
 

@@ -512,8 +512,9 @@ const AVOID_EDGE := 1.3        # m: Zielspur bleibt so weit innerhalb des Fahrba
 const AVOID_USE0 := 0.45       # Anteil der Querhaftung, bis zu dem voll ausgewichen wird ...
 const AVOID_USE1 := 0.8        # ... und ab dem gar nicht mehr
 
-static func update_avoidance(cars: Array, dt: float) -> void:
-	# Gegner (Index > 0) weichen Autos aus, die schräg vor oder neben ihnen fahren.
+static func update_avoidance(cars: Array, dt: float, humans: Array = []) -> void:
+	# Gegner weichen Autos aus, die schräg vor oder neben ihnen fahren. Menschen fahren ihre Linie: humans[i] = true (RaceField.human_mask);
+	# ohne Liste ist wie bisher Index 0 der Mensch.
 	# Kein Versatz gegen Autos auf einer anderen Ebene (|Δz| > 1 m), in Schwungzonen (Anlauf von Sprung und Looping), auf erhöhter
 	# Fahrbahn und auf Wippen-Abkürzungen: dort kostet jeder Schlenker Schwung oder führt über die Kante.
 	# Bei Nässe und Schnee kleinere und sanftere Schlenker (sonst schaukelt sich das Zurücklenken bis neben die Fahrbahn auf).
@@ -521,7 +522,9 @@ static func update_avoidance(cars: Array, dt: float) -> void:
 	# folgt mit Vollgas ein Heckrutscher bis an Wall oder Absperrung), nie über den Fahrbahnrand hinaus, und vor einer Schwungzone schon
 	# AVOID_PREVIEW s vorher sanft zurück auf 0 (abruptes Zurücksetzen am Zonenbeginn ließ das Auto bis zum Absprung pendeln).
 	var wet := weather_grip * weather_grip
-	for i in range(1, cars.size()):
+	for i in range(cars.size()):
+		if (i == 0) if humans.is_empty() else (i < humans.size() and bool(humans[i])):
+			continue
 		var me: RaceVehicle = cars[i]
 		var goal := 0.0
 		var forward := Vector2.from_angle(me.heading)

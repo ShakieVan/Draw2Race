@@ -19,6 +19,12 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Lokaler Mehrspieler (scripts/net, NetHelper.java): Netzwerkzustand lesen, Prozess ans WLAN binden, Gateway lesen,
+         Rundrufe empfangen (Multicast-Sperre). Alle "normal", ohne Dialog. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
     <application
         android:label="@string/godot_project_name_string"
         android:allowBackup="false"

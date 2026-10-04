@@ -32,6 +32,20 @@ static func tempo_from_setting(value: float) -> float:
 	# Regler 0..1, Mitte = Grundwert; logarithmisch: 0 = halb (-50 %), 1 = doppelt (+100 %).
 	return TEMPO_BASE * pow(2.0, (clampf(value, 0.0, 1.0) - 0.5) * 2.0)
 
+static func plan_to_data(route: Array[Dictionary]) -> Array:
+	# Linie als einfache Daten (JSON, Netz): je Punkt x, z, Tempo, Streckenanteil s, Seitenlage o und Abkürzung sc (-1 = keine).
+	var data: Array = []
+	for point in route:
+		data.append({"x": point.p.x, "z": point.p.y, "speed": point.speed, "s": point.s, "o": point.get("o", 0.0), "sc": point.get("sc", -1)})
+	return data
+
+static func plan_from_data(data: Array) -> Array[Dictionary]:
+	# Gegenstück zu plan_to_data (Geisterdatei, Linien der Mitspieler).
+	var plan: Array[Dictionary] = []
+	for q in data:
+		plan.append({"p": Vector2(float(q.x), float(q.z)), "speed": float(q.speed), "s": float(q.s), "o": float(q.get("o", 0.0)), "sc": int(q.get("sc", -1))})
+	return plan
+
 var track: Circuit
 var route: Array[Dictionary] = []
 var raw: Array[Dictionary] = []

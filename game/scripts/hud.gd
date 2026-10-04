@@ -26,6 +26,10 @@ var showcase_angle := 0.6
 var fps_label: Label
 var logo_taps := 0
 var logo_tap_time := 0
+var tags: NameTags
+var pads: TurboPads             # Mehrspieler: Turboknöpfe der Menschen an den Bildschirmecken
+var party_ui: PartyScreens      # Mehrspieler-Bildschirme (Weitergeben)
+var lobby_ui: LobbyScreens      # Mehrspieler-Bildschirme (im WLAN)
 
 func setup(owner_node: Node) -> void:
 	app = owner_node
@@ -50,10 +54,20 @@ func setup(owner_node: Node) -> void:
 	backdrop.draw.connect(draw_backdrop)
 	backdrop.visible = false
 	root.add_child(backdrop)
+	# Namensschilder und Sprechblasen über den Autos: unter den Leisten und Knöpfen, über der 3D-Strecke (nur Darstellung).
+	tags = NameTags.new()
+	tags.setup(app, bold_font)
+	root.add_child(tags)
 	content = Control.new()
 	content.size = Vector2(1440,900)
 	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(content)
+	# Turboknöpfe des Mehrspielers über allem Übrigen (Ecken in Bildschirmkoordinaten, mehrere Finger: main.gd).
+	pads = TurboPads.new()
+	pads.setup(app, bold_font)
+	root.add_child(pads)
+	party_ui = PartyScreens.new(self)
+	lobby_ui = LobbyScreens.new(self)
 	# FPS-Anzeige (nur über das versteckte Debug-Menü einschaltbar), liegt über allen Menüs.
 	fps_label = Label.new()
 	fps_label.position = Vector2(12,8)
@@ -75,7 +89,30 @@ func update_fps() -> void:
 		fps_label.text = "%d FPS · %s" % [Engine.get_frames_per_second(),Atmosphere.QUALITY_NAMES[app.world.atmosphere.quality]]
 
 func layout() -> void:
-	content.position = (get_viewport().get_visible_rect().size-Vector2(1440,900))*0.5
+	content.position = (get_viewport().get_visible_rect().size-Vector2(1440,900))*0.5 - Vector2(0,keyboard_lift)
+
+# Bildschirmtastatur (Android): Sie legt sich über die untere Bildhälfte. Hat ein Eingabefeld den Fokus und läge es darunter, rückt die
+# ganze Oberfläche so weit nach oben, dass das Feld knapp über der Tastatur steht (Nutzerbefund 03.10.2026: Namen ab Spieler 2 waren
+# verdeckt). Gilt für alle Eingabefelder unter content (Weitergeben, Lobby, Namensdialog).
+var keyboard_lift := 0.0
+
+func update_keyboard_lift(dt: float) -> void:
+	var goal := 0.0
+	var focus := get_viewport().gui_get_focus_owner()
+	if focus is LineEdit and DisplayServer.has_feature(DisplayServer.FEATURE_VIRTUAL_KEYBOARD):
+		var keyboard := float(DisplayServer.virtual_keyboard_get_height())
+		if keyboard > 0.0:
+			var view := get_viewport().get_visible_rect().size
+			var window := float(DisplayServer.window_get_size().y)
+			var covered := keyboard*view.y/maxf(1.0,window)      # Tastaturhöhe in Oberflächeneinheiten
+			var bottom: float = (focus as Control).get_global_rect().end.y + keyboard_lift   # Unterkante ohne Verschiebung
+			goal = clampf(bottom - (view.y - covered - 24.0), 0.0, view.y*0.65)
+	if absf(goal - keyboard_lift) > 0.5:
+		keyboard_lift = goal if goal > keyboard_lift else lerpf(keyboard_lift,goal,1.0-exp(-dt*12.0))
+		layout()
+	elif keyboard_lift != goal:
+		keyboard_lift = goal
+		layout()
 
 func draw_backdrop() -> void:
 	var size := backdrop.size
@@ -135,7 +172,12 @@ func clear() -> void:
 	progress_bar = null
 	turbo_button = null
 	instruction_label = null
+	time_label = null
+	speed_label = null
+	rank_label = null
 	result_times.clear()
+	if pads != null:
+		pads.hide_pads()
 
 func style(color: Color, radius := 18, border := Color.TRANSPARENT) -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()
@@ -225,6 +267,26 @@ func header(tag: String) -> void:
 		secret.add_theme_stylebox_override(key,StyleBoxEmpty.new())
 	secret.pressed.connect(logo_tapped)
 	bar.add_child(secret)
+	if app.phase == "party_setup":
+		button(bar,"Zurück",Rect2(1221,15,130,54),app.show_menu)
+		return
+	if app.phase in ["party_garage","net_garage"]:
+		# Mehrspieler-Garage: zurück zu den Einstellungen bzw. in die Lobby (die Wahl gilt schon).
+		var back := button(bar,"Zurück",Rect2(1221,15,130,54),app.close_garage)
+		back.name = "GarageBack"
+		return
+	if app.phase.begins_with("net_") or app.lobby != null:
+		# WLAN-Mehrspieler (auch beim Zeichnen): kein Pausemenü, sondern Zurück mit Nachfrage (LobbyScreens.go_back).
+		var in_round: bool = app.phase not in ["net_menu", "net_lobby"]
+		var host: bool = app.lobby != null and app.lobby.is_host()
+		var shown := "Zurück" if app.phase == "net_menu" else ("Lobby" if app.phase == "result" and host else ("Abbrechen" if in_round and host else "Verlassen"))
+		var leave := button(bar,shown,Rect2(1191,15,160,54),app.go_back)
+		leave.name = "NetBack"
+		return
+	if app.party != null and app.phase == "result":
+		# Mehrspieler-Wertung: pause_game() hält hier absichtlich nichts an (auch bei Fokusverlust), der Knopf führt direkt ins Menü.
+		button(bar,"Menü",Rect2(1221,15,130,54),app.show_menu)
+		return
 	button(bar,"Menü" if app.phase != "menu" else "Optionen",Rect2(1221,15,130,54),app.pause_game if app.phase != "menu" else settings)
 	if app.phase == "menu":
 		button(bar,"Bestenliste",Rect2(1041,15,168,54),func(): leaderboard(app.track_id,app.stage))
@@ -275,18 +337,16 @@ func menu() -> void:
 	label(card,"DEIN FAHRZEUG",Vector2(28,428),13,MUTED)
 	var spec: Dictionary = RaceVehicle.CARS[app.car_choice]
 	var unlocked: bool = app.car_unlocked(app.car_choice)
-	button(card,"←",Rect2(28,462,64,56),func(): app.select_car(app.car_choice-1); menu())
-	var car_name := label(card,spec.name,Vector2(100,470),22,INK if unlocked else MUTED,270)
-	car_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	button(card,"→",Rect2(382,462,64,56),func(): app.select_car(app.car_choice+1); menu())
-	var info: String = spec.text if unlocked else "Gesperrt – freischalten mit %d Gold (du hast %d)." % [int(spec.unlock),app.store.data.gold.size()]
-	label(card,info,Vector2(30,526),14,MUTED if unlocked else ORANGE,414)
+	car_picker(card,428,app.car_choice,unlocked,func(step: int): app.select_car(app.car_choice+step); menu())
 	var go := button(card,"Linie zeichnen     →" if unlocked else "Auto gesperrt",Rect2(28,604,418,64),app.start_drawing,true)
 	go.disabled = not unlocked
 	var best: Dictionary = app.store.best_time(app.track_id,app.stage)
 	var best_text: String = app.format_time(float(best.time)) if not best.is_empty() else "–"
 	label(card,"BESTZEIT %s · %d/3 GOLD HIER" % [best_text,app.store.gold_count(app.track_id)],Vector2(28,680),12,MUTED,414)
 	car_showcase(spec,unlocked)
+	# Mehrspieler: Auswahl „Auf einem Handy“ / „Im WLAN“ (bald).
+	var multi := button(content,"Mehrspieler  ·  2–4 Spieler",Rect2(900,772,480,52),party_ui.mode_dialog)
+	multi.name = "MultiplayerButton"
 	label(content,"Mit dem Finger zeichnen",Vector2(48,852),17,Color("d6ebe1"))
 	button(content,"Vorführfahrt  ↗",Rect2(1160,833,212,48),app.demo)
 
@@ -319,8 +379,72 @@ func leaderboard(track_id: String, stage: int) -> void:
 		label(p,str(e.get("date","")),Vector2(620,y),18,MUTED)
 	button(p,"Zurück",Rect2(34,660,832,66),func(): p.get_parent().queue_free(),true)
 
-func car_showcase(spec: Dictionary, unlocked: bool) -> void:
-	# Schaufenster: drehendes 3D-Modell in eigener kleiner Welt plus Werte-Balken.
+func car_picker(card: Control, y: float, car: int, unlocked: bool, step: Callable) -> void:
+	# Autowahl der Garage (Karriere-Menü und Mehrspieler): ← Name →, darunter der Text des Autos bzw. die Bedingung zum Freischalten.
+	# step(−1 / +1) wechselt das Auto (Speichern, Probehören und Neuaufbau macht der Aufrufer).
+	var spec: Dictionary = RaceVehicle.CARS[car]
+	var prev := button(card,"←",Rect2(28,y+34,64,56),func(): step.call(-1))
+	prev.name = "CarPrev"
+	var car_name := label(card,spec.name,Vector2(100,y+42),22,INK if unlocked else MUTED,270)
+	car_name.name = "CarName"
+	car_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var next := button(card,"→",Rect2(382,y+34,64,56),func(): step.call(1))
+	next.name = "CarNext"
+	var info: String = spec.text if unlocked else "Gesperrt – freischalten mit %d Gold (du hast %d)." % [int(spec.unlock),app.store.data.gold.size()]
+	label(card,info,Vector2(30,y+98),14,MUTED if unlocked else ORANGE,414)
+
+func garage(title: String, tag: String, who: String, car: int, paint: int, swatches: Array, choose_car: Callable, choose_color: Callable, done: Callable) -> void:
+	# Garage im Mehrspieler (Nutzerentscheidung „Autowahl“, 03.10.2026): dieselbe Autowahl wie im Karriere-Menü (car_picker, drehendes
+	# Auto mit Fahrwerten im Schaufenster, Probehören des Motors), aber mit allen Autos – nichts gesperrt, nichts gespeichert – und
+	# lackiert in der Spielerfarbe; dazu die Wahl der Spielerfarbe. tag/who: Zeile über dem Namen bzw. der Name. paint = eigene Farbe (Index in PlayerColors), swatches = je
+	# Palettenfarbe der Name dessen, der sie schon hat ("" = frei oder eigene). choose_car(Auto), choose_color(Farbe) übernehmen die
+	# Wahl (und bauen neu auf), done() führt zurück zu den Einstellungen bzw. in die Lobby.
+	clear()
+	backdrop.visible = true
+	header(title)
+	var card := panel(content,Rect2(40,120,470,720))
+	card.name = "GarageCard"
+	label(card,tag,Vector2(28,20),13,ORANGE)
+	var who_label := label(card,who,Vector2(24,50),40)
+	who_label.name = "GarageWho"
+	label(card,"Alle Autos sind frei. Mehrere dürfen dasselbe fahren – jeder hat seine eigene Farbe.",Vector2(28,108),15,MUTED,414)
+	label(card,"SPIELERFARBE",Vector2(28,184),13,MUTED)
+	for c in range(PlayerColors.count()):
+		var owner: String = str(swatches[c]) if c < swatches.size() else ""
+		var tone := PlayerColors.color(c)
+		var swatch := Button.new()
+		swatch.name = "Swatch%d" % c
+		swatch.position = Vector2(28+c*70,214)
+		swatch.size = Vector2(60,60)
+		swatch.tooltip_text = PlayerColors.color_name(c) + ("" if owner == "" else " (%s)" % owner)
+		var own := c == paint
+		for key in ["normal","hover","pressed","focus","disabled"]:
+			var box := style(Color(tone,0.35) if owner != "" else tone,30,INK if own else Color(0.02,0.07,0.09,0.35))
+			box.set_border_width_all(5 if own else 1)
+			swatch.add_theme_stylebox_override(key,box)
+		swatch.disabled = owner != ""
+		swatch.pressed.connect(func(): app.sound.click(); choose_color.call(c))
+		card.add_child(swatch)
+		if owner != "":
+			# Belegt: Anfangsbuchstabe dessen, der sie hat.
+			var mark := label(swatch,owner.left(1).to_upper(),Vector2(0,12),22,INK,60)
+			mark.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var colour_text := label(card,"%s – Lack, Schild, Lichtkranz, Turbo-Knopf und Linie." % PlayerColors.color_name(paint),Vector2(28,288),14,MUTED,414)
+	colour_text.name = "ColorName"
+	label(card,"FAHRZEUG",Vector2(28,428),13,MUTED)
+	var n := RaceVehicle.CARS.size()
+	car_picker(card,428,car,true,func(step: int):
+		var next := posmod(car+step,n)
+		app.sound.preview_engine(str(RaceVehicle.CARS[next].id))
+		choose_car.call(next))
+	var go := button(card,"Fertig  ✓",Rect2(28,604,418,64),done,true)
+	go.name = "GarageDone"
+	label(card,"Die Pfeile spielen den Motor zur Probe.",Vector2(28,680),12,MUTED,414)
+	car_showcase(RaceVehicle.CARS[car],true,PlayerColors.color(paint))
+
+func car_showcase(spec: Dictionary, unlocked: bool, paint := Color(0,0,0,0)) -> void:
+	# Schaufenster: drehendes 3D-Modell in eigener kleiner Welt plus Werte-Balken. paint: Lack (Mehrspieler: Spielerfarbe), sonst die
+	# Farbe des Autos.
 	var box := panel(content,Rect2(900,430,480,330),Color("173a40"))
 	var holder := SubViewportContainer.new()
 	holder.position = Vector2(10,10)
@@ -353,7 +477,7 @@ func car_showcase(spec: Dictionary, unlocked: bool) -> void:
 	var studio := Diorama.new()
 	view.add_child(studio)
 	studio.shape("disc",Vector3(0,0.0,0),Vector3(3.4,0.08,3.4),Color("24525a"))
-	var color := Color(spec.color) if unlocked else Color("6d7a7c")
+	var color := (paint if paint.a > 0.0 else Color(spec.color)) if unlocked else Color("6d7a7c")
 	showcase_car = studio.car_model(color,false,str(spec.style))
 	showcase_car.rotation.y = showcase_angle
 	var stats := [["TEMPO",float(spec.power),7.8,11.2],["GRIP",float(spec.grip),11.4,14.2],
@@ -378,10 +502,17 @@ func _process(dt: float) -> void:
 		showcase_angle += dt*0.6
 		showcase_car.rotation.y = showcase_angle
 	update_fps()
+	update_keyboard_lift(dt)
 
 func drawing() -> void:
 	clear()
-	header("%s     /     LINIE PLANEN" % app.track.name.to_upper())
+	if app.party != null:
+		var k: int = app.party.turn
+		header("%s     /     SPIELER %d ZEICHNET" % [app.track.name.to_upper(),k+1])
+	elif app.lobby != null and app.lobby.draw != null:
+		header("%s     /     ALLE ZEICHNEN" % app.track.name.to_upper())
+	else:
+		header("%s     /     LINIE PLANEN" % app.track.name.to_upper())
 	var p := panel(content,Rect2(40,134,295,105))
 	status = label(p,"RUNDE 1 / 2",Vector2(22,14),26)
 	detail = label(p,"Zeichne in Pfeilrichtung",Vector2(22,52),16,MUTED)
@@ -403,6 +534,10 @@ func drawing() -> void:
 	speed_legend(footer,Vector2(610,14))
 	button(footer,"Neu zeichnen",Rect2(944,25,185,55),app.start_drawing)
 	button(footer,"Fahrhilfe",Rect2(1142,25,193,55),help_overlay)
+	if app.party != null:
+		party_ui.draw_chip()
+	elif app.lobby != null and app.lobby.draw != null:
+		lobby_ui.draw_overlay()   # WLAN: eigenes Schild und Stand der anderen
 
 func free_band() -> Vector2:
 	# Freier Sichtbereich (Bildschirm-y von/bis) zwischen Kopfleiste und Fußleiste der Zeichenansicht.
@@ -426,6 +561,9 @@ func speed_legend(parent: Control, pos: Vector2) -> void:
 			legend.draw_line(Vector2(i*5.0,41),Vector2((i+1)*5.0,41),Diorama.line_color(speed),Diorama.line_half_width(speed)*32.0,true))
 
 func race() -> void:
+	if app.party != null:
+		party_ui.race()
+		return
 	clear()
 	header("%s     /     %s" % [app.track.name.to_upper(),"VORFÜHRFAHRT" if app.demonstration else "RENNEN"])
 	var p := panel(content,Rect2(40,136,247,180))
@@ -438,20 +576,23 @@ func race() -> void:
 	label(speed,"km/h",Vector2(160,37),17,MUTED)
 	center = label(content,"3",Vector2(590,300),130,PAPER,260)
 	center.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	turbo_button = button(content,"TURBO\nHALTEN",Rect2(1180,698,214,164),func(): pass,true)
-	turbo_button.add_theme_font_size_override("font_size",30)
+	# Der Knopf ist zugleich die Turbo-Anzeige (TurboGauge): dunkel = leerer Tank, von unten orange gefüllt, Prozent und „+“ beim Laden.
+	turbo_button = button(content,"",Rect2(1180,698,214,164),func(): pass,true)
+	turbo_button.add_theme_stylebox_override("normal",style(Color(0.09,0.2,0.22,0.92),14))
+	turbo_button.add_theme_stylebox_override("hover",style(Color(0.12,0.25,0.27,0.92),14))
+	turbo_button.add_theme_stylebox_override("pressed",style(Color(0.18,0.33,0.35,0.95),14,Color.WHITE))
 	turbo_button.button_down.connect(func(): app.turbo_held = true)
 	turbo_button.button_up.connect(func(): app.turbo_held = false)
-	progress_bar = ProgressBar.new()
-	progress_bar.position = Vector2(1199,842)
-	progress_bar.size = Vector2(176,6)
-	progress_bar.show_percentage = false
-	progress_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	progress_bar.add_theme_stylebox_override("background",style(Color("a33f29"),3))
-	progress_bar.add_theme_stylebox_override("fill",style(Color("ffe6a5"),3))
-	progress_bar.size.y = 6
-	content.add_child(progress_bar)
-	label(content,"Beim Bremsen lädt sich dein Turbo auf.",Vector2(825,850),17,PAPER)
+	var gauge := TurboGauge.new()
+	gauge.setup(app,bold_font)
+	if app.lobby != null and app.me < app.models.size():
+		gauge.tint = app.models[app.me].get_meta("tag_color", ORANGE)   # WLAN-Mehrspieler: Knopf in der Spielerfarbe
+	turbo_button.add_child(gauge)
+	# Hinweis links neben dem Knopf, rechtsbündig mit 24 px Abstand (vorher ragte der längere Satz in den Knopf hinein); das Feld
+	# ist fest 330 px breit und bricht notfalls um, statt nach rechts zu wachsen.
+	var hint := label(content,"Bremsen lädt den Turbo.",Vector2(turbo_button.position.x-24-330,826),17,PAPER,330)
+	hint.name = "TurboHint"
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 
 func drift_results(score: int, target: int, in_time: bool, record: bool) -> void:
 	clear()
@@ -463,9 +604,10 @@ func drift_results(score: int, target: int, in_time: bool, record: bool) -> void
 	label(p,"PUNKTE",Vector2(34,128),21,MUTED)
 	label(p,"%d" % score,Vector2(32,162),60)
 	label(p,"Ziel: %d Punkte im Zeitlimit" % target,Vector2(34,253),20,MUTED,515)
-	label(p,("★  Gold für Herausforderung %d" % (app.stage+1)) if won and not app.demonstration else ("Das Zeitlimit war vorbei." if not in_time else "Plane die Kurven schneller – das Heck soll kommen."),Vector2(34,300),20,ORANGE,515)
-	label(p,"Wandberührungen: %d" % app.vehicles[0].wall_hits,Vector2(34,380),18,MUTED)
-	if not app.demonstration and app.store.last_place > 0 and in_time:
+	var solo: bool = app.solo()
+	label(p,("★  Gold für Herausforderung %d" % (app.stage+1)) if won and not app.demonstration and solo else ("Das Zeitlimit war vorbei." if not in_time else ("Punkteziel erreicht." if won and not solo else "Plane die Kurven schneller – das Heck soll kommen.")),Vector2(34,300),20,ORANGE,515)
+	label(p,"Wandberührungen: %d" % app.vehicles[app.me].wall_hits,Vector2(34,380),18,MUTED)
+	if solo and not app.demonstration and app.store.last_place > 0 and in_time:
 		label(p,"Platz %d deiner Bestenliste" % app.store.last_place,Vector2(34,494),18,ORANGE if app.store.last_place==1 else MUTED)
 	button(p,"Neue Linie     →",Rect2(34,548,518,62),app.start_drawing,true)
 	button(p,"Zum Menü",Rect2(34,622,518,56),app.show_menu)
@@ -475,25 +617,33 @@ func results(rows: Array, rank: int, record: bool) -> void:
 	header("%s     /     ZIELEINLAUF" % app.track.name.to_upper())
 	var p := panel(content,Rect2(427,140,586,700))
 	label(p,"VORFÜHRFAHRT" if app.demonstration else ("NEUE BESTZEIT" if record else "DEIN RENNERGEBNIS"),Vector2(34,28),15,ORANGE)
-	var crashed: bool = app.vehicles[0].crashed
-	var rolled: bool = app.vehicles[0].rolled_back
+	var crashed: bool = app.vehicles[app.me].crashed
+	var rolled: bool = app.vehicles[app.me].rolled_back
 	label(p,("Zurückgerollt!" if rolled else "Abgestürzt!") if crashed else ("Linie mit Klasse." if rank==1 else "Die nächste Linie zählt."),Vector2(30,68),38)
 	label(p,"AUSGESCHIEDEN" if crashed else "PLATZ %d" % rank,Vector2(34,128),21,MUTED)
-	label(p,"—" if crashed else app.format_time(app.vehicles[0].finish_time),Vector2(32,162),60)
+	label(p,"—" if crashed else app.format_time(app.vehicles[app.me].finish_time),Vector2(32,162),60)
 	var tip := "Mehr Schwung vor Sprung und Looping – oder weniger Tempo an der Kante." if crashed else "Früher bremsen. Am Ausgang Turbo halten."
 	if rolled:
 		tip = "Zu wenig Schwung für den Looping – plane davor mehr Tempo."
-	label(p,("★  Gold für Herausforderung %d" % (app.stage+1)) if rank==1 and not crashed and not app.demonstration else tip,Vector2(34,253),20,ORANGE,515)
+	var solo: bool = app.solo()
+	label(p,("★  Gold für Herausforderung %d" % (app.stage+1)) if rank==1 and not crashed and not app.demonstration and solo else tip,Vector2(34,253),20,ORANGE,515)
 	for i in range(rows.size()):
 		var row: Dictionary = rows[i]
 		label(p,"%02d" % row.rank,Vector2(34,310+i*45),20,MUTED)
-		label(p,"DU" if row.index==0 else "RIVALE %d" % row.index,Vector2(94,310+i*45),20,ORANGE if row.index==0 else INK)
+		label(p,driver_name(row.index),Vector2(94,310+i*45),20,ORANGE if row.index==app.me else INK)
 		var status_text: String = app.format_time(row.time) if row.time>=0 else ("Abgestürzt" if row.get("crashed", false) else "Im Rennen …")
 		result_times[row.index] = label(p,status_text,Vector2(362,310+i*45),20)
-	if not app.demonstration and app.store.last_place > 0:
+	if solo and not app.demonstration and app.store.last_place > 0:
 		label(p,"Platz %d deiner Bestenliste" % app.store.last_place,Vector2(34,494),18,ORANGE if app.store.last_place==1 else MUTED)
 	button(p,"Neue Linie     →",Rect2(34,548,518,62),app.start_drawing,true)
 	button(p,"Zum Menü",Rect2(34,622,518,56),app.show_menu)
+
+func driver_name(index: int) -> String:
+	# Name statt „DU“ / „RIVALE n“ (main.car_names); ohne Namen die bisherige Beschriftung.
+	var names: Array = app.car_names
+	if index >= 0 and index < names.size() and str(names[index]) != "":
+		return str(names[index])
+	return "DU" if index==app.me else "RIVALE %d" % (index + (1 if index < app.me else 0))
 
 func overlay(title: String, text: String, box := Vector2(640,560)) -> Panel:
 	var shade := ColorRect.new()
@@ -521,6 +671,10 @@ func toggle(parent: Control, text: String, pos: Vector2, on: bool, changed: Call
 	return check
 
 func paused() -> void:
+	if app.party != null:
+		pads.visible = false
+		party_ui.paused()
+		return
 	var p := overlay("Kurze Boxenpause.","Deine Linie wartet auf dich.")
 	button(p,"Weiterfahren",Rect2(34,190,572,66),app.resume_game,true)
 	button(p,"Neu zeichnen",Rect2(34,278,572,62),app.start_drawing)
@@ -534,7 +688,7 @@ Neben der Fahrbahn darfst du zeichnen – der Untergrund bremst. Die Wegpunkt-To
 	button(p,"Verstanden",Rect2(34,706,752,66),func(): p.get_parent().queue_free(),true)
 
 func settings() -> void:
-	var p := overlay("Deine Boxeneinstellungen.","Wird auf diesem Gerät gespeichert.",Vector2(640,810))
+	var p := overlay("Deine Boxeneinstellungen.","Wird auf diesem Gerät gespeichert.",Vector2(640,840))
 	toggle(p,"Rennkamera folgt dem Auto",Vector2(34,140),bool(app.store.data.camera),
 		func(on: bool): app.store.data["camera"]=on; app.store.save())
 	# Kamera-Zoom: 0 % = Übersicht wie bisher, 100 % = Fahrbahnbreite füllt die kürzere Bildschirmseite.
@@ -553,12 +707,67 @@ func settings() -> void:
 		button(p,Atmosphere.QUALITY_NAMES[i],Rect2(34+i*194,508,184,56),func():
 			app.store.data["gfx"]=i; app.store.save(); app.apply_atmosphere()
 			p.get_parent().queue_free(); settings(),i==gfx)
-	button(p,"Sound & Musik  ♪",Rect2(34,588,278,62),func(): p.get_parent().queue_free(); sound_settings())
-	button(p,"Updates",Rect2(328,588,278,62),func(): p.get_parent().queue_free(); update_dialog())
-	button(p,"Zurück",Rect2(34,676,572,66),func(): p.get_parent().queue_free(),true)
+	button(p,"Name, Schilder & Sprechblasen",Rect2(34,588,572,62),func(): p.get_parent().queue_free(); name_settings(settings))
+	button(p,"Sound & Musik  ♪",Rect2(34,664,278,62),func(): p.get_parent().queue_free(); sound_settings())
+	button(p,"Updates",Rect2(328,664,278,62),func(): p.get_parent().queue_free(); update_dialog())
+	button(p,"Zurück",Rect2(34,744,572,66),func(): p.get_parent().queue_free(),true)
+
+func name_settings(back := Callable()) -> void:
+	# Spielername (höchstens 12 Zeichen, Umlaute erlaubt; leer = Vorschlag) und Anzeige von Namensschildern und Sprechblasen.
+	# Auch als Namensabfrage beim ersten Mehrspielerstart nutzbar (back = weiter danach).
+	var p := overlay("Dein Fahrername.","Steht über deinem Auto und in der Wertung. Höchstens %d Zeichen." % ProgressStore.NAME_MAX,Vector2(640,600))
+	var field := LineEdit.new()
+	field.name = "NameEdit"
+	field.position = Vector2(34,176)
+	field.size = Vector2(572,64)
+	field.max_length = ProgressStore.NAME_MAX
+	field.text = ProgressStore.clean_name(str(app.store.data.get("name","")))
+	field.placeholder_text = app.store.default_name()
+	field.virtual_keyboard_enabled = true
+	field.virtual_keyboard_type = LineEdit.KEYBOARD_TYPE_DEFAULT
+	field.select_all_on_focus = true
+	field.clear_button_enabled = true
+	field.caret_blink = true
+	field.add_theme_font_size_override("font_size",readable(24))
+	field.add_theme_font_override("font",bold_font)
+	field.add_theme_color_override("font_color",INK)
+	field.add_theme_color_override("font_placeholder_color",Color(MUTED,0.75))
+	field.add_theme_color_override("caret_color",ORANGE)
+	field.add_theme_stylebox_override("normal",style(Color("ffffff"),14,Color("c9cfc4")))
+	field.add_theme_stylebox_override("focus",style(Color.TRANSPARENT,14,ORANGE))
+	field.add_theme_stylebox_override("read_only",style(Color("eeeeea"),14))
+	p.add_child(field)
+	# Unerlaubte Zeichen schon beim Tippen weglassen (auch über die Bildschirmtastatur).
+	field.text_changed.connect(func(text: String):
+		var ok := ProgressStore.filter_name(text)
+		if ok != text:
+			var caret := field.caret_column
+			field.text = ok
+			field.caret_column = mini(caret, ok.length()))
+	var commit := func():
+		app.store.set_player_name(field.text)
+		field.text = ProgressStore.clean_name(field.text)
+	field.text_submitted.connect(func(_t: String): commit.call(); field.release_focus())
+	field.focus_exited.connect(commit)
+	toggle(p,"Namen über den Autos anzeigen",Vector2(34,268),bool(app.store.data.get("show_names",true)),
+		func(on: bool): app.store.data["show_names"]=on; app.store.save())
+	toggle(p,"Sprechblasen (Überholt!, Dreher! …)",Vector2(34,326),bool(app.store.data.get("bubbles",true)),
+		func(on: bool): app.store.data["bubbles"]=on; app.store.save())
+	label(p,"Gegner haben feste Namen je Auto. Nur Anzeige – die Rennen ändern sich dadurch nicht.",Vector2(38,396),15,MUTED,560)
+	button(p,"Fertig",Rect2(34,500,572,66),func():
+		commit.call()
+		p.get_parent().queue_free()
+		if back.is_valid():
+			back.call(),true)
 
 func overlay_open() -> bool:
-	return content.get_children().any(func(c): return c is ColorRect)
+	return content.get_children().any(func(c): return c is ColorRect and c.name != "HandoverCard")
+
+func close_overlays() -> void:
+	# Offene Dialoge schließen (Zurück-Taste im Menü und in den Mehrspieler-Einstellungen).
+	for c in content.get_children():
+		if c is ColorRect and c.name != "HandoverCard":
+			c.queue_free()
 
 func update_dialog() -> void:
 	var up: Updater = app.updater
@@ -649,7 +858,20 @@ func debug_menu() -> void:
 	toggle(p,"Alle Strecken & Autos freischalten",Vector2(34,548),bool(debug.get("unlock",false)),func(on: bool): debug["unlock"]=on; refresh.call())
 	toggle(p,"FPS anzeigen",Vector2(34,604),bool(debug.get("fps",false)),func(on: bool): debug["fps"]=on; app.store.save())
 	button(p,"Vorführfahrt starten",Rect2(34,676,368,66),func(): p.get_parent().queue_free(); app.demo(),true)
-	button(p,"Schließen",Rect2(418,676,368,66),func(): p.get_parent().queue_free())
+	button(p,"Netztest (Mehrspieler)",Rect2(418,676,368,66),func(): p.get_parent().queue_free(); net_test())
+	button(p,"Schließen",Rect2(34,756,752,66),func(): p.get_parent().queue_free())
+
+func net_test() -> NetTestScreen:
+	# Versteckter Netztest für den Gerätetest M0 (docs/MULTIPLAYER_RECHERCHE.md): Host / Mitspielen / Adresse, Ping, WLAN-Bindung.
+	# Nur aus dem Menü: ein laufendes Zeichnen oder Rennen wird vorher beendet, damit darunter nichts weiterläuft.
+	# Der Bildschirm (CanvasLayer 90) deckt alles ab und löst beim Schließen Verbindung, WLAN-Bindung und Multicast-Sperre.
+	# Protokoll: user://netztest.log (adb shell run-as de.draw2race.game cat files/netztest.log).
+	for child in app.get_children():
+		if child is NetTestScreen and not child.is_queued_for_deletion():
+			return child
+	if app.phase != "menu":
+		app.show_menu()
+	return NetTestScreen.open(app)
 
 func sound_settings() -> void:
 	var p := overlay("Sound & Musik.","Musik und Geräusche getrennt einstellen.",Vector2(640,760))

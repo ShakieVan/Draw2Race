@@ -410,3 +410,99 @@ Nutzerwunsch: verschiedene Höhenniveaus ab dem Wald. Entwurf, Bauplan und Stand
 - **Tests:** 673 Prüfungen, neu sind `test_drift_throttle` in `test_air.gd` und 14 Pfostenprüfungen in `test_collision.gd`. Kontrollbild-Werkzeug: `game/tests/post_shot.gd`.
 - **Offen:** Geräteprüfung des Driftgefühls. Beim Aufprall auf Holz sprühen bisher Funken statt Splittern. Das Grundauto braucht für Drift-Stufe 1 jetzt etwa 30 % zu schnell geplante Kurven.
 - **Mehrspieler:** Die Recherche zu bis zu 4 Handys ohne Internet steht in `docs/MULTIPLAYER_RECHERCHE.md`.
+
+## Mehrspieler, erste Stufen M0–M2 (03.10.2026, Beta 0.2.30)
+
+Plan und Nutzerentscheidungen: `docs/MULTIPLAYER_RECHERCHE.md`.
+
+- **M2, Umbau für mehrere Menschen:**
+  - `RaceField` führt eine Teilnehmerliste (`human_entry`/`ai_entry`/`lineup`/`setup_entries`/`build`). Turbo kommt je Auto (`step_inputs`, `turbo_log`). Ausweichen und Wippenwahl gelten nur für die KI.
+  - `main.me` ersetzt die festen `vehicles[0]`. Mehrere Linien sind über `main.race_entries` möglich; mit mehr als einem Menschen gibt es kein Gold, keine Bestenliste und keinen Geist.
+  - Der Einzelspieler ist bitgleich: `make_golden` FIELD=1 und ein Vergleich mit 12 Nachkommastellen über 111 Varianten.
+- **M1, Namen und Sprechblasen:**
+  - Name im Spielstand (12 Zeichen, Umlaute erlaubt). Die KI-Fahrer haben feste Namen.
+  - Namensschilder in Wagenfarbe hinter dem Auto, am Bildrand mit Pfeil (`name_tags.gd`). Kurze Ereignisblasen wie „Überholt!“, „Führung!“, „Dreher!“ oder „Ziel – Platz n“ (`race_chatter.gd`).
+  - Beides ist in den Optionen abschaltbar und liest die Simulation nur.
+- **M0, Netzschicht und Netztest:**
+  - `game/scripts/net/`: ENet-Sitzung auf UDP 24680 mit höchstens 3 Mitspielern und versioniertem Protokoll mit Ablehnungsgrund. Ping, Uhrabgleich, Suche per Rundruf, Ankündigung, Gateway-Probe und Adresse von Hand.
+  - `NetHelper.java` bindet das Spiel ans WLAN, meldet den Netzstatus und hält die Multicast-Sperre. Neue Berechtigungen: ACCESS_NETWORK_STATE, ACCESS_WIFI_STATE, CHANGE_WIFI_MULTICAST_STATE.
+  - Versteckter Bildschirm „Netztest (Mehrspieler)“ im Entwicklermenü (5× aufs Logo tippen). Er schreibt `user://netztest.log`, abzuholen mit `adb shell run-as de.draw2race.game cat files/netztest.log`.
+  - PC-Test: `tools/net_test.ps1` (1 Host + 3 Mitspieler, Versionsablehnung, Suche).
+- **Tests:** 845 Prüfungen in 12 Testreihen, neu sind `test_multi`, `test_net` und `test_tags`.
+- **Gerätetest M0 (03.10.2026, S21 als Gastgeber mit Android 15, S10 als Mitspieler mit Android 12, beide ohne SIM):**
+  - **Heim-WLAN:** Die Suche findet den Gastgeber nach 0,23 s über Rundruf, Netz-Rundruf und Ankündigung. Die Verbindung steht in unter 0,1 s.
+  - **Heim-WLAN, Messwerte:** RTT im Schnitt 40 ms, meist 20–35 ms, Spitzen bis 220 ms durch den WLAN-Stromsparmodus. Verlust 0 %, keine ENet-Drosselung. Den Uhrversatz von 4,17 s messen beide Seiten übereinstimmend auf etwa 5 ms.
+  - **Hotspot des S21:** Er läuft ohne SIM, weil Samsungs WLAN-Freigabe ihn neben dem Heim-WLAN betreibt (Netz 172.17.251.0/24). Die Suche findet den Gastgeber auf allen vier Wegen nach 60–120 ms, auch über die Gateway-Probe.
+  - **Hotspot, Messwerte:** RTT im Schnitt 36 ms, Verlust der Echo-Pakete 8–9 %, vermutlich weil ein Funkteil Heim-WLAN und Hotspot gleichzeitig bedient. Das genügt für Schnappschüsse mit Puffer.
+  - **WLAN-Bindung:** Sie greift, ändert ohne mobile Daten aber erwartungsgemäß nichts.
+- **Offen:**
+  - Rest des Gerätetests M0: Hotspot ganz ohne Internet (Gastgeber nicht im Heim-WLAN) und Mitspieler mit aktiven mobilen Daten. Dafür ist ein Handy mit SIM nötig.
+  - ENet-Drosselung unzuverlässiger Pakete über 127.0.0.1 (über die LAN-Adresse unauffällig).
+  - Schriftgröße der Schilder am Handy prüfen. Allokationen je Bild in `NameTags._draw()` für schwache Geräte verringern.
+  - Ergebnisanzeige im Mehrspieler: „Gold“ und „Platz in der Bestenliste“ nur im Einzelspieler zeigen.
+
+## Mehrspieler „Weitergeben“ (M2b), Turbo-Anzeige, Kamera (03.10.2026, Beta 0.2.30)
+
+- **„Weitergeben“:** 2–4 Spieler spielen auf einem Handy (`pass_party.gd`, `party_hud.gd`, `turbo_pads.gd`).
+  - **Menü:** „Mehrspieler · 2–4 Spieler“ führt zu „Auf einem Handy“. „Im WLAN“ ist schon zu sehen, aber noch ausgegraut („bald“).
+  - **Einstellungen:** Namen, Auto und Spielerfarbe je Spieler (siehe „Freie Autowahl“), Strecke, Herausforderung, KI-Gegner (0 bis 4 minus Menschen) und „Berührungen zwischen Spielern“.
+  - **Freigaben:** Im Mehrspieler ist alles frei, der Spielstand bleibt bytegleich.
+  - **Zeichnen:** Vor jedem Zug verdeckt eine Übergabekarte die Strecke (350 ms Tippsperre). Nach dem Zeichnen „Neu zeichnen“ oder „Weitergeben →“. Danach werden alle Linien 3 s lang in Spielerfarben enthüllt.
+  - **Rennen:** Turboknöpfe je Spieler in den Ecken, mit mehreren Fingern gleichzeitig (am PC Tasten 1–4). Die Kamera hält alle Menschen im Bild.
+  - **Wertung:** mit Namen, ohne Gold und Bestenliste. Danach „Revanche“ (der Sieger startet hinten), „Einstellungen ändern“ oder „Zurück zum Menü“.
+  - **Drift-Arena:** alle gleichzeitig, ohne Berührung, nach Punkten.
+  - **Zurück-Taste:** in jedem Schritt sinnvoll belegt.
+- **Turbo-Anzeige (Nutzerwunsch):** Der Knopf selbst ist jetzt die Anzeige (`turbo_gauge.gd`). Er füllt sich von unten, im Einzelspieler orange, im Mehrspieler in der Spielerfarbe. Er zeigt die Prozentzahl, ein kurzes „+“ beim Laden durch Bremsen und pulsiert, solange der Turbo zieht. Vorher war es ein 6 px dünner Streifen.
+- **Kamera:** Der Vorhalt zur Streckenmitte ist begrenzt, im Einzelspieler auf 30 % des Ausschnitts, im Mehrspieler auf die Luft über dem Rahmen der Menschen. Auf dem Serra-Pass lag das eigene Auto vorher rund ein Viertel der Zeit außerhalb des Bildes, im Mehrspieler fehlten zeitweise 3 von 4 Autos. Der Einzelspieler bleibt dabei bitgleich, denn nur die Darstellung ändert sich.
+- **Kleinigkeiten:**
+  - Der „Menü“-Knopf der Mehrspieler-Wertung führt jetzt ins Menü.
+  - Namensschilder sind am Handy 3 px größer.
+  - Ein fremdes Schild über dem eigenen Auto erscheint als Kontur ohne Kasten.
+  - `NameTags._draw()` legt kein Objekt mehr je Bild an.
+- **Tests:** 13 Testreihen mit 1041 Prüfungen, neu ist `test_party`. Kontrollbilder: `game/tests/party_shots.gd`.
+- **Offen:**
+  - Geräteprüfung (Mehrfingerbedienung, Bildschirmtastatur, Schildgrößen).
+  - Auf langen Strecken sind die enthüllten Linien schwer zu unterscheiden.
+  - `test_party` läuft im quadratischen Testfenster und prüft daher kein Handyformat.
+
+## Mehrspieler im WLAN: Lobby, gemeinsames Zeichnen, Rennen (M3–M5, 03./04.10.2026, Beta 0.2.30)
+
+- **M3 Lobby** (`net/net_lobby.gd`, `lobby_hud.gd`):
+  - Menü „Mehrspieler → Im WLAN“ mit „Spiel eröffnen“ und „Beitreten“. Das Beitreten zeigt eine Live-Liste über Rundruf, Ankündigung, Gateway-Probe und Adresse von Hand.
+  - Beim Betreten bindet sich das Spiel automatisch ans WLAN, beim Verlassen löst es die Bindung. Ohne WLAN erscheint ein Hinweis auf den Hotspot. Ausnahme: Ein Gastgeber mit eigenem Hotspot bleibt ungebunden, das ist noch nicht am Gerät geprüft.
+  - Der Gastgeber stellt Strecke, Stufe, KI-Gegner und Berührungen ein, live für alle. Mitspieler haben „Bereit“, der Gastgeber „Rennen starten“.
+  - Abgelehnt wird bei anderer Spielversion, anderem Protokoll (jetzt 3), anderer Physik oder anderen Streckendaten (SHA-256 über alle Strecken), außerdem während eines Rennens und bei voller Lobby.
+  - Abgänge, Abbrüche, Hintergrund und Zurück-Taste sind behandelt. Geräteprotokoll: `user://mehrspieler.log`.
+- **M4 Zeichnen synchron** (`net/net_draw.gd`):
+  - Gemeinsames 3-2-1 nach der gemeinsamen Uhr, am PC auf 1–5 ms genau. Jeder zeichnet verdeckt, ohne Zeitlimit, ein Status zeigt „Anna zeichnet … 60 %“.
+  - „Fertig“ schickt die Linie (gepackt etwa 33 B je Punkt, höchstens etwa 66 KB) an den Gastgeber. Er prüft Runde, Streckenprüfsumme, Tore, Tempo und Lage, dann folgt die gemeinsame Enthüllung.
+  - Wer nach der Abgabe geht, fährt ohne Turbo mit. Wer vorher geht, wird entfernt.
+- **M5 Rennen** (`net/net_race.gd`):
+  - Nur der Gastgeber rechnet mit `RaceField`. Turbo-Änderungen aller Menschen, auch des Gastgebers, gelten genau 6 Takte (0,1 s) später.
+  - 30 Schnappschüsse/s, unzuverlässig geordnet, etwa 227 B für 4 Autos, rund 7 KB/s je Mitspieler. Ereignisse und Endergebnis gehen zuverlässig.
+  - Alle Geräte zeigen dasselbe Bild 0,1 s versetzt, interpoliert, und überbrücken Lücken bis 0,25 s. Danach erscheint „Verbindung zum Gastgeber hakt …“.
+  - Ende: wenn alle Menschen im Ziel sind, am Drift-Limit, 30 s nach dem ersten Zieleinlauf oder spätestens nach 180 s. Danach folgen Wertung, „Revanche“ oder „Lobby“.
+- **Prüfung:**
+  - In 19 Mehrprozess-Läufen am PC stimmen Wertung und Simulation auf allen Geräten bitgleich überein, nachgerechnet mit `RaceField`. Dazu kamen 13 Fehlerfälle und 10 % Paketverlust ohne Teleports.
+  - Einzelspieler und „Weitergeben“ sind bitgleich.
+  - 16 Testreihen mit 1254 Prüfungen, neu sind `test_lobby`, `test_draw` und `test_race`.
+
+## Freie Autowahl, Spielerfarben, Netz-Korrekturen (04.10.2026, Beta 0.2.30)
+
+- **Freie Autowahl (Nutzerwunsch):**
+  - Mehrere Spieler dürfen dasselbe Auto fahren, im „Weitergeben“-Modus und in der WLAN-Lobby.
+  - Spielerfarben aus `player_colors.gd`: 6 Farben, die sich auch bei Rot-Grün-Sehschwäche unterscheiden lassen (OKLab-Abstand ≥ 0,146). Jede Farbe gibt es einmal je Runde.
+  - Die Spielerfarbe gilt für Lack, Schild, Lichtkranz, Linie, Enthüllung, Chips, Turbo-Knopf und Wertung. KI-Gegner bekommen Autos, deren Farbe sich deutlich davon abhebt.
+  - Gewählt wird in derselben Garage wie im Einzelspieler (`RaceHUD.car_picker`/`garage`): drehendes 3D-Auto in der Spielerfarbe, Motorprobe, Fahrwerte und Farbfelder, alle Autos frei, nichts wird gespeichert.
+  - Protokollversion 6.
+- **Netz-Korrekturen aus der Prüfung:**
+  - `NetSession._put()` sendet nur an verbundene Partner. Damit sind die Fehlerzeilen beim sauberen Abmelden weg.
+  - Zeitgrenzen: normal 8–20 s, beim Laden 25–45 s. Zusätzlich trennt das Spiel selbst nach dieser Funkstille, frühestens nach 3 s. Ein langsames Handy fliegt beim Laden also nicht mehr raus.
+  - Mitspieler senden im Rennen 10-mal je Sekunde ein Lebenszeichen. Nach 0,5 s Stille lässt der Gastgeber ihren Turbo los, über das Turbo-Protokoll und damit nachrechenbar.
+  - Nach einem WLAN-Wechsel bindet sich das Spiel neu und sucht neu (`NetAndroid.bound_to_wifi`), am Gerät noch ungeprüft.
+  - `main.solo()` ist auch im WLAN-Mehrspieler falsch.
+  - Turbo-Hinweis gekürzt auf „Bremsen lädt den Turbo.“, er überlappt den Knopf nicht mehr.
+  - Bildschirmtastatur: Die Oberfläche rückt nach oben, wenn sie ein Eingabefeld verdecken würde (`RaceHUD.update_keyboard_lift`).
+- **Tests:** 16 Testreihen mit 1401 Prüfungen. `tools/net_test.ps1 -Lobby` mit 7 Läufen, darunter Hänger von 5–6 s, eine saubere Abmeldung und vier gleiche Autos.
+- **Hinweis zu den Kontrollbildern:** `-Resolution 2400x1080` begrenzt Windows still auf 1924x1061. Für echtes 20:9 besser `-Resolution 1600x720` nehmen.
+- **Offen (Gerätetest):** WLAN-Rennen auf S10/S21 mit Turbo-Gefühl, Hotspot ganz ohne Internet, Mitspieler mit mobilen Daten, Gastgeber mit eigenem Hotspot, Neu-Binden nach WLAN-Wechsel.

@@ -337,6 +337,30 @@ Aufwand in Entwicklertagen (mit KI-Unterstützung, inklusive Tests). Grobe Schä
 10. **„Weitergeben“-Modus (M2b):** als Zwischenschritt gewünscht?
 11. **Später:** Komfort-Beitritt per QR (M8)? PC als Mitspieler offiziell unterstützen?
 
+### Entscheidungen des Nutzers (03.10.2026)
+
+- **Testgeräte (1):** S10 (Android 12) und S21 (Android 15) per WLAN-Debugging, bei Bedarf als drittes das S24 Ultra (Android 16). Alle von Samsung.
+- **Freischaltungen (2):** Im Mehrspieler sind alle Strecken und Autos frei. Danach gilt wieder der eigene Fortschritt: Was im Mehrspieler frei war, bleibt nicht freigeschaltet.
+- **KI auffüllen (3):** In der Lobby wählbar.
+- **Zeichnen (5):** ohne Zeitlimit, es wird auf alle gewartet. Die Linien bleiben verdeckt, bis alle fertig sind.
+- **„Weitergeben“-Modus (10):** ja, als Zwischenschritt (M2b).
+- **Autowahl (03.10.2026, nach dem ersten Test):**
+  - Mehrere Spieler dürfen dasselbe Auto nehmen, damit ein ebenbürtiges Spiel möglich ist. Die Regel „jedes Auto nur einmal“ entfällt.
+  - Erkennbar bleibt jeder Spieler an seiner eigenen Spielerfarbe: Lack, Schild, Lichtkranz, Turbo-Knopf und Linie.
+  - Die Autowahl gleicht der des Einzelspielers: drehendes 3D-Auto (lackiert in der Spielerfarbe), Motorklang zur Probe und die Fahrwerte (Haftung, Kraft, Gelände, Turbo). Sie nutzt dieselbe Garage wie der Einzelspieler, im Mehrspieler mit allen Autos. Das gilt im „Weitergeben“-Modus und in der WLAN-Lobby.
+- **WLAN-Bindung:**
+  - Beim Betreten des WLAN-Mehrspielers (Lobby, Gastgeber wie Mitspieler) bindet das Spiel sich automatisch ans WLAN, ohne Schalter.
+  - Beim Verlassen wird die Bindung gelöst, damit Update-Suche und Internet wieder gehen.
+  - Ohne WLAN-Verbindung erscheint ein Hinweis.
+  - Der „Weitergeben“-Modus braucht keine Bindung.
+  - Der Netztest behält den Schalter für Vergleichsmessungen.
+- **Vorläufig nach Empfehlung, noch offen für Änderungen:**
+  - Berührungen zwischen Spielern sind an und in der Lobby abschaltbar (4).
+  - Drift-Arena: alle gleichzeitig, ohne Berührung (6).
+  - Auch der Gastgeber sieht das Rennen mit der gemeinsamen Verzögerung (7).
+  - Sprechblasen zunächst nur bei Ereignissen, Sprüche später (8).
+  - Der Mehrspieler bleibt getrennt von Gold und Bestenliste (9).
+
 ---
 
 ## 10. Prüfprotokoll dieser Recherche

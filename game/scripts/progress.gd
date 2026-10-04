@@ -4,7 +4,8 @@ extends RefCounted
 # Version 2: Gold als eindeutige Einträge "strecke/stufe" (Version 1 speicherte Zahlen; nach dem Laden aus
 # JSON waren das Kommazahlen, "0 in [0.0]" ist in GDScript falsch -> Gold wurde doppelt gezählt).
 var data := {"version": 2, "gold": [], "best": {}, "sound": true, "music": true, "music_style": "energie",
-	"camera": true, "camera_zoom": 0.4, "track": "azure", "music_volume": 0.8, "sfx_volume": 1.0, "times": {}}
+	"camera": true, "camera_zoom": 0.4, "track": "azure", "music_volume": 0.8, "sfx_volume": 1.0, "times": {},
+	"name": "", "show_names": true, "bubbles": true}
 var path := "user://progress.json"
 
 func _init(save_path := "user://progress.json") -> void:
@@ -44,6 +45,49 @@ static func track_rev(track_id: String) -> int:
 static func board_key(track_id: String) -> String:
 	var r := track_rev(track_id)
 	return track_id if r <= 1 else "%s@r%d" % [track_id, r]
+
+# ---------- Spielername (M1, docs/MULTIPLAYER_RECHERCHE.md 6) ----------
+# Höchstens 12 Zeichen (wie NetProtocol.MAX_NAME): Buchstaben samt Umlauten und ß, Ziffern, Leerzeichen und - _ . ' ! ?
+# Leer = Vorschlag „Fahrer NN“ (einmal zufällig gewählt und im Spielstand gemerkt, damit er gleich bleibt).
+const NAME_MAX := 12
+const NAME_MARKS := " -_.'!?"
+
+static func name_char_ok(c: int) -> bool:
+	return (c >= 48 and c <= 57) or (c >= 65 and c <= 90) or (c >= 97 and c <= 122) \
+		or (c >= 0xC0 and c <= 0x17F and c != 0xD7 and c != 0xF7) or NAME_MARKS.contains(char(c))
+
+static func name_chars(text: String) -> String:
+	var out := ""
+	for i in range(text.length()):
+		if name_char_ok(text.unicode_at(i)):
+			out += text[i]
+	return out
+
+static func filter_name(text: String) -> String:
+	# Beim Tippen: unerlaubte Zeichen weglassen, Länge begrenzen (Leerzeichen am Ende bleiben, man tippt ja weiter).
+	return name_chars(text).left(NAME_MAX)
+
+static func clean_name(text: String) -> String:
+	# Zum Speichern: gefiltert, ohne Rand- und doppelte Leerzeichen, höchstens NAME_MAX Zeichen.
+	var out := name_chars(text).strip_edges()
+	while out.contains("  "):
+		out = out.replace("  ", " ")
+	return out.left(NAME_MAX).strip_edges()
+
+func default_name() -> String:
+	var hint := str(data.get("name_hint", ""))
+	if clean_name(hint) == "" or hint != clean_name(hint):
+		hint = "Fahrer %d" % randi_range(10, 99)
+		data["name_hint"] = hint
+	return hint
+
+func player_name() -> String:
+	var own := clean_name(str(data.get("name", "")))
+	return own if own != "" else default_name()
+
+func set_player_name(text: String) -> void:
+	data["name"] = clean_name(text)
+	save()
 
 func has_gold(track_id: String, stage: int) -> bool:
 	return "%s/%d" % [track_id, stage] in data.gold

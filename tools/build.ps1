@@ -59,7 +59,7 @@ try {
     # falls einer fehlgeschlagen ist. Ein Lauf gilt als bestanden mit Exitcode 0, ohne Fehlermuster (SCRIPT ERROR, ERROR:, FAIL:) und
     # mit RESULT-Zeile (--quit-after beendet ohne Fehler, wenn der Rahmenvorrat 180 vor dem Testende aufgebraucht ist).
     $suites = @()
-    foreach ($test in @('test_core','test_flow','test_tracks','test_air','test_diorama','test_collision','test_heights','test_field','test_wear')) {
+    foreach ($test in @('test_core','test_flow','test_tracks','test_air','test_diorama','test_collision','test_heights','test_field','test_wear','test_multi','test_net','test_tags','test_party','test_lobby','test_draw','test_race')) {
         $previousPreference = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'      # Zeilen auf stderr (printerr der Tests, Warnungen) brechen nicht ab; entschieden wird unten
         try { $result = @(& $engine @('--headless','--path',$gamePath,'--quit-after','180','--script',"res://tests/$test.gd") 2>&1 | ForEach-Object { "$_" }) }

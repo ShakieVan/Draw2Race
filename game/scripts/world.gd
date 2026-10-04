@@ -2025,27 +2025,15 @@ static func line_color(speed: float) -> Color:
 func draw_route(route: Array[Dictionary], subdued := false, open_from := -1, ghost: Array[Dictionary] = []) -> void:
 	# open_from: Routenindex, ab dem die Linie offen ist (schimmert); ghost: alter Rest während einer Probe.
 	var split := route.size() if open_from < 0 else clampi(open_from, 0, route.size())
+	clear_extra_lines()
 	set_draw_mode(not subdued)
 	# Im Rennen kippt das Linienstück auf einem Lineal mit (Kindknoten der Wippe); hier ohne diese Stücke.
 	route_on_seesaw = subdued and not seesaw_nodes.is_empty()
 	if route_on_seesaw:
-		build_seesaw_lines(route)
+		build_seesaw_lines([route])
 	else:
-		for node in seesaw_lines:
-			if is_instance_valid(node):
-				node.queue_free()
-		seesaw_lines.clear()
-	var line_mat := line_material(subdued)
-	if subdued:
-		# Im Rennen: Linie zu 70 % durchsichtig, damit Fahrbahn, Pfützen und Autos darunter sichtbar bleiben.
-		line_mat.albedo_color = Color(1, 1, 1, 0.3)
-		# Wie Fahrbahnmarkierung beleuchtet (Tag hell, Nacht dunkel, unter Laternen hell) statt selbstleuchtend.
-		line_mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
-		line_mat.roughness = 0.9
-		# Ganz dezentes Eigenleuchten, damit die Linie auch nachts noch zu ahnen ist.
-		line_mat.emission_enabled = true
-		line_mat.emission = Color(1.0, 0.9, 0.78)
-		line_mat.emission_energy_multiplier = 0.16
+		clear_seesaw_lines()
+	var line_mat := race_line_material() if subdued else line_material(false)
 	line_mesh.mesh = route_mesh(route, 0, split, subdued, line_mat)
 	open_mesh.mesh = route_mesh(route, maxi(split, 1) - 1, route.size(), false, open_line_material()) if split < route.size() else null
 	# Deckend, damit sich überlappende Segmente nicht streifig addieren; der Altrest wirkt wie ein Schatten.
@@ -2055,6 +2043,64 @@ func draw_route(route: Array[Dictionary], subdued := false, open_from := -1, gho
 	# Zeichenmodus: Linienstücke unter einem höheren Ast (Brücke) zusätzlich gestrichelt ohne Tiefentest, damit sie durch das Deck scheinen.
 	if under_mesh != null:
 		under_mesh.mesh = under_route_mesh(route) if not subdued else null
+
+func race_line_material() -> StandardMaterial3D:
+	var line_mat := line_material(true)
+	# Im Rennen: Linie zu 70 % durchsichtig, damit Fahrbahn, Pfützen und Autos darunter sichtbar bleiben.
+	line_mat.albedo_color = Color(1, 1, 1, 0.3)
+	# Wie Fahrbahnmarkierung beleuchtet (Tag hell, Nacht dunkel, unter Laternen hell) statt selbstleuchtend.
+	line_mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+	line_mat.roughness = 0.9
+	# Ganz dezentes Eigenleuchten, damit die Linie auch nachts noch zu ahnen ist.
+	line_mat.emission_enabled = true
+	line_mat.emission = Color(1.0, 0.9, 0.78)
+	line_mat.emission_energy_multiplier = 0.16
+	return line_mat
+
+# Mehrspieler (M2b): weitere Linien neben line_mesh, je Mensch eine, in seiner Farbe.
+var extra_lines: Array[MeshInstance3D] = []
+
+func draw_routes(routes: Array, tints: Array, subdued := true) -> void:
+	# Alle Linien der Menschen gleichzeitig (Enthüllung vor dem Start, Rennen): jede in der Farbe ihres Spielers (tints[k]), die
+	# Breite zeigt weiter das Tempo. subdued: im Rennen durchsichtig und beleuchtet wie die eigene Linie; sonst deckend und hell
+	# (Enthüllung). Jede weitere Linie liegt ein wenig höher (kein Flimmern, wo sich Linien decken). Ohne Linien: alles leer.
+	clear_extra_lines()
+	set_draw_mode(not subdued)
+	route_on_seesaw = subdued and not seesaw_nodes.is_empty()
+	if route_on_seesaw:
+		build_seesaw_lines(routes, tints)
+	else:
+		clear_seesaw_lines()
+	open_mesh.mesh = null
+	ghost_mesh.mesh = null
+	if under_mesh != null:
+		under_mesh.mesh = null
+	line_mesh.mesh = null
+	for k in range(routes.size()):
+		var route := RaceField.as_plan(routes[k])
+		var tint: Color = tints[k] if k < tints.size() else Color(0, 0, 0, 0)
+		var mesh := route_mesh(route, 0, route.size(), subdued, race_line_material() if subdued else line_material(false), tint, 0.012 * k)
+		if k == 0:
+			line_mesh.mesh = mesh
+			continue
+		var node := MeshInstance3D.new()
+		node.mesh = mesh
+		node.layers = LAYER_FLAT
+		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(node)
+		extra_lines.append(node)
+
+func clear_extra_lines() -> void:
+	for node in extra_lines:
+		if is_instance_valid(node):
+			node.queue_free()
+	extra_lines.clear()
+
+func clear_seesaw_lines() -> void:
+	for node in seesaw_lines:
+		if is_instance_valid(node):
+			node.queue_free()
+	seesaw_lines.clear()
 
 func line_material(transparent: bool) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
@@ -2070,7 +2116,8 @@ func open_line_material() -> StandardMaterial3D:
 		open_material = line_material(false)
 	return open_material
 
-func route_mesh(route: Array[Dictionary], from: int, to: int, subdued: bool, mat: StandardMaterial3D) -> Mesh:
+func route_mesh(route: Array[Dictionary], from: int, to: int, subdued: bool, mat: StandardMaterial3D, tint := Color(0, 0, 0, 0), lift := 0.0) -> Mesh:
+	# tint (Mehrspieler): ganze Linie in dieser Farbe statt Tempofarbe; lift: zusätzliche Höhe (gestaffelte Linien).
 	if to - from < 2:
 		return null
 	# Durchgehendes Band: Normale je Punkt aus den Nachbarpunkten gemittelt -> keine Zacken in Kurven.
@@ -2091,7 +2138,10 @@ func route_mesh(route: Array[Dictionary], from: int, to: int, subdued: bool, mat
 		var side_b := normals[i-from]*line_half_width(float(route[i].speed))
 		var color_a := line_color(float(route[i-1].speed))
 		var color_b := line_color(float(route[i].speed))
-		if (float(route[-1].s)>1.02 and float(route[i].s)<1.0) or subdued:
+		if tint.a > 0.0:
+			color_a = tint.darkened(0.30) if subdued else tint
+			color_b = color_a
+		elif (float(route[-1].s)>1.02 and float(route[i].s)<1.0) or subdued:
 			color_a = color_a.darkened(0.30)
 			color_b = color_b.darkened(0.30)
 		if route_on_seesaw and subdued and (on_seesaw_deck(route[i-1]) or on_seesaw_deck(route[i])):
@@ -2105,7 +2155,7 @@ func route_mesh(route: Array[Dictionary], from: int, to: int, subdued: bool, mat
 			st.set_color(color_b if at_end else color_a)
 			st.set_normal(Vector3.UP)
 			var s: float = route[i].s if at_end else route[i-1].s
-			st.add_vertex(Vector3(p.x,0.27+s*0.006+(hb if at_end else ha),p.y))
+			st.add_vertex(Vector3(p.x,0.27+s*0.006+(hb if at_end else ha)+lift,p.y))
 	st.set_material(mat)
 	return st.commit()
 
@@ -2740,31 +2790,33 @@ func on_seesaw_deck(e: Dictionary) -> bool:
 			return true
 	return false
 
-func build_seesaw_lines(route: Array[Dictionary]) -> void:
+func build_seesaw_lines(routes: Array, tints: Array = []) -> void:
 	# Im Rennen: Linienstück auf jedem Lineal als Kindknoten der Wippe (lokale Koordinaten, Oberseite y 0), kippt mit ihr.
-	for node in seesaw_lines:
-		if is_instance_valid(node):
-			node.queue_free()
-	seesaw_lines.clear()
+	# routes: eine Linie (Einzelspieler) oder die Linien aller Menschen (tints[k]: Spielerfarbe, sonst Tempofarbe).
+	clear_seesaw_lines()
 	var rest := track.rest_seesaws()
 	for wi in range(mini(rest.size(), seesaw_nodes.size())):
 		var w: Seesaw = rest[wi]
 		var st := SurfaceTool.new()
 		st.begin(Mesh.PRIMITIVE_TRIANGLES)
 		var count := 0
-		for i in range(1, route.size()):
-			if not (on_seesaw_deck(route[i - 1]) and on_seesaw_deck(route[i])):
-				continue
-			var la := w.local(route[i - 1].p)
-			var lb := w.local(route[i].p)
-			var half := line_half_width(float(route[i].speed))
-			var col := line_color(float(route[i].speed)).darkened(0.30)
-			var q := [Vector3(la.x, 0.07, -(la.y - half)), Vector3(lb.x, 0.07, -(lb.y - half)), Vector3(lb.x, 0.07, -(lb.y + half)), Vector3(la.x, 0.07, -(la.y + half))]
-			for j in [0, 1, 2, 0, 2, 3]:
-				st.set_color(col)
-				st.set_normal(Vector3.UP)
-				st.add_vertex(q[j])
-			count += 1
+		for k in range(routes.size()):
+			var route: Array = routes[k]
+			var tint: Color = tints[k] if k < tints.size() else Color(0, 0, 0, 0)
+			var y := 0.07 + 0.004 * k
+			for i in range(1, route.size()):
+				if not (on_seesaw_deck(route[i - 1]) and on_seesaw_deck(route[i])):
+					continue
+				var la := w.local(route[i - 1].p)
+				var lb := w.local(route[i].p)
+				var half := line_half_width(float(route[i].speed))
+				var col := (tint if tint.a > 0.0 else line_color(float(route[i].speed))).darkened(0.30)
+				var q := [Vector3(la.x, y, -(la.y - half)), Vector3(lb.x, y, -(lb.y - half)), Vector3(lb.x, y, -(lb.y + half)), Vector3(la.x, y, -(la.y + half))]
+				for j in [0, 1, 2, 0, 2, 3]:
+					st.set_color(col)
+					st.set_normal(Vector3.UP)
+					st.add_vertex(q[j])
+				count += 1
 		if count == 0:
 			continue
 		var mat := line_material(true)

@@ -639,6 +639,8 @@ Veröffentlicht als Beta 1.0.1 (Pre-Release in `ShakieVan/Draw2Race-Beta`, `Draw
 
 ## Mitspieler einladen: Spiel-WLAN und QR-Codes (13.10.2026, Beta 1.0.2)
 
+Veröffentlicht als Beta 1.0.2 (Pre-Release in `ShakieVan/Draw2Race-Beta`, `Draw2Race-1.0.2.apk`, 313 491 469 Byte, SHA-256 `bab55250…0f388f4a`, Commit 7e31d6b auf main). Die GitHub-API liefert Größe und Prüfsumme passend zur lokalen Datei.
+
 Nutzerwunsch: die Funktion „Spiel-WLAN“ aus dem Schwesterprojekt Mau-Mau Flip (dort Beta 1.0.1–1.4.3). Der Gastgeber öffnet in der App ein eigenes WLAN und gibt es zusammen mit dem Link zum Spiel per QR-Code weiter. Nutzerentscheidungen vom 13.10.2026:
 - Der Spiel-QR führt auf eine Einladungsseite mit App-Download und App-Link.
 - Der QR-Scanner beim Gast kommt gleich mit.

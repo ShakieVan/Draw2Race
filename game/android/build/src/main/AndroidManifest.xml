@@ -25,6 +25,23 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
+    <!-- Spiel-WLAN (Beta 1.0.2, GameWifi.java, scripts/invite_panel.gd): eigenes WLAN per LocalOnlyHotspot. Ab Android 13 die
+         Laufzeit-Erlaubnis "Geräte in der Nähe" (ohne Standort), bis Android 12 der genaue Standort. Nur hier, nicht in
+         export_presets.cfg: Godot schreibt dort gesetzte Rechte ohne maxSdkVersion/usesPermissionFlags (Erfahrung Mau-Mau Flip). -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="33" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="32" />
+    <!-- Android 12 übergeht eine Anfrage nach nur dem genauen Standort; GameWifi.requestPermission fragt beide zusammen an. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"
+        android:maxSdkVersion="32" />
+
+    <!-- Spiel-WLAN aus dem QR-Code (QrWifi.java, Beta 1.0.2): ConnectivityManager.requestNetwork mit WifiNetworkSpecifier braucht
+         CHANGE_NETWORK_STATE ("normal", ohne Dialog); ohne sie wirft Android eine SecurityException (Gerätetest Mau-Mau Flip 1.4.3). -->
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+
     <application
         android:label="@string/godot_project_name_string"
         android:allowBackup="false"
@@ -58,6 +75,19 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <!-- App-Link „In Draw2Race öffnen“ (Beta 1.0.2, AppLink.java): draw2race://join?h=<IP>&p=<Port> öffnet das Spiel und tritt dem
+             Gastgeber bei. Eigener Alias, weil .GodotApp nicht exportiert ist; Ziel bleibt die Spiel-Activity. -->
+        <activity-alias
+            android:name=".GodotAppLink"
+            android:targetActivity=".GodotApp"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="draw2race" android:host="join" />
             </intent-filter>
         </activity-alias>
 

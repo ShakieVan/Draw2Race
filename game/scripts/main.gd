@@ -104,6 +104,8 @@ const RIVAL_SKILL := RaceField.RIVAL_SKILL
 # net_round = Daten der laufenden Runde (NetLobby.current_round). Wie „Weitergeben“: alles frei, nichts in den Spielstand (außer dem
 # eigenen Namen, den man in der Lobby wie in den Optionen ändert).
 var lobby: NetLobby
+var app_link := ""                 # App-Link draw2race://join?h=…&p=… (Einladungsseite des Gastgebers), wartet aufs Menü
+var _app_link_ms := 0
 var net_round := {}
 var net_count := 0               # Ampel im Netz: zuletzt gezeigte Ziffer (Ton bei jedem Wechsel)
 var net_music_won := false       # Musik der WLAN-Wertung (alle hören dasselbe Stück): Sieg-Stück, wenn ein Mensch gewonnen hat
@@ -1031,6 +1033,7 @@ func road_fill_size() -> float:
 	return road if screen.y<=screen.x else road*screen.y/screen.x
 
 func _process(dt: float) -> void:
+	poll_app_link()
 	if lobby != null and lobby.race != null and phase in ["countdown", "race", "result"] and lobby.race.view == field:
 		# WLAN-Rennen: Marionetten je Bild genau auf die Anzeigezeit stellen (feiner als der 60-Hz-Takt), ohne Zwischenwerte.
 		lobby.race.apply_view(lobby.race.display_ticks())
@@ -1764,6 +1767,8 @@ func open_wlan() -> void:
 		lobby.games_changed.connect(hud.lobby_ui.refresh)
 		lobby.notice.connect(hud.lobby_ui.toast)
 		lobby.apk_changed.connect(hud.lobby_ui.apk_refresh)
+		lobby.qr.changed.connect(hud.lobby_ui.refresh)
+		lobby.qr.join_ready.connect(net_join)    # QR-Code gescannt bzw. Spiel-WLAN aus dem QR-Code verbunden (QrJoin)
 		lobby.apk = apk_share       # neuere Version weitergeben (NetApk)
 		lobby.enter(store.player_name(), car_choice)
 	paused = false
@@ -1791,6 +1796,30 @@ func leave_wlan() -> void:
 	if solo_track != "" and track_id != solo_track:
 		request_track(solo_track)
 	apply_atmosphere()
+
+func poll_app_link() -> void:
+	# App-Link von der Einladungsseite (AppLink.java hält ihn, NetAndroid.take_app_link holt ihn ab): nur im Menü und im WLAN-Bildschirm
+	# – nicht mitten in einem Rennen –, dort höchstens zweimal je Sekunde, und dann wird sofort beigetreten.
+	if not phase in ["menu", "net_menu"] or (hud.overlay_open() and phase == "menu"):
+		return
+	var now := Time.get_ticks_msec()
+	if now >= _app_link_ms:
+		_app_link_ms = now + 500
+		var taken := NetAndroid.take_app_link()
+		if taken != "":
+			app_link = taken
+	if app_link == "":
+		return
+	var link := NetAndroid.parse_app_link(app_link)
+	app_link = ""
+	if not bool(link.ok):
+		hud.lobby_ui.message("Beitreten nicht möglich.", str(link.error))
+		return
+	if lobby == null:
+		open_wlan()
+	elif lobby.mode == "join" and not lobby.is_joined:
+		lobby.cancel_join()
+	net_join(str(link.address), int(link.port), str(link.address))
 
 func net_host() -> void:
 	if lobby == null:

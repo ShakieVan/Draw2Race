@@ -178,7 +178,11 @@ public final class NetHelper {
 
     private static JSONArray interfaceArray() throws Exception {
         JSONArray out = new JSONArray();
-        for (NetworkInterface iface : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+        // Ohne jede Schnittstelle liefert Android null statt einer leeren Aufzählung (Gerätetest S10, 13.10.2026: Spiel-WLAN weg, kein
+        // anderes Netz – der ganze Netzstatus fiel mit einer NullPointerException aus).
+        java.util.Enumeration<NetworkInterface> all = NetworkInterface.getNetworkInterfaces();
+        if (all == null) return out;
+        for (NetworkInterface iface : Collections.list(all)) {
             if (!iface.isUp() || iface.isLoopback()) continue;
             for (InterfaceAddress address : iface.getInterfaceAddresses()) {
                 if (!(address.getAddress() instanceof Inet4Address)) continue;

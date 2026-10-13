@@ -636,3 +636,91 @@ Veröffentlicht als Beta 1.0.1 (Pre-Release in `ShakieVan/Draw2Race-Beta`, `Draw
   - In-App-Update auf Android 7 und 8: Zum Testen fehlt ein Gerät oder Emulator.
   - Der Browser-Knopf am Handy: öffnet er die Release-Seite, und lässt sich die APK von dort über das bestehende Draw2Race installieren?
   - Die Limit-Meldung bei echtem GitHub-Limit.
+
+## Mitspieler einladen: Spiel-WLAN und QR-Codes (13.10.2026, Beta 1.0.2)
+
+Nutzerwunsch: die Funktion „Spiel-WLAN“ aus dem Schwesterprojekt Mau-Mau Flip (dort Beta 1.0.1–1.4.3). Der Gastgeber öffnet in der App ein eigenes WLAN und gibt es zusammen mit dem Link zum Spiel per QR-Code weiter. Nutzerentscheidungen vom 13.10.2026:
+- Der Spiel-QR führt auf eine Einladungsseite mit App-Download und App-Link.
+- Der QR-Scanner beim Gast kommt gleich mit.
+- Versionsnummer Beta 1.0.2.
+
+Der Hotspot zweigleisig aus 0.3.0 bleibt unverändert, das Spiel-WLAN ist ein zusätzlicher Weg.
+
+- **Gastgeber** (`net/net_invite.gd` für den Zustand, `invite_panel.gd` für die Anzeige):
+  - In der Lobby steht oben der Knopf „Mitspieler einladen“. Er ist orange, solange noch niemand da ist.
+  - Das Panel zeigt zwei Schritte nebeneinander:
+    - ① WLAN: Spiel-WLAN öffnen, WLAN-QR (`WIFI:T:WPA;S:…;P:…;;`) mit Name und Passwort.
+    - ② Spiel: QR-Code zur Einladungsseite und deren Adresse.
+  - Der nächste offene Schritt leuchtet, ein geschaffter trägt einen Haken. ① gilt als geschafft, sobald jemand die Einladungsseite aufruft oder beitritt; Android verrät normalen Apps nicht, wer im Spiel-WLAN ist. ② gilt mit dem ersten Mitspieler. Gehen alle, beginnt es von vorn.
+  - Im Heim-WLAN steht „Mitspieler verbinden sich mit demselben WLAN wie du“ und darunter „Eigenes Spiel-WLAN öffnen“. Läuft der normale Hotspot, gibt es den Hinweis, die anderen damit zu verbinden; die App ändert ihn nie.
+  - Das Spiel-WLAN ist ein Android-LocalOnlyHotspot (`GameWifi.java`, aus Mau-Mau Flip, alle Einstiege fangen `Throwable`). Name und Passwort vergibt Android je Sitzung.
+  - Erlaubnis: ab Android 13 „Geräte in der Nähe“ (`NEARBY_WIFI_DEVICES`, `neverForLocation`), bis Android 12 der genaue Standort (`maxSdkVersion` 32). Beides steht nur im Manifest, nicht in `export_presets.cfg`.
+  - Fehlerfälle mit eigener Meldung: Erlaubnis fehlt, Standort aus, normaler Hotspot läuft, kein Funkkanal, auf dem Handy gesperrt, Android 7, Android hat es beendet.
+  - „Fertig“ und die Zurück-Taste schließen nur das Panel, das Spiel-WLAN bleibt offen (gleiche Zugangsdaten beim Wiederöffnen). „Spiel-WLAN schließen“ beendet es.
+  - Verlassen des WLAN-Mehrspielers schließt das Spiel-WLAN (`NetLobby.exit`). In Mau-Mau Flip bleibt es dabei offen, dort ist das ein bekannter Mangel.
+  - Netzbindung: Für `NetAndroid.host_plan` ist das Spiel-WLAN ein eigener Hotspot (bis Android 15 die Schnittstelle `swlan0`, ab 16 ein lokales Netz). Die Regeln bleiben unverändert. Geht es auf, solange noch niemand da ist, legt die Lobby ihre Sockets ungebunden neu an (`_host_frees`) und erreicht Mitspieler im Spiel-WLAN und im WLAN.
+  - Die Lobby nennt die Adresse „Spiel-WLAN 10.94.17.1“, die Netzhinweise sagen dann „Spiel-WLAN“ statt „Hotspot“ (`LobbyScreens.net_hint`).
+  - Ohne WLAN verweist der WLAN-Bildschirm auf „Mitspieler einladen“.
+- **Einladungsseite** (`NetApk`, derselbe Dateidienst auf TCP 24683 wie die Versionsweitergabe):
+  - `/` liefert eine deutsche HTML-Seite ohne Skripte.
+    - „In Draw2Race öffnen“: `intent://join?h=<IP>&p=<Port>#Intent;scheme=draw2race;package=de.draw2race.game;S.browser_fallback_url=…`. Ohne App bleibt der Browser auf der Seite und zeigt „noch nicht installiert“.
+    - „Draw2Race x.y.z herunterladen (MB)“ unter `/Draw2Race-<Version>.apk`, mit drei Installationsschritten. Solange die APK-Kopie entsteht, zeigt die Seite den Fortschritt und lädt sich alle 3 s neu. Der Download leitet bis dahin auf die Seite zurück (303).
+    - Hinweis: „Lädt die Seite nicht oder bricht der Download ab: mobile Daten kurz ausschalten.“ Chrome schickt Anfragen sonst ins Mobilnetz.
+  - Die IP im App-Link kommt aus der Host-Kopfzeile der Anfrage, also aus dem Netz, das der Browser benutzt hat.
+  - Seite und Datei bekommen nur Geräte aus privaten Netzen und 127.0.0.1. Die Weitergabe zwischen zwei Apps (`/draw2race-<sha256>.apk`) ist unverändert.
+  - Seitenaufrufe und Downloads werden gezählt. Das Panel zeigt sie an, und ① hakt daran ab.
+- **Gast: QR-Code scannen** (`net/qr_join.gd`, `QrScan.java`, `QrWifi.java`, aus Mau-Mau Flip 1.4.3):
+  - Im WLAN-Bildschirm steht der Knopf „QR-Code scannen“, nur wenn es die Google-Play-Dienste gibt.
+  - Der Scanner ist Google Code Scanner (`play-services-code-scanner` 16.1.0 in `game/android/build/build.gradle`) und braucht keine Kamera-Erlaubnis. Fehlt das Scanner-Modul noch, lädt Google es nach, und es erscheint ein Hinweis.
+  - Spiel-QR oder App-Link: direkter Beitritt am Spielport. Der Port in der Adresse gehört zur Seite und zählt nicht.
+  - WLAN-QR: Die App verbindet sich selbst per `WifiNetworkSpecifier` (ab Android 10, Android fragt einmal nach; braucht `CHANGE_NETWORK_STATE`).
+    - Danach binden Suche und Beitritt an dieses Netz statt ans WLAN (`NetLobby._bind`, `qr.pinned`). WLAN-Wechselmeldungen werfen die Bindung nicht um.
+    - Beigetreten wird am Gateway, denn im Spiel-WLAN ist das Gateway das Handy des Gastgebers.
+    - Meldet Android das Netz als verloren (der Gastgeber hat es geschlossen), gibt die App es frei und bindet wieder ans WLAN. Sonst fände ein Handy ohne zweiten WLAN-Empfänger nicht zurück (Mau-Mau-Gerätetest, S10). Das Verlassen des WLAN-Mehrspielers gibt es ebenfalls frei.
+    - Bis Android 9 erscheinen stattdessen Name und Passwort zum Eintragen.
+  - Testeinstieg ohne Kamera: `adb shell am start -n de.draw2race.game/com.godot.game.GodotAppLauncher --es d2r_scan "<Text>"`. Er wirkt nur im WLAN-Bildschirm, ältere als 2 min verfallen.
+- **App-Link** `draw2race://join?h=<IP>&p=<Port>`:
+  - Eigener Alias `.GodotAppLink` im Manifest, `AppLink.java` merkt das Intent.
+  - `main.poll_app_link` holt ihn nur im Menü und im WLAN-Bildschirm ab und tritt dann sofort bei, nie mitten in einem Rennen.
+  - Erlaubt sind private Adressen und 127.0.0.1.
+- **Testschalter für gesperrte Testhandys** (aus Mau-Mau Flip, `GodotApp.applyTestLock`): `adb shell setprop log.tag.Draw2RaceTestLock VERBOSE` lässt die App über dem Sperrbildschirm erscheinen. Das Handy bleibt gesperrt, Systemdialoge bleiben dahinter, beim Neustart verfällt der Schalter.
+- **QR-Encoder** `qr_code.gd` (`QrCode`, reines GDScript, ISO/IEC 18004, Stufe M, Versionen 1–10): aus Mau-Mau Flip übernommen, samt Prüfung.
+- **Tests:**
+  - Neu ist `test_qr`: Norm-Prüfwerte, Referenzmatrizen aus libqrencode, Lesbarkeit aller Versionen und Masken mit quirc (ffmpeg). Dazu werden die Einladungscodes zurückgelesen, auch ein WLAN-QR mit Sonderzeichen.
+  - Neu ist `test_invite` mit diesen Teilen:
+    - reine Regeln
+    - Einladungsseite über echtes HTTP (Seite, 303, HEAD, Download, Weitergabe unverändert, Zähler)
+    - Gastgeber mit Android-Ersatz (Spiel-WLAN, Sockets neu, Schritte; Fehlerfälle Erlaubnis, normaler Hotspot, kein Funkkanal, von Android beendet; Verlassen)
+    - Gast mit Scanner- und WLAN-Ersatz (Bindung ans Spiel-WLAN, Verlust, Freigabe)
+    - Oberfläche: Scannen → Lobby, App-Link → Lobby, Panel öffnen, schließen, Zurück
+  - Kontrollbilder: `tests/invite_shots.gd`, 12 Bilder im 20:9-Format, dazu `user://invite_page.html`. Die Seite wurde im Browserfenster bei 375 px Breite geprüft.
+  - `make_golden` FIELD=1 vorher und nachher gleich (36 Zeilen): Der Einzelspieler ist bitgleich.
+  - 21 Testreihen mit 1833 Prüfungen, alle bestanden (`tools/build.ps1 -Target Android`, APK `builds/Draw2Race-1.0.2.apk`, 313 491 469 Byte, SHA-256 `bab55250…0f388f4a`, Projektschlüssel, `version/code` 1000002).
+  - `test_draw` wackelte am 13.10. unter Rechnerlast (eine fremde AudioLab-Python-Arbeit lief): „Alle geladen → gemeinsames 3-2-1“ wartete nur 4 s aufs Laden des Waldes. Der unveränderte Stand 1.0.1 scheiterte dabei genauso (2 von 4 Läufen). Die Wartezeit dieser einen Stelle ist jetzt 10 s.
+- **Unabhängige Prüfung und erster Gerätetest (S21 Gastgeber mit Android 15, S10 Gast mit Android 12):**
+  - Am Gerät lief: Panel und QR-Codes wie am PC. Das Spiel-WLAN geht neben dem Heim-WLAN auf (`swlan0`, WPA3-Übergangsmodus), und die Lobby legt ENet und Suche ungebunden neu an. Die Einladungsseite und der Download (313 MB in 35 s, SHA-256 gleich) kamen im Heim-WLAN an.
+  - Das S10 im Spiel-WLAN fand das Spiel nach 76 ms (Rundruf, Netz-Rundruf, Gateway).
+  - **Fehler, behoben:** Der Dateidienst entstand, als der Gastgeber noch ans Heim-WLAN gebunden war. Ein so entstandener Listener antwortet nur über das gebundene Netz: Die Einladungsseite war aus dem Spiel-WLAN nicht erreichbar, der Verbindungsaufbau hing. Jetzt merkt sich `NetLobby._serve_files`, ob der Prozess beim Anlegen gebunden war. Ist die Bindung gelöst, legt `_restart_service` den Dienst ungebunden neu an, aber nicht während einer Sendung. Die Seitenangaben setzt `NetInvite.page_changed` neu.
+  - **Weitere Befunde der Prüfung, behoben:**
+    - Android 12 übergeht eine Anfrage nach nur dem genauen Standort. `GameWifi.requestPermission` fragt bis Android 12 deshalb genauen und groben Standort zusammen an; `ACCESS_COARSE_LOCATION` steht mit `maxSdkVersion` 32 im Manifest.
+    - Bleibt die Antwort auf den Erlaubnisdialog aus, liest `NetInvite` den Stand selbst und gibt nach 60 s mit „Erlaubnis fehlt“ auf, statt endlos „wird geöffnet …“ zu zeigen.
+    - Wird das Spiel-WLAN geschlossen, während es noch aufgeht, verwirft `GameWifi` den überholten Rückruf (Generation) und schließt eine doch noch erteilte Reservation sofort.
+    - Android 7: Keine Signatur in `GameWifi` nennt mehr Typen ab API 26 (Reservation als `AutoCloseable`). Godot liest die Methoden per Reflexion, das hätte dort fehlschlagen können.
+    - Der Dateidienst nimmt 16 statt 4 Verbindungen an (Browser öffnen Vorab-Verbindungen). Gleichzeitige APK-Sendungen bleiben auf 4 begrenzt, eine fünfte bekommt 503 mit kurzem Text.
+    - `NetHelper.interfaceArray`: Ohne jede Schnittstelle liefert Android `null`. Das trat am S10 auf, als das Spiel-WLAN verschwand, und der ganze Netzstatus fiel aus.
+  - Grenze der gesperrten Testhandys: Beim Wechsel ins Netz ohne Internet holt das S10 den Sperrbildschirm nach vorn, vermutlich wegen eines Systemhinweises. Tipps landen dann dort. „cmd …“ und „am start“ scheitern aus einem per nohup gestarteten Skript, sobald adb abgerissen ist; `screencap`, `input` und `nc` gehen.
+- **Nachtest mit der korrigierten APK (S21/S10, 13.10.2026):**
+  - Das S21 legt den Dateidienst nach dem Öffnen des Spiel-WLANs ungebunden neu an (Protokoll: „läuft (gebunden)“, dann „neu angelegt“).
+  - Beide QR-Codes ließen sich aus einem Bildschirmfoto des S21 mit quirc lesen: `WIFI:T:WPA;S:AndroidShare_2646;P:…;;` und `http://192.168.35.250:24683/`.
+  - Das S10 im Spiel-WLAN (192.168.35.108) fand das Spiel. Es lud die Einladungsseite (200, 2190 Byte) und die APK (299 MB in 34,7 s). ① trug danach den Haken, ② leuchtete.
+  - Im Heim-WLAN getestet:
+    - App-Link `draw2race://join?h=…&p=24680` bei laufender App: Beitritt.
+    - Eingespeister Spiel-QR (`--es d2r_scan`): gescannt, beigetreten.
+    - Eingespeister WLAN-QR: Anfrage gestellt. Da der Systemdialog gesperrt nicht bestätigt werden kann, lief sie nach 120 s ab. Die App gab sie frei und zeigte „Keine Verbindung zum Spiel-WLAN …“, die Liste rückte darunter.
+  - Danach Ausgangszustand: Heim-WLAN, Testschalter auf INFO, Erlaubnis am S21 entzogen, die Test-Netze auf dem S10 gelöscht, Draw2Race 1.0.2 bleibt installiert.
+- **Offen (Gerät):**
+  - Beitritt in der App aus dem Spiel-WLAN heraus. Am gesperrten S10 lag die Sperre vorn. Die Suche lief dort über dieselben ungebundenen UDP-Sockets wie ENet.
+  - Der Scanner-Weg „WLAN-QR → selbst verbinden“ bis zum Ende, also Systemdialog bestätigen und am Gateway beitreten. Dazu braucht es ein entsperrtes Handy.
+  - Android 16 (S24, nur nach Absprache): Spiel-WLAN beim Eröffnen ohne anderes Netz. Der Gastgeber bleibt dann ungebunden; ob das unter 16 reicht, ist ungeprüft (wie in Mau-Mau Flip offen).
+  - Warnungen von Chrome und Samsung Internet beim APK-Download über http.
+  - Scanner-Modul ohne Internet beim allerersten Scan.

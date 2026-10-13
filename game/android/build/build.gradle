@@ -43,6 +43,9 @@ dependencies {
 
     implementation "androidx.fragment:fragment:$versions.fragmentVersion"
     implementation "androidx.core:core-splashscreen:$versions.splashscreenVersion"
+    // Draw2Race (Beta 1.0.2, QrScan.java): Google Code Scanner – QR-Codes über die Google-Play-Dienste, ohne Kamera-Erlaubnis.
+    // Nach einem Neuinstallieren der Android-Vorlage (game/android/build) diese Zeile wieder eintragen.
+    implementation "com.google.android.gms:play-services-code-scanner:16.1.0"
 
     if (rootProject.findProject(":lib")) {
         implementation project(":lib")

@@ -274,7 +274,8 @@ func _show_gate(entry: Array) -> void:
 	if control is BaseButton:
 		(control as BaseButton).disabled = loading or bool(entry[2])
 
-func header(tag: String) -> void:
+func header(tag: String) -> Panel:
+	# Kopfleiste; zurück kommt die Leiste selbst (z. B. für „Mitspieler einladen“ in der WLAN-Lobby).
 	var bar := panel(content,Rect2(32,26,1376,84))
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label(bar,"DRAW",Vector2(25,12),32)
@@ -293,12 +294,12 @@ func header(tag: String) -> void:
 	bar.add_child(secret)
 	if app.phase == "party_setup":
 		button(bar,"Zurück",Rect2(1221,15,130,54),app.show_menu)
-		return
+		return bar
 	if app.phase in ["party_garage","net_garage"]:
 		# Mehrspieler-Garage: zurück zu den Einstellungen bzw. in die Lobby (die Wahl gilt schon).
 		var back := button(bar,"Zurück",Rect2(1221,15,130,54),app.close_garage)
 		back.name = "GarageBack"
-		return
+		return bar
 	if app.phase.begins_with("net_") or app.lobby != null:
 		# WLAN-Mehrspieler (auch beim Zeichnen): kein Pausemenü, sondern Zurück mit Nachfrage (LobbyScreens.go_back).
 		var in_round: bool = app.phase not in ["net_menu", "net_lobby"]
@@ -306,17 +307,18 @@ func header(tag: String) -> void:
 		var shown := "Zurück" if app.phase == "net_menu" else ("Lobby" if app.phase == "result" and host else ("Abbrechen" if in_round and host else "Verlassen"))
 		var leave := button(bar,shown,Rect2(1191,15,160,54),app.go_back)
 		leave.name = "NetBack"
-		return
+		return bar
 	if app.party != null and app.phase == "result":
 		# Mehrspieler-Wertung: pause_game() hält hier absichtlich nichts an (auch bei Fokusverlust), der Knopf führt direkt ins Menü.
 		button(bar,"Menü",Rect2(1221,15,130,54),app.show_menu)
-		return
+		return bar
 	button(bar,"Menü" if app.phase != "menu" else "Optionen",Rect2(1221,15,130,54),app.pause_game if app.phase != "menu" else settings)
 	if app.phase == "menu":
 		button(bar,"Bestenliste",Rect2(1041,15,168,54),func(): leaderboard(app.track_id,app.stage))
 		if app.updater.available():
 			# Hinweis im Menü, sobald eine neuere Version auf GitHub liegt.
 			button(bar,"Update  ↓",Rect2(861,15,168,54),update_dialog,true)
+	return bar
 
 func menu() -> void:
 	clear()

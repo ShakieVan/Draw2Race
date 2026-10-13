@@ -33,6 +33,8 @@ package com.godot.game;
 import org.godotengine.godot.Godot;
 import org.godotengine.godot.GodotActivity;
 
+import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 
@@ -65,16 +67,55 @@ public class GodotApp extends GodotActivity {
 		}
 	};
 
+	// Draw2Race (Beta 1.0.2, übernommen aus Mau-Mau Flip 1.6.1, Gerätetest mit gesperrten Testhandys): Ist die Eigenschaft
+	// log.tag.Draw2RaceTestLock auf VERBOSE gesetzt, erscheint die App über dem Sperrbildschirm und schaltet ihn dabei ein. Das Handy
+	// bleibt gesperrt: Home, Benachrichtigungen und jede andere App (Browser, Installationsdialog, Systemdialoge) liegen weiter hinter
+	// der Sperre. Setzen kann die Eigenschaft nur adb, keine App; beim Neustart verfällt sie.
+	//   adb shell setprop log.tag.Draw2RaceTestLock VERBOSE      (aus: … INFO)
+	//   adb shell am start -n de.draw2race.game/com.godot.game.GodotAppLauncher
+	private static final String TEST_LOCK_TAG = "Draw2RaceTestLock";
+
+	private void applyTestLock() {
+		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
+			return;
+		}
+		try {
+			boolean on = Log.isLoggable(TEST_LOCK_TAG, Log.VERBOSE);
+			setShowWhenLocked(on);
+			setTurnScreenOn(on);
+		} catch (Throwable ignored) {
+		}
+	}
+
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
 		SplashScreen.installSplashScreen(this);
 		EdgeToEdge.enable(this);
 		super.onCreate(savedInstanceState);
+		applyTestLock();
+		// Draw2Race (Beta 1.0.2, Spiel-WLAN): App-Link draw2race://join?h=…&p=… merken (AppLink.java) und den Testeinstieg
+		// „gescannter Text“ (Extra d2r_scan, QrScan.java). Nicht nach einer Wiederherstellung oder aus dem Verlauf, sonst träte die
+		// App einem alten Spiel erneut bei.
+		Intent start = getIntent();
+		if (savedInstanceState == null && start != null
+				&& (start.getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0) {
+			AppLink.remember(start);
+			QrScan.remember(start);
+		}
+	}
+
+	@Override
+	public void onNewIntent(Intent intent) {
+		super.onNewIntent(intent);
+		applyTestLock();
+		AppLink.remember(intent);
+		QrScan.remember(intent);
 	}
 
 	@Override
 	public void onResume() {
 		super.onResume();
+		applyTestLock();
 		updateWindowAppearance.run();
 	}
 

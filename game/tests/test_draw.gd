@@ -409,7 +409,8 @@ func test_ui() -> void:
 	rita.start_round()
 	ok = await frames_until(func(): return app.phase == "net_round")
 	rita.report_loaded(NetLobby.track_file_hash("forest"), circuit("forest"))
-	ok = await frames_until(func(): return app.phase == "net_countdown")
+	# Die Oberfläche lädt dabei den Wald (Welt im Hintergrund); unter Last brauchte das am 13.10.2026 mehr als 4 s (auch mit Stand 1.0.1).
+	ok = await frames_until(func(): return app.phase == "net_countdown", 10000)
 	check(ok and node(app, "DrawCountdown") != null and app.world.visible and app.track_id == "forest", "Alle geladen → gemeinsames 3-2-1 über der Strecke")
 	ok = await frames_until(func(): return app.phase == "draw")
 	check(ok and node(app, "DrawStatus") != null and any_text(app, "Du: Shakie") and any_text(app, "zeichnet … 0 %"), "Nach dem Countdown: normale Zeichenansicht mit eigenem Schild und Stand der anderen")

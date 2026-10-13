@@ -320,7 +320,7 @@ static func host_plan(s: Dictionary, sockets = null) -> Dictionary:
 	var hint := ""
 	var warn := true
 	if not spots.is_empty() and tied == "wifi":
-		hint = "Dein Hotspot ging erst nach dem Eröffnen an. Hotspot-Mitspieler kommen erst rein, wenn du das Spiel neu eröffnest."
+		hint = "Dein Hotspot bzw. Spiel-WLAN ging erst an, als schon jemand da war. Mitspieler darin kommen erst rein, wenn du das Spiel neu eröffnest."
 	elif not wlan.is_empty() and tied == "hotspot":
 		hint = "Dein WLAN ging erst nach dem Eröffnen an. Mitspieler im WLAN kommen erst rein, wenn du das Spiel neu eröffnest."
 	elif not wlan.is_empty() and not reach.has("wlan") and not spots.is_empty():
@@ -336,3 +336,224 @@ static func host_frees(s: Dictionary, sockets: String) -> bool:
 	# Gastgeber: Schließt die Bindung seiner Sockets ein inzwischen vorhandenes Netz aus (ans WLAN gebunden, der Hotspot ging an; an den
 	# Hotspot gebunden, ein WLAN kam dazu)? Dann ungebunden weiter – nie neu binden, solange er Gastgeber ist.
 	return (sockets == "wifi" and not hotspot_addresses(s).is_empty()) or (sockets == "hotspot" and not wifi_addresses(s).is_empty())
+
+# --- Spiel-WLAN (Beta 1.0.2, übernommen aus Mau-Mau Flip): eigenes WLAN per LocalOnlyHotspot (android/build/.../GameWifi.java) ---
+# Der Gastgeber öffnet es in der Lobby („Mitspieler einladen“, NetInvite/InvitePanel). Name und Passwort vergibt Android je Sitzung
+# zufällig; kein Internet für die Gäste. Es endet mit „Spiel-WLAN schließen“, beim Verlassen des WLAN-Mehrspielers oder mit der App
+# (Android kann es auch selbst beenden, z. B. im Hintergrund). Für die Bindungsregeln ist es ein eigener Hotspot (hotspot_interfaces,
+# host_plan): bis Android 15 nur eine Schnittstelle (Samsung swlan0), ab Android 16 ein lokales Netz. Der normale Hotspot des Nutzers
+# wird nie geändert. Am PC und in Tests ersetzt wifi_stub den Java-Helfer: {start_error: "" | Fehlercode, ssid, password, security,
+# address, granted, dialog (Erlaubnis per Systemdialog statt sofort abgelehnt), sdk, ap_enabled, location_on}.
+
+static var wifi_stub = null              # Dictionary = Simulation statt Java (PC, Tests); null = echtes Android bzw. nicht verfügbar
+static var _stub_state := {}
+
+static func _wifi_java() -> Array:
+	if OS.get_name() != "Android" or not Engine.has_singleton("AndroidRuntime"):
+		return []
+	var activity = Engine.get_singleton("AndroidRuntime").getActivity()
+	var java = JavaClassWrapper.wrap("com.godot.game.GameWifi")
+	return [java, activity] if java != null and activity != null else []
+
+static func game_wifi_available() -> bool:
+	return wifi_stub is Dictionary or not _wifi_java().is_empty()
+
+static func game_wifi_permission() -> String:
+	# Nötige Laufzeit-Erlaubnis: ab Android 13 „Geräte in der Nähe“, bis 12 der genaue Standort.
+	var j := _wifi_java()
+	if not j.is_empty():
+		return str(j[0].requiredPermission())
+	return "android.permission.NEARBY_WIFI_DEVICES" if int((wifi_stub if wifi_stub is Dictionary else {}).get("sdk", 34)) >= 33 \
+		else "android.permission.ACCESS_FINE_LOCATION"
+
+static func game_wifi_request_permission() -> bool:
+	# Erlaubnis anfragen (GameWifi.requestPermission: bis Android 12 genauer und grober Standort zusammen – Android 12 übergeht eine
+	# Anfrage nach nur dem genauen). true = schon erteilt; false = Systemdialog offen, die Antwort kommt über
+	# SceneTree.on_request_permissions_result. Ersatz: granted.
+	if wifi_stub is Dictionary:
+		return bool(wifi_stub.get("granted", true))
+	var j := _wifi_java()
+	if not j.is_empty():
+		return bool(j[0].requestPermission(j[1]))
+	return OS.request_permission(game_wifi_permission())
+
+static func game_wifi_start() -> String:
+	# "" = Start angestoßen (Ergebnis über game_wifi_state()), sonst Fehlercode.
+	if wifi_stub is Dictionary:
+		var err := str(wifi_stub.get("start_error", ""))
+		if not bool(wifi_stub.get("granted", true)):
+			err = "permission"
+		_stub_state = {"status": "failed" if err != "" else "on", "error": err}
+		return err
+	var j := _wifi_java()
+	if j.is_empty():
+		return "unsupported"
+	return str(j[0].startHotspot(j[1]))
+
+static func game_wifi_stop() -> bool:
+	# Spiel-WLAN schließen. true = es lief.
+	if wifi_stub is Dictionary:
+		var was := str(_stub_state.get("status", "")) == "on"
+		_stub_state = {"status": "off", "error": ""}
+		return was
+	var j := _wifi_java()
+	return not j.is_empty() and bool(j[0].stopHotspot())
+
+static func game_wifi_state() -> Dictionary:
+	# {status: off|starting|on|failed|stopped, ssid, password, security, error, sdk, permission, granted, location_on, ap_enabled
+	# (1 an, 0 aus, -1 unbekannt), concurrency}. Ohne Android und Stub: status "failed", error "unsupported".
+	if wifi_stub is Dictionary:
+		var on := str(_stub_state.get("status", "off")) == "on"
+		return {"status": str(_stub_state.get("status", "off")), "error": str(_stub_state.get("error", "")),
+			"ssid": str(wifi_stub.get("ssid", "AndroidShare_4821")) if on else "",
+			"password": str(wifi_stub.get("password", "k7m3x9q2w5r8t4z")) if on else "",
+			"security": str(wifi_stub.get("security", "wpa2")) if on else "", "sdk": int(wifi_stub.get("sdk", 34)),
+			"permission": game_wifi_permission(), "granted": bool(wifi_stub.get("granted", true)),
+			"location_on": bool(wifi_stub.get("location_on", true)), "ap_enabled": int(wifi_stub.get("ap_enabled", 0)), "concurrency": true}
+	var j := _wifi_java()
+	if j.is_empty():
+		return {"status": "failed", "error": "unsupported"}
+	var data = _json(j[0].hotspotState(j[1]))
+	return data if data is Dictionary else {"status": "failed", "error": "exception"}
+
+static func stub_stop_game_wifi() -> void:
+	# Nur Tests: Android beendet das Spiel-WLAN von selbst (z. B. im Hintergrund).
+	_stub_state = {"status": "stopped", "error": ""}
+
+static func wifi_qr_escape(text: String) -> String:
+	# Sonderzeichen im WLAN-QR-Code (ZXing-Format): \ ; , : " mit vorangestelltem Backslash.
+	var out := ""
+	for ch in text:
+		if ch in ["\\", ";", ",", ":", "\""]:
+			out += "\\"
+		out += ch
+	return out
+
+static func wifi_qr_text(ssid: String, password: String, security := "wpa2") -> String:
+	# WLAN-QR-Code: WIFI:T:WPA;S:<ssid>;P:<passwort>;; – T steht auch bei WPA3 auf WPA (T:SAE erkennen viele Leser nicht).
+	if security == "open" or password == "":
+		return "WIFI:T:nopass;S:%s;;" % wifi_qr_escape(ssid)
+	return "WIFI:T:WPA;S:%s;P:%s;;" % [wifi_qr_escape(ssid), wifi_qr_escape(password)]
+
+static func game_wifi_address(s: Dictionary, before: Array = []) -> String:
+	# Eigene Adresse im Spiel-WLAN aus den Netzwerkschnittstellen (nie 192.168 annehmen): eine Hotspot-Schnittstelle, bevorzugt eine,
+	# die erst nach dem Start erschien (before = Hotspot-Adressen davor). "" = noch keine.
+	var spots := hotspot_interfaces(s)
+	for i in spots:
+		if not before.has(str(i.address)):
+			return str(i.address)
+	return str(spots[0].address) if not spots.is_empty() else ""
+
+static func game_wifi_message(st: Dictionary) -> Dictionary:
+	# Deutscher Text zum Zustand: {title, text, retry (erneut versuchen sinnvoll), settings (App-Einstellungen öffnen hilft)}.
+	var err := str(st.get("error", ""))
+	var status := str(st.get("status", "off"))
+	var old := int(st.get("sdk", 33)) < 33
+	if status == "on":
+		return {"title": "Spiel-WLAN ist offen", "text": "Kein Internet für die Mitspieler – das ist normal. Es endet, wenn du den WLAN-Mehrspieler verlässt.",
+			"retry": false, "settings": false}
+	if status == "starting":
+		return {"title": "Spiel-WLAN wird geöffnet …", "text": "", "retry": false, "settings": false}
+	if status == "stopped":
+		return {"title": "Spiel-WLAN beendet", "text": "Android hat das Spiel-WLAN geschlossen (z. B. weil die App im Hintergrund war). Tippe auf „Neu öffnen“ – Name und Passwort ändern sich dabei.",
+			"retry": true, "settings": false}
+	match err:
+		"permission":
+			return {"title": "Erlaubnis fehlt", "text": ("Ohne die Erlaubnis „Standort“ kann die App bis Android 12 kein Spiel-WLAN öffnen. Den Standort selbst nutzt sie nicht."
+				if old else "Ohne die Erlaubnis „Geräte in der Nähe“ kann die App kein Spiel-WLAN öffnen.")
+				+ " Erlaube sie beim nächsten Versuch oder in den App-Einstellungen unter „Berechtigungen“.", "retry": true, "settings": true}
+		"location_off":
+			return {"title": "Standort ist aus", "text": "Bis Android 12 braucht das Spiel-WLAN den eingeschalteten Standort. Schalte ihn in den Schnelleinstellungen ein und tippe erneut.",
+				"retry": true, "settings": false}
+		"incompatible_mode", "ap_running":
+			return {"title": "Dein Hotspot läuft", "text": "Beides gleichzeitig geht nicht. Schalte deinen normalen Hotspot in den Schnelleinstellungen aus – die App ändert ihn nie. Oder lass ihn an und verbinde die anderen damit.",
+				"retry": true, "settings": false}
+		"no_channel":
+			return {"title": "Kein freier Funkkanal", "text": "Android hat gerade keinen Kanal fürs Spiel-WLAN gefunden. Versuch es gleich noch einmal.", "retry": true, "settings": false}
+		"tethering_disallowed":
+			return {"title": "Auf diesem Handy gesperrt", "text": "Ein eigenes WLAN ist hier nicht erlaubt (z. B. Firmen-Handy oder Mobilfunkanbieter). Nimm ein anderes Handy als Gastgeber.",
+				"retry": false, "settings": false}
+		"unsupported":
+			return {"title": "Nicht verfügbar", "text": "Ein Spiel-WLAN geht nur auf Android 8 oder neuer.", "retry": false, "settings": false}
+		"":
+			return {"title": "Spiel-WLAN", "text": "Öffnet ein eigenes WLAN ohne Internet – für unterwegs oder wenn sich die Handys im Hotel- oder Gäste-WLAN nicht sehen.", "retry": true, "settings": false}
+	return {"title": "Hat nicht geklappt", "text": "Das Spiel-WLAN ließ sich nicht öffnen. Versuch es noch einmal oder nutze deinen normalen Hotspot.", "retry": true, "settings": false}
+
+# --- Einladung (② Spiel-QR) und App-Link (Beta 1.0.2) ---
+# Der Spiel-QR führt auf die Einladungsseite, die der Dateidienst des Gastgebers ausliefert (NetApk, Port 24683): App herunterladen
+# (ohne Internet) oder „In Draw2Race öffnen“ über den App-Link draw2race://join?h=<IP>&p=<Port>. GodotApp.java merkt das Intent
+# (AppLink.java), main.gd holt es ab (take_app_link). Am PC und in Tests ersetzt app_link_stub den Java-Helfer (String = wartender
+# Link, wird beim Abholen geleert).
+
+const APP_LINK_SCHEME := "draw2race"
+const APP_PACKAGE := "de.draw2race.game"
+static var app_link_stub = null
+
+static func take_app_link() -> String:
+	# Wartenden App-Link abholen und vergessen ("" = keiner).
+	if app_link_stub is String:
+		var t: String = app_link_stub
+		app_link_stub = null
+		return t
+	if OS.get_name() != "Android" or not Engine.has_singleton("AndroidRuntime"):
+		return ""
+	var java = JavaClassWrapper.wrap("com.godot.game.AppLink")
+	return str(java.take()) if java != null else ""
+
+static func private_ipv4(ip: String) -> bool:
+	# Adresse in einem privaten Netz (10/8, 172.16/12, 192.168/16) – nur dorthin tritt die App per Link bei.
+	var parts := ip.split(".")
+	if parts.size() != 4:
+		return false
+	for p in parts:
+		if not p.is_valid_int() or int(p) < 0 or int(p) > 255 or p.length() > 3:
+			return false
+	var a := int(parts[0])
+	var b := int(parts[1])
+	return a == 10 or (a == 172 and b >= 16 and b <= 31) or (a == 192 and b == 168)
+
+static func invite_url(address: String, page_port: int, game_port := Proto.GAME_PORT) -> String:
+	# Inhalt des Spiel-QR-Codes: Einladungsseite des Gastgebers; der Spielport steht nur dabei, wenn er vom festen abweicht (Tests).
+	if address == "":
+		return ""
+	return "http://%s:%d/%s" % [address, page_port, "?p=%d" % game_port if game_port != Proto.GAME_PORT else ""]
+
+static func app_link_url(address: String, port: int) -> String:
+	return "%s://join?h=%s&p=%d" % [APP_LINK_SCHEME, address, port]
+
+static func app_intent_url(address: String, port: int, fallback: String) -> String:
+	# Für Chrome und Samsung Internet: intent:// öffnet die App; ohne App bleibt der Browser auf fallback (Einladungsseite).
+	return "intent://join?h=%s&p=%d#Intent;scheme=%s;package=%s;S.browser_fallback_url=%s;end" % [address, port, APP_LINK_SCHEME,
+		APP_PACKAGE, fallback.uri_encode()]
+
+static func parse_app_link(link: String) -> Dictionary:
+	# {ok, address, port, error}; error ist ein kurzer deutscher Satz für den Nutzer.
+	var bad := {"ok": false, "address": "", "port": 0,
+		"error": "Der Link zum Spiel ist unvollständig. Scanne den QR-Code beim Gastgeber noch einmal."}
+	var t := link.strip_edges()
+	var prefix := APP_LINK_SCHEME + "://join"
+	if not t.to_lower().begins_with(prefix):
+		return bad
+	t = t.substr(prefix.length())
+	var hash_at := t.find("#")
+	if hash_at >= 0:
+		t = t.substr(0, hash_at)
+	t = t.trim_prefix("/")
+	if not t.begins_with("?"):
+		return bad
+	var query := {}
+	for pair in t.substr(1).split("&", false):
+		var eq := pair.find("=")
+		if eq > 0:
+			query[pair.substr(0, eq).to_lower()] = pair.substr(eq + 1).uri_decode().strip_edges()
+	var address := str(query.get("h", ""))
+	var port_text := str(query.get("p", str(Proto.GAME_PORT)))
+	if address == "" or not port_text.is_valid_int():
+		return bad
+	var port := int(port_text)
+	if port < 1 or port > 65535:
+		return bad
+	if not private_ipv4(address) and address != "127.0.0.1":     # 127.0.0.1: das eigene Gerät (harmlos, für Tests)
+		return {"ok": false, "address": address, "port": port,
+			"error": "Dieser Link führt nicht zu einem Spiel in deiner Nähe. Die App tritt nur Spielen im selben WLAN bei."}
+	return {"ok": true, "address": address, "port": port, "error": ""}

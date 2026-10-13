@@ -14,6 +14,7 @@ extends RefCounted
 # laufen in eigenen Threads, der Hauptthread fragt nur Zahlen ab (poll, progress). Der Empfang rechnet SHA-256 beim Laden mit und
 # übernimmt die Datei nur bei passender Größe und Prüfsumme; die Installation prüft danach Paket, höhere Versionsnummer und
 # identische Signatur (Updater.install_file → Updater.java). Sockets entstehen nach den WLAN-Bindungsregeln von NetLobby.
+# Derselbe Dienst liefert seit Beta 1.0.2 die Einladungsseite des Spiel-QR-Codes aus (unten, set_page): App öffnen oder herunterladen.
 
 signal log_line(text: String)
 
@@ -26,7 +27,8 @@ const CONNECT_RETRY_MS := 6000          # „Verbindung abgelehnt“ so lange wi
 const HEADER_TIMEOUT_MS := 15000
 const STALL_MS := 20000                 # so lange ohne ein Byte → abbrechen
 const PREPARE_WAIT_MS := 120000         # 503: so lange auf die Vorbereitung der Gegenseite warten
-const MAX_SENDS := 4                    # gleichzeitige Sendungen
+const MAX_SENDS := 4                    # gleichzeitige Sendungen (APK)
+const MAX_HANDLERS := 16                # gleichzeitige Verbindungen (Seitenaufrufe, Vorab-Verbindungen der Browser, Sendungen)
 const VERSION_CODES := ["game", "protocol"]
 const STATES_ACTIVE := ["connect", "wait", "load", "check"]
 
@@ -112,8 +114,9 @@ var _server: TCPServer
 var _server_thread: Thread
 var _stop := false
 var _file := {}                 # {path, size, sha256}; leer = Datei wird noch vorbereitet (503)
+var _page := {}                 # Einladungsseite (set_page); leer = keine Seite
 var serve_port := 0
-var _stats := {"served": 0, "aborted": 0, "sending": 0, "sent": 0}
+var _stats := {"served": 0, "aborted": 0, "sending": 0, "sent": 0, "pages": 0, "downloads": 0}
 var max_rate := 0               # nur Tests: Bytes/s je Sendung (0 = unbegrenzt)
 var corrupt_at := -1            # nur Tests: dieses Byte verfälscht senden (der Empfänger muss die Datei ablehnen)
 var _fetch_thread: Thread
@@ -202,7 +205,7 @@ func has_file() -> bool:
 	return v
 
 func stats() -> Dictionary:
-	# {served, aborted, sending, sent (Bytes)} des Dienstes.
+	# {served, aborted, sending, sent (Bytes), pages (Einladungsseite ausgeliefert), downloads (APK über die Seite)} des Dienstes.
 	_mutex.lock()
 	var out := _stats.duplicate()
 	_mutex.unlock()
@@ -219,6 +222,7 @@ func stop_serving() -> void:
 	_server = null
 	serve_port = 0
 	set_file("", 0, "")
+	set_page({})
 
 func _serve_loop() -> void:
 	var handlers: Array = []
@@ -228,7 +232,7 @@ func _serve_loop() -> void:
 			if peer == null:
 				break
 			_reap(handlers)
-			if handlers.size() >= MAX_SENDS:
+			if handlers.size() >= MAX_HANDLERS:
 				_reply(peer, 503, "Service Unavailable", "Retry-After: 2\r\n")
 				continue
 			var t := Thread.new()
@@ -256,8 +260,15 @@ func _send(peer: StreamPeerTCP) -> void:
 	var first := str(head[0]).get_slice("\r\n", 0).split(" ")
 	_mutex.lock()
 	var file := _file.duplicate()
+	var page := _page.duplicate()
 	_mutex.unlock()
-	if first.size() < 2 or first[0] != "GET":
+	if first.size() < 2:
+		_reply(peer, 400, "Bad Request")
+		return
+	if not page.is_empty() and first[0] in ["GET", "HEAD"] and invite_route(str(first[1]), str(page.get("version", ""))) != "":
+		_invite(peer, who, first[0] == "HEAD", str(first[1]), str(head[0]), page, file)
+		return
+	if first[0] != "GET":
 		_reply(peer, 400, "Bad Request")
 		return
 	if file.is_empty():
@@ -267,15 +278,36 @@ func _send(peer: StreamPeerTCP) -> void:
 		_log("Anfrage von %s nach %s abgelehnt (andere Datei)" % [who, first[1].left(80)])
 		_reply(peer, 404, "Not Found")
 		return
+	_send_file(peer, who, file, "Draw2Race.apk", false)
+
+func _send_file(peer: StreamPeerTCP, who: String, file: Dictionary, filename: String, head_only: bool) -> bool:
+	# APK senden (Weitergabe zwischen zwei Apps bzw. Download im Browser von der Einladungsseite). true = vollständig gesendet.
 	var f := FileAccess.open(str(file.path), FileAccess.READ)
 	if f == null or f.get_length() != int(file.size):
 		_log("Datei %s nicht lesbar oder Größe falsch" % file.path)
 		_reply(peer, 500, "Internal Server Error")
-		return
+		return false
 	var size := int(file.size)
 	var header := ("HTTP/1.1 200 OK\r\nContent-Type: application/vnd.android.package-archive\r\nContent-Length: %d\r\n" +
-		"Content-Disposition: attachment; filename=\"Draw2Race.apk\"\r\nConnection: close\r\n\r\n") % size
-	_count("sending", 1)
+		"Content-Disposition: attachment; filename=\"%s\"\r\nConnection: close\r\n\r\n") % [size, filename]
+	if head_only:
+		f.close()
+		_write_all(peer, header.to_ascii_buffer())
+		_linger(peer, 2000)
+		return false
+	_mutex.lock()
+	var full := int(_stats.sending) >= MAX_SENDS
+	if not full:
+		_stats.sending = int(_stats.sending) + 1
+	_mutex.unlock()
+	if full:
+		# Schon MAX_SENDS Sendungen: später noch einmal (der Browser zeigt den kurzen Text).
+		f.close()
+		var note := "Gerade laden schon mehrere Handys. Bitte gleich noch einmal versuchen.".to_utf8_buffer()
+		_write_all(peer, ("HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: %d\r\n" % note.size() +
+			"Retry-After: 5\r\nConnection: close\r\n\r\n").to_ascii_buffer() + note)
+		_linger(peer, 2000)
+		return false
 	_log("Sende %s MB an %s" % [megabytes(size), who])
 	var t0 := Time.get_ticks_msec()
 	var ok := _write_all(peer, header.to_ascii_buffer()) and _stream(peer, f, size)
@@ -285,15 +317,142 @@ func _send(peer: StreamPeerTCP) -> void:
 	_log(("Gesendet an %s in %.1f s" % [who, (Time.get_ticks_msec() - t0) / 1000.0]) if ok else "Sendung an %s abgebrochen" % who)
 	if ok:
 		# Erst trennen, wenn der Empfänger alles hat und selbst trennt (sonst könnten die letzten Bytes verloren gehen), höchstens 10 s.
-		var end := Time.get_ticks_msec() + 10000
-		while Time.get_ticks_msec() < end and not _stopping():
-			peer.poll()
-			if peer.get_status() != StreamPeerTCP.STATUS_CONNECTED:
-				break
-			if peer.get_available_bytes() > 0:
-				peer.get_partial_data(peer.get_available_bytes())
-			OS.delay_msec(5)
+		_linger(peer, 10000)
 	peer.disconnect_from_host()
+	return ok
+
+func _linger(peer: StreamPeerTCP, ms: int) -> void:
+	var end := Time.get_ticks_msec() + ms
+	while Time.get_ticks_msec() < end and not _stopping():
+		peer.poll()
+		if peer.get_status() != StreamPeerTCP.STATUS_CONNECTED:
+			break
+		if peer.get_available_bytes() > 0:
+			peer.get_partial_data(peer.get_available_bytes())
+		OS.delay_msec(5)
+	peer.disconnect_from_host()
+
+# ---------- Einladungsseite (Spiel-WLAN, Beta 1.0.2) ----------
+# Der Spiel-QR des Gastgebers (NetInvite) zeigt auf http://<IP>:PORT/. Mit der Handykamera gescannt öffnet sich im Browser diese Seite:
+# „In Draw2Race öffnen“ (App-Link, tritt direkt bei) und – ohne App – die APK zum Herunterladen, ganz ohne Internet. Nur Geräte aus
+# privaten Netzen (und 127.0.0.1) bekommen Seite und Datei; die Weitergabe zwischen zwei Apps (/draw2race-<sha256>.apk) bleibt davon
+# unberührt. Die Seite gibt es nur, solange set_page() Angaben hat; die APK, sobald set_file() sie bereitgestellt hat (vorher zeigt die
+# Seite den Fortschritt der Vorbereitung und lädt sich neu).
+
+func set_page(info: Dictionary) -> void:
+	# {name (Gastgeber), version, address (eigene Adresse für den App-Link, falls der Browser keine passende nennt), game_port, apk
+	# (bool: App zum Herunterladen vorhanden), size (Byte), prepare (Text, solange die Datei vorbereitet wird)}; {} = keine Seite.
+	_mutex.lock()
+	_page = info.duplicate()
+	_mutex.unlock()
+
+func page_on() -> bool:
+	_mutex.lock()
+	var v := not _page.is_empty()
+	_mutex.unlock()
+	return v
+
+static func download_name(version: String) -> String:
+	return "Draw2Race-%s.apk" % version
+
+static func invite_route(target: String, version: String) -> String:
+	# "page" | "download" | "icon" | "" (keine Seite der Einladung).
+	var path := target.get_slice("?", 0).get_slice("#", 0)
+	if path == "/" or path == "/index.html":
+		return "page"
+	if path == "/" + download_name(version):
+		return "download"
+	if path == "/favicon.ico":
+		return "icon"
+	return ""
+
+static func peer_ip(text: String) -> String:
+	# Adresse des Gegenübers ohne IPv4-in-IPv6-Vorsatz (Godot lauscht auf „*“ mit beiden Familien).
+	return text.trim_prefix("::ffff:").trim_prefix("::FFFF:")
+
+static func nearby(ip: String) -> bool:
+	return ip == "127.0.0.1" or NetAndroid.private_ipv4(ip)
+
+static func host_header(head: String) -> String:
+	# Host-Kopfzeile ohne Port ("" = keine).
+	for line in head.split("\r\n"):
+		if line.to_lower().begins_with("host:"):
+			var value := line.substr(5).strip_edges()
+			return value.get_slice(":", 0) if not value.begins_with("[") else ""
+	return ""
+
+static func page_html(info: Dictionary, address: String, page_port: int, ready: bool, query := "") -> String:
+	# Einladungsseite als HTML (deutsch, ohne Skripte, für schmale Handybildschirme). address = IP des Gastgebers, wie sie der Browser
+	# benutzt hat (für den App-Link); query enthält „ohne-app“, wenn der App-Link ohne installierte App zurückkam.
+	var name := str(info.get("name", "Der Gastgeber")).xml_escape()
+	var version := str(info.get("version", ""))
+	var game_port := int(info.get("game_port", NetProtocol.GAME_PORT))
+	var back := "http://%s:%d/?ohne-app" % [address, page_port]
+	var intent := NetAndroid.app_intent_url(address, game_port, back).xml_escape()
+	var preparing := bool(info.get("apk", false)) and not ready
+	var out := "<!doctype html>\n<html lang=\"de\"><head><meta charset=\"utf-8\">\n"
+	out += "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n"
+	if preparing:
+		out += "<meta http-equiv=\"refresh\" content=\"3\">\n"
+	out += "<title>Draw2Race – Einladung von %s</title>\n" % name
+	out += "<style>body{margin:0;background:#f4f0e5;color:#173a40;font:18px/1.45 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}" + \
+		"main{max-width:560px;margin:0 auto;padding:20px 16px 40px}h1{font-size:30px;margin:4px 0 2px;letter-spacing:.5px}h1 b{color:#ed6948}" + \
+		"h2{font-size:20px;margin:4px 0 8px}.lead{color:#617578;margin:0 0 16px}.card{background:#fff;border-radius:18px;padding:14px 16px;margin:14px 0}" + \
+		".btn{display:block;text-align:center;text-decoration:none;font-weight:700;border-radius:14px;padding:16px 14px;margin:10px 0;background:#e6e6dc;color:#173a40}" + \
+		".btn.main{background:#ed6948;color:#fff}ol{padding-left:22px;margin:6px 0}li{margin:4px 0}.note{color:#617578;font-size:15px}" + \
+		".warn{color:#c2453a;font-weight:700}</style></head><body><main>\n"
+	out += "<h1>DRAW<b>2</b>RACE</h1>\n<p class=\"lead\">%s lädt dich zu einem Rennen ein – hier im WLAN, ohne Internet.</p>\n" % name
+	if query.contains("ohne-app"):
+		out += "<p class=\"warn\">Draw2Race ist auf diesem Handy noch nicht installiert. Lade es unten herunter.</p>\n"
+	out += "<div class=\"card\"><h2>Draw2Race ist schon installiert?</h2>\n"
+	out += "<a class=\"btn main\" href=\"%s\">In Draw2Race öffnen</a>\n" % intent
+	out += "<p class=\"note\">Oder selbst: Draw2Race → Mehrspieler → Im WLAN – das Spiel von %s erscheint von selbst.</p></div>\n" % name
+	out += "<div class=\"card\"><h2>Noch keine App?</h2>\n"
+	if ready:
+		out += "<a class=\"btn\" href=\"/%s\">Draw2Race %s herunterladen (%s MB)</a>\n" % [download_name(version), version.xml_escape(),
+			megabytes(int(info.get("size", 0)))]
+		out += "<ol><li>Warnt der Browser („Datei kann schädlich sein“, „unsicherer Download“): „Trotzdem herunterladen“ bzw. „Behalten“.</li>" + \
+			"<li>Datei öffnen, „Installation aus dieser Quelle erlauben“, dann „Installieren“.</li>" + \
+			"<li>Draw2Race öffnen und oben auf „In Draw2Race öffnen“ tippen.</li></ol>\n"
+	elif preparing:
+		var prep := str(info.get("prepare", ""))
+		out += "<p>Die App wird gerade auf dem Handy von %s vorbereitet%s … Die Seite lädt sich gleich neu.</p>\n" % [name,
+			(" (%s)" % prep.xml_escape()) if prep != "" else ""]
+	else:
+		out += "<p>Auf dem Handy von %s gibt es die App gerade nicht zum Herunterladen. Mit Internet: github.com/ShakieVan/Draw2Race/releases</p>\n" % name
+	out += "</div>\n<p class=\"note\">Lädt die Seite nicht oder bricht der Download ab: mobile Daten kurz ausschalten – sonst sucht der Browser im Internet.</p>\n"
+	out += "</main></body></html>\n"
+	return out
+
+func _invite(peer: StreamPeerTCP, who: String, head_only: bool, target: String, head: String, page: Dictionary, file: Dictionary) -> void:
+	var ip := peer_ip(peer.get_connected_host())
+	if not nearby(ip):
+		_log("Einladung: Anfrage von %s abgelehnt (kein lokales Netz)" % ip)
+		_reply(peer, 403, "Forbidden")
+		return
+	match invite_route(target, str(page.get("version", ""))):
+		"icon":
+			_reply(peer, 404, "Not Found")
+		"download":
+			if file.is_empty():
+				_reply(peer, 303, "See Other", "Location: /\r\n")      # noch in Vorbereitung: zurück zur Seite (zeigt den Fortschritt)
+				return
+			if not head_only:
+				_count("downloads", 1)
+				_log("Einladung: APK-Download von %s" % who)
+			_send_file(peer, who, file, download_name(str(page.get("version", ""))), head_only)
+		_:
+			var address := host_header(head)
+			if not NetAndroid.private_ipv4(address):
+				address = str(page.get("address", ""))
+			var body := page_html(page, address, serve_port, not file.is_empty(), target.get_slice("?", 1)).to_utf8_buffer()
+			var header := ("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %d\r\nCache-Control: no-store\r\n" +
+				"Connection: close\r\n\r\n") % body.size()
+			var ok := _write_all(peer, header.to_ascii_buffer()) and (head_only or _write_all(peer, body))
+			if ok and not head_only:
+				_count("pages", 1)
+				_log("Einladung: Seite an %s" % who)
+			_linger(peer, 2000)
 
 func _reply(peer: StreamPeerTCP, code: int, text: String, extra := "") -> void:
 	_write_all(peer, ("HTTP/1.1 %d %s\r\nContent-Length: 0\r\nConnection: close\r\n%s\r\n" % [code, text, extra]).to_ascii_buffer())

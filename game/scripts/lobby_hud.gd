@@ -64,6 +64,8 @@ var _apk_shown := ""              # Prüfsumme des zuletzt gezeigten Angebots (G
 var _apk_note := ""               # Ergebnis der Installation (z. B. „Update abgelehnt: Signatur passt nicht“)
 var _apk_served := 0
 var _apk_sending := 0
+var invite_button: Button         # Gastgeber: „Mitspieler einladen“ (InvitePanel, Spiel-WLAN und QR-Codes)
+var scan_button: Button           # WLAN-Bildschirm: „QR-Code scannen“ (QrJoin)
 
 func _init(owner_hud: RaceHUD) -> void:
 	hud = owner_hud
@@ -101,18 +103,30 @@ func status_text() -> Array:
 		if bool(st.get("android", false)):
 			text += " Das Spiel ist ans WLAN gebunden – mobile Daten stören nicht." if bool(st.get("bound", false)) else " WLAN-Bindung nicht möglich%s." % (": " + str(st.problem) if str(st.get("problem", "")) != "" else "")
 		return [text, false]
+	if NetAndroid.game_wifi_available():
+		return ["Kein WLAN verbunden. Eröffne einfach das Spiel: In der Lobby öffnest du unter „Mitspieler einladen“ ein eigenes " +
+			"Spiel-WLAN, die anderen scannen den QR-Code. Oder verbindet alle Handys mit demselben WLAN. Internet braucht ihr nicht.", true]
 	return ["Kein WLAN verbunden. Verbindet alle Handys mit demselben WLAN – oder schaltet auf einem Handy den mobilen Hotspot ein " +
 		"(Einstellungen → Verbindungen → Mobiler Hotspot) und verbindet die anderen damit. Internet braucht ihr nicht.", true]
 
-static func host_addresses(st: Dictionary) -> String:
+static func net_hint(hint: String, game_wifi: bool) -> String:
+	# Netzhinweis des Gastgebers (NetAndroid.host_plan) – bei offenem Spiel-WLAN heißt der „Hotspot“ dort Spiel-WLAN.
+	if not game_wifi:
+		return hint
+	return hint.replace("Dein Hotspot bzw. Spiel-WLAN", "Dein Spiel-WLAN").replace("den Hotspot ausschalten", "das Spiel-WLAN schließen") \
+		.replace("Hotspot", "Spiel-WLAN")
+
+static func host_addresses(st: Dictionary, game_wifi := "") -> String:
 	# Gastgeber: Adressen zum Eintippen je erreichbarem Netz („WLAN 192.168.178.4 · Hotspot 10.110.43.61“); am PC die ersten zwei eigenen.
+	# game_wifi = eigene Adresse im offenen Spiel-WLAN (NetInvite): Sie heißt dann „Spiel-WLAN“ statt „Hotspot“.
 	var parts: Array = []
 	var reach: Array = st.get("reach", [])
 	if bool(st.get("android", false)):
 		if reach.has("wlan") and not (st.get("wlan", []) as Array).is_empty():
 			parts.append("WLAN %s" % st.wlan[0])
 		if reach.has("hotspot") and not (st.get("hotspot", []) as Array).is_empty():
-			parts.append("Hotspot %s" % st.hotspot[0])
+			var spot := str(st.hotspot[0]) if game_wifi == "" or not (st.hotspot as Array).has(game_wifi) else game_wifi
+			parts.append("%s %s" % ["Spiel-WLAN" if spot == game_wifi else "Hotspot", spot])
 	if parts.is_empty():
 		for ip in st.get("hotspot", []) + st.get("addresses", []):
 			if not ip in parts and parts.size() < 2:
@@ -142,6 +156,11 @@ func wlan_screen() -> void:
 	var right := hud.panel(hud.content, Rect2(620, 120, 780, 724))
 	hud.label(right, "BEITRETEN", Vector2(28, 20), 13, ORANGE)
 	games_title = hud.label(right, "Gefundene Spiele", Vector2(24, 44), 40)
+	scan_button = null
+	if QrJoin.scan_available():
+		# QR-Code des Gastgebers in der App scannen (WLAN-QR: die App verbindet sich selbst; Spiel-QR: direkt beitreten).
+		scan_button = hud.button(right, "QR-Code scannen", Rect2(452, 28, 300, 66), func(): app.lobby.qr.scan(), true)
+		scan_button.name = "ScanButton"
 	search_hint = hud.label(right, "", Vector2(28, 108), 16, MUTED, 724)
 	games_box = Control.new()
 	games_box.name = "GamesBox"
@@ -165,6 +184,12 @@ func _refresh_wlan() -> void:
 		return
 	var list := lb.games()
 	search_hint.text = ("Suche läuft … (Rundruf, Ankündigung%s)" % (", Gateway " + lb.discovery.gateway if lb.discovery.gateway != "" else "")) if lb.mode == "search" else "Suche angehalten."
+	search_hint.add_theme_color_override("font_color", MUTED)
+	if lb.qr.text != "":
+		# Beitreten per QR-Code (QrJoin): Stand bzw. Fehler statt der Suchzeile; die Liste rückt unter einen längeren Text.
+		search_hint.text = lb.qr.text
+		search_hint.add_theme_color_override("font_color", ORANGE if lb.qr.warn else INK)
+	games_box.position.y = maxf(150.0, search_hint.position.y + search_hint.get_line_count() * search_hint.get_line_height() + 12.0)
 	var sig := "|".join(list.map(func(g): return "%s %s:%d %d/%d %s %s %s" % [g.name, g.address, g.port, g.players, g.max, g.compatible, g.get("busy", false), lb.discovery.via_text(g)]))
 	if sig == _games_sig:
 		return
@@ -407,7 +432,12 @@ func lobby_screen() -> void:
 	hud.backdrop.visible = true
 	screen = "lobby"
 	_settings_sig = "-"
-	hud.header("MEHRSPIELER     /     LOBBY VON %s" % lb.host_name().to_upper())
+	var bar := hud.header("MEHRSPIELER     /     LOBBY VON %s" % lb.host_name().to_upper())
+	invite_button = null
+	if lb.is_host():
+		# Spiel-WLAN öffnen und WLAN- und Spiel-QR zeigen (InvitePanel, Beta 1.0.2).
+		invite_button = hud.button(bar, "Mitspieler einladen", Rect2(871, 15, 304, 54), func(): InvitePanel.open_on(hud), true)
+		invite_button.name = "InviteButton"
 	var left := hud.panel(hud.content, Rect2(40, 120, 700, 724))
 	hud.label(left, "FAHRER", Vector2(28, 20), 13, ORANGE)
 	count_label = hud.label(left, "", Vector2(24, 44), 40)
@@ -503,10 +533,17 @@ func _refresh_lobby() -> void:
 		return
 	count_label.text = "%d von %d" % [lb.players.size(), NetProtocol.MAX_PLAYERS]
 	if lb.is_host():
-		address_label.text = host_addresses(lb.status)
+		address_label.text = host_addresses(lb.status, lb.invite.address)
+		if is_instance_valid(invite_button):
+			# Solange noch niemand da ist, fällt „Mitspieler einladen“ auf (orange), danach tritt der Knopf zurück.
+			var first := lb.client_count() == 0
+			for key in ["normal", "hover", "pressed"]:
+				invite_button.add_theme_stylebox_override(key, hud.style(ORANGE if first else Color("e6e6dc"), 14))
+			for key in ["font_color", "font_hover_color", "font_pressed_color"]:
+				invite_button.add_theme_color_override(key, Color.WHITE if first else INK)
 		if is_instance_valid(lobby_note):
 			# Netzhinweis des Gastgebers (Hotspot und WLAN, Hotspot erst nach dem Eröffnen an …) statt des allgemeinen Hinweises.
-			var hint := str(lb.status.get("hint", ""))
+			var hint := net_hint(str(lb.status.get("hint", "")), lb.invite.mode == "game_wifi")
 			lobby_note.text = hint if hint != "" else LOBBY_NOTE
 			lobby_note.add_theme_color_override("font_color", ORANGE if hint != "" and bool(lb.status.get("warn", false)) else MUTED)
 	else:

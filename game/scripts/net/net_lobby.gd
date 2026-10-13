@@ -44,6 +44,10 @@ extends Node
 # Neuere Version weitergeben (Nutzerwunsch 04.10.2026, NetApk): Wird ein Beitritt wegen einer anderen Spielversion abgelehnt, darf die
 # Seite mit der älteren Version die APK der neueren übers WLAN holen (apk_offer, apk_fetch) – nie ein Downgrade. Die neuere Seite stellt
 # ihre Datei bereit (apk: ApkShare), bis der WLAN-Mehrspieler verlassen wird. Geprüft und installiert wird über den Updater.
+#
+# Mitspieler einladen (Beta 1.0.2, Nutzerwunsch 13.10.2026): Der Gastgeber öffnet ein eigenes Spiel-WLAN und zeigt WLAN- und Spiel-QR
+# (invite: NetInvite); die Einladungsseite liefert derselbe Dateidienst aus (serve_invite). Gäste scannen in der App (qr: QrJoin);
+# aus einem WLAN-QR verbindet sich die App selbst mit dem Spiel-WLAN, und Suche und Beitritt binden dann an dieses Netz (_bind).
 
 const Proto := preload("res://scripts/net/net_protocol.gd")
 const Session := preload("res://scripts/net/net_session.gd")
@@ -150,6 +154,9 @@ var apk_pull := {}                          # Mitspieler: der ältere Gastgeber 
 var _apk_serve := false                     # eigene Datei bereitstellen (Dienst läuft, Datei folgt, sobald sie bereit ist)
 var _apk_sig := ""
 var _apk_emit_ms := 0
+var _service_tied := false                  # Dateidienst entstand, während der Prozess an ein Netz gebunden war
+var invite: NetInvite                       # Gastgeber: Spiel-WLAN und Einladung (QR-Codes, Einladungsseite)
+var qr: QrJoin                              # Beitreten per QR-Code (Scanner, Spiel-WLAN aus dem WLAN-QR)
 
 func _init() -> void:
 	for key in overrides:
@@ -178,6 +185,8 @@ func _init() -> void:
 	discovery.games_changed.connect(func(): games_changed.emit())
 	session.reject_hook = _reject_extra
 	transfer.log_line.connect(func(t): _log("APK: " + t))
+	invite = NetInvite.new(self)
+	qr = QrJoin.new(self)
 
 func _process(_delta: float) -> void:
 	if auto_poll:
@@ -330,7 +339,10 @@ func exit() -> void:
 	leave()
 	discovery.stop()
 	mode = ""
+	invite.close()                 # ein offenes Spiel-WLAN schließen (NetInvite)
+	qr.release()                   # Spiel-WLAN aus dem QR-Code freigeben (QrJoin)
 	transfer.close()               # Empfang abbrechen, Dateidienst beenden
+	_service_tied = false
 	_apk_serve = false
 	apk_offer = {}
 	apk_pull = {}
@@ -359,6 +371,8 @@ func refresh_status() -> void:
 	var raw := _net_state()
 	if mode == "host" and _host_frees(raw):
 		raw = _net_state()
+	if _service_tied and not (raw.get("bound") is Dictionary):
+		_restart_service()
 	var addresses: Array = []
 	for i in raw.get("interfaces", []):
 		if i is Dictionary:
@@ -372,7 +386,8 @@ func refresh_status() -> void:
 		"hint": plan.hint, "warn": plan.warn}
 	var wifi := Android.wifi_handle(raw)
 	var fetching := transfer.fetching()        # Holen der neueren Version: Bindung nicht umwerfen (der Socket hängt an ihr)
-	if mode == "search" and not fetching and use_binding and android_api.available() and wifi == "" and raw.get("bound") is Dictionary and not Android.bound_to_wifi(raw):
+	var pinned := qr.pinned          # Spiel-WLAN aus dem QR-Code: daran bleibt die Bindung, WLAN-Wechsel zählen nicht
+	if mode == "search" and not fetching and not pinned and use_binding and android_api.available() and wifi == "" and raw.get("bound") is Dictionary and not Android.bound_to_wifi(raw):
 		# Kein WLAN mehr, die Bindung zeigt aber noch auf das verlorene Netz (oder den eigenen Hotspot): neue Sockets gingen ins Leere –
 		# lösen und ungebunden weitersuchen (z. B. ein Spiel im eigenen Hotspot).
 		_log("Kein WLAN mehr – löse die alte Bindung und suche neu")
@@ -380,7 +395,7 @@ func refresh_status() -> void:
 		search()
 		status_changed.emit()
 		return
-	if mode == "search" and not fetching and use_binding and android_api.available() and wifi != "" and wifi != _bind_wifi:
+	if mode == "search" and not fetching and not pinned and use_binding and android_api.available() and wifi != "" and wifi != _bind_wifi:
 		# Anderes WLAN als beim letzten Binden: erst jetzt verbunden (Nutzer kam aus den Einstellungen zurück) oder gewechselt (Heim-WLAN →
 		# Hotspot des Gastgebers). Die alte Bindung zeigte sonst auf ein verlorenes Netz – neu binden und mit neuer Bindung weitersuchen.
 		# Nur einmal je WLAN: Scheitert die Bindung, bleibt es beim Hinweis (keine Suche im Zwei-Sekunden-Takt).
@@ -452,6 +467,13 @@ func _bind(purpose: String, address := "") -> String:
 		return ""
 	var raw: Dictionary = android_api.state()
 	_bind_wifi = Android.wifi_handle(raw)
+	if qr.pinned and purpose != "host":
+		# Spiel-WLAN aus dem QR-Code (QrJoin): Suche und Beitritt laufen über dieses Netz, auch wenn daneben ein WLAN verbunden ist.
+		var pin_problem: String = qr.bind()
+		bound = pin_problem == ""
+		bind_problem = pin_problem
+		_log("An das Spiel-WLAN aus dem QR-Code binden (%s): %s" % [purpose, "gebunden" if bound else "nicht möglich – " + pin_problem])
+		return "wifi" if bound else ""
 	var spots := Android.hotspot_addresses(raw)
 	var target := "wifi"
 	var why := ""
@@ -855,6 +877,9 @@ func poll() -> void:
 	if race != null:
 		race.poll()
 	_apk_poll()
+	qr.poll(now)
+	if invite.busy():
+		invite.poll(now)
 	_apply_timeouts()
 	if _free_when_closed and session.enet == null:
 		_free_when_closed = false
@@ -1234,9 +1259,37 @@ func _want_serve() -> void:
 	if not transfer.serving():
 		transfer.max_rate = apk_rate
 		transfer.corrupt_at = apk_corrupt
-		var err := transfer.serve(apk_port)
-		_log("Dateidienst auf Port %d: %s" % [apk_port, "läuft" if err == OK else "nicht möglich (%s)" % error_string(err)])
+		_serve_files()
 	_apk_poll()
+
+func _serve_files() -> Error:
+	# Dateidienst starten (Weitergabe, Einladungsseite). Merkt sich, ob der Prozess dabei gebunden war: Ein so entstandener Listener
+	# antwortet nur über das gebundene Netz.
+	var err := transfer.serve(apk_port)
+	_service_tied = err == OK and use_binding and android_api.available() and android_api.is_bound()
+	_log("Dateidienst auf Port %d: %s" % [apk_port, ("läuft" + (" (gebunden)" if _service_tied else "")) if err == OK else "nicht möglich (%s)" % error_string(err)])
+	return err
+
+func _restart_service() -> void:
+	# Bindung gelöst (Gastgeber: eigener Hotspot bzw. Spiel-WLAN ging auf, NetAndroid.host_frees): Der Dateidienst entstand gebunden und
+	# erreichte Mitspieler im Spiel-WLAN nicht (Gerätetest S21/S10 13.10.2026: Einladungsseite hing, die Suche über die neu angelegten
+	# Sockets klappte) – ungebunden neu anlegen. Nicht während einer Sendung; dann beim nächsten Netzblick (STATUS_INTERVAL_MS).
+	if not transfer.serving() or int(transfer.stats().get("sending", 0)) > 0:
+		_service_tied = transfer.serving() and _service_tied
+		return
+	transfer.stop_serving()
+	_serve_files()
+	_log("Dateidienst nach gelöster Bindung neu angelegt")
+	invite.page_changed()
+	_apk_poll()
+
+func serve_invite() -> void:
+	# Einladungsseite (NetInvite): Dateidienst starten und – falls es eine eigene APK gibt – sie zum Herunterladen bereitstellen
+	# (dieselbe Kopie wie für die Weitergabe zwischen zwei Apps).
+	if apk != null and apk.available():
+		_want_serve()
+	elif not transfer.serving():
+		_serve_files()
 
 func apk_fetch() -> bool:
 	# Angebotene neuere Version holen (Fortschritt: transfer.progress(), apk_changed). Mitspieler binden sich dafür wie beim Beitritt

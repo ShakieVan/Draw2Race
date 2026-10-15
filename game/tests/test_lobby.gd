@@ -768,7 +768,9 @@ func test_ui() -> void:
 	ok = await frames_until([], func(): return app.phase == "net_round")
 	check(ok and app.track_id == "forest", "Start: Strecke der Runde geladen")
 	rita.report_loaded(NetLobby.track_file_hash("forest"))
-	ok = await frames_until([], func(): return app.lobby.phase == "ready")
+	# „Geladen“ meldet die App erst, wenn die Welt der Strecke steht (main.net_report_loaded). Unter Fremdlast bzw. im frisch importierten
+	# Worktree brauchte das mehr als die üblichen 4 s (15.10.2026); 12 s bleiben mit einem Bild je 100 ms unter dem Bildvorrat von build.ps1.
+	ok = await frames_until([], func(): return app.lobby.phase == "ready", 12000)
 	await process_frame
 	check(ok and app.phase == "net_countdown" and node(app, "DrawCountdown") != null, "Alle haben geladen → gemeinsames 3-2-1 vor dem Zeichnen (M4)")
 	app.go_back()

@@ -2,7 +2,8 @@ extends SceneTree
 
 # Werkzeug (keine Suite): nimmt die Messanker des Höhen-Pakets auf (docs/dioramen/HOEHEN_PLAN.md, A0).
 #   WRITE=1  schreibt game/tests/golden_times.json (Solo ai_route(2.3, 0), trocken, ohne Turbo, alle Strecken, 6 Nachkommastellen)
-#   FIELD=1  druckt zusätzlich den Feldstatus (jede Strecke × 3 Herausforderungen wie im Spiel, Spieler-Ersatz ai_route(2.0, 0))
+#   FIELD=1  druckt zusätzlich den Feldstatus (jede Strecke × 3 Herausforderungen wie im Spiel, Spieler-Ersatz ai_route(2.0, 0)), dahinter
+#            je Gegner Gegnerzeit / Zeit des Spieler-Ersatzes (Maßstab der Gegnerbalance, Referenz bicycle-6 in tests/test_field.gd B6_RATIO)
 # Aufruf: tools/godot_run.ps1 -Script res://tests/make_golden.gd -Headless -EnvPairs 'WRITE=1','FIELD=1'
 const TRACKS := ["azure", "city", "forest", "harbor", "serra", "fair", "quarry", "kids", "arena"]
 const DT := 1.0 / 60.0
@@ -32,5 +33,9 @@ func _init() -> void:
 			var track := Circuit.load_track(id)
 			for stage in range(3):
 				var res := RaceField.run_field(track, stage)
-				print("FIELD %-7s %d %-5s %s" % [id, stage + 1, res.weather, res.text])
+				var rel: Array = []
+				for k in range(1, res.times.size()):
+					var ok := float(res.times[0]) > 0.0 and float(res.times[k]) > 0.0
+					rel.append(("%.4f" % (float(res.times[k]) / float(res.times[0]))) if ok else "-")
+				print("FIELD %-7s %d %-5s %s%s" % [id, stage + 1, res.weather, res.text, (" | G/S " + " ".join(rel)) if not rel.is_empty() else ""])
 	quit()

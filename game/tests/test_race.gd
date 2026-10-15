@@ -158,11 +158,13 @@ func render(lb: NetLobby, book: Dictionary) -> void:
 
 # ---------- 1. Schnappschüsse ----------
 func test_pack() -> void:
-	var worst := {"pos": 0.0, "s": 0.0, "h": 0.0, "z": 0.0, "v": 0.0, "turbo": 0.0}
+	var worst := {"pos": 0.0, "s": 0.0, "h": 0.0, "z": 0.0, "v": 0.0, "turbo": 0.0, "steer": 0.0, "spin": 0.0, "max_steer": 0.0}
+	var spin_seen := false
 	var flags_ok := true
 	var loop_seen := false
 	var see_seen := false
 	var drift_seen := false
+	var chain_seen := false
 	var posts_seen := false
 	var sizes := {}
 	for id in ["quarry", "kids", "arena", "forest", "fair"]:
@@ -170,8 +172,17 @@ func test_pack() -> void:
 		RaceVehicle.weather_grip = 1.0
 		var f := RaceField.new(c)
 		var sc := int(c.seesaws[0].get("shortcut", -1)) if not c.seesaws.is_empty() else -1
-		f.setup(c.ai_route(2.3, 0.0, sc), 2, 0, -1)    # Kinderzimmer: über das Lineal
 		var drift: bool = c.mode == "drift"
+		if drift:
+			# Seit bicycle-7 (15.10.2026) driftet nur eine zu schnell gezeichnete Linie; vorher legte der Vorzeichenfehler im Einspurmodell
+			# jede Kurve quer, und ai_route(2.3) brachte Punkte. Wie in test_air: Drift King, Kurven 85 % zu schnell.
+			var wild := c.ai_route(1.5)
+			for p in wild:
+				if c.curvature(float(p.s)) > 0.03:
+					p.speed = float(p.speed) * 1.85
+			f.setup(wild, 2, 7, -1)
+		else:
+			f.setup(c.ai_route(2.3, 0.0, sc), 2, 0, -1)    # Kinderzimmer: über das Lineal
 		for t in range(1, 60 * 70):
 			f.step(1.0 / 60.0, t / 60.0, RaceField.player_boost_test(f.cars[0]))
 			if t % 7 != 0:
@@ -192,6 +203,10 @@ func test_pack() -> void:
 				worst.z = maxf(worst.z, absf(v.z - float(q.z)))
 				worst.v = maxf(worst.v, v.velocity.distance_to(q.v) / maxf(1.0, v.velocity.length()))
 				worst.turbo = maxf(worst.turbo, absf(v.turbo - float(q.turbo)))
+				worst.steer = maxf(worst.steer, absf(v.steering - float(q.steer)))
+				worst.max_steer = maxf(worst.max_steer, absf(v.steering))
+				worst.spin = maxf(worst.spin, absf(minf(v.rear_spin, 12.75) - float(q.spin)))
+				spin_seen = spin_seen or (v.rear_spin > 1.0 and float(q.spin) > 1.0)
 				var f_bits := int(q.f)
 				if (f_bits & NetRace.F_CRASH != 0) != v.crashed or (f_bits & NetRace.F_AIR != 0) != v.airborne or (f_bits & NetRace.F_LOOP != 0) != v.in_loop \
 						or (f_bits & NetRace.F_FINISH != 0) != (v.finish_time >= 0.0) or (f_bits & NetRace.F_BOOST != 0) != v.boosting:
@@ -200,6 +215,7 @@ func test_pack() -> void:
 					loop_seen = loop_seen or (q.has("loop") and absf(float(q.loop.th) - v.loop_theta) < 1e-6 and int(q.loop.i) < c.loops.size())
 				if drift and q.has("ds"):
 					drift_seen = drift_seen or absf(float(q.ds) - v.drift_score) < 0.01 and v.drift_score > 0.0
+					chain_seen = chain_seen or (int(q.dc) == roundi(v.drift_chain) and int(q.cl) == v.chain_lost and v.drift_chain > 0.0)
 			for k in range(f.seesaws.size()):
 				see_seen = see_seen or absf(float(s.see[k]) - f.seesaws[k].phi) < 0.002 and f.seesaws[k].phi != f.seesaws[k].theta
 			posts_seen = posts_seen or not s.posts.is_empty()
@@ -211,13 +227,33 @@ func test_pack() -> void:
 	check(loop_seen, "Looping: Winkel und Looping-Nummer im Schnappschuss (Steinbruch)")
 	check(see_seen, "Wippe: Neigung im Schnappschuss (Kinderzimmer)")
 	check(drift_seen, "Drift-Arena: Punkte im Schnappschuss")
+	check(chain_seen, "Drift-Arena: laufende Kette und verlorene Ketten im Schnappschuss (Anzeige der Gäste)")
+	check(worst.steer <= 0.5 / NetRace.STEER_SCALE + 1e-6 and worst.spin <= 0.5 / NetRace.SPIN_SCALE + 1e-6 and spin_seen,
+		"Lenkung ±%.4f rad (größter Einschlag %.3f), Durchdrehen hinten ±%.3f m/s² im Schnappschuss (Drift King dreht durch: %s)" % [worst.steer, worst.max_steer, worst.spin, str(spin_seen)])
 	print("INFO: Schnappschuss-Größen (Byte, ohne Hülle): %s; umgefallene Pfosten gesehen: %s" % [str(sizes), str(posts_seen)])
+	# Protokoll 8: Gegenlenken bis ±0,9 rad (vorher bei ±0,635 gekappt) und Durchdrehen hinten für Qualm und Spuren der Mitspieler.
+	check(NetProtocol.VERSION >= 8, "Protokollversion %d (ab 8: Durchdrehen hinten und Lenkung bis ±0,9 rad im Schnappschuss)" % NetProtocol.VERSION)
+	var c3 := circuit("arena")
+	var f3 := RaceField.new(c3)
+	f3.setup(c3.ai_route(1.5), 1, 7, -1)
+	var probe := f3.cars[0]
+	probe.steering = 0.85
+	probe.rear_spin = 4.37
+	var s1 := NetRace.unpack_snapshot(NetRace.pack_snapshot(1, f3.cars, f3.seesaws, f3.post_state, c3, true), f3.cars.size(), f3.seesaws.size())
+	probe.steering = -0.85
+	probe.rear_spin = 13.84      # Anfahren mit Turbo: über dem Messbereich, wird bei 12,75 gekappt
+	var s2 := NetRace.unpack_snapshot(NetRace.pack_snapshot(3, f3.cars, f3.seesaws, f3.post_state, c3, true), f3.cars.size(), f3.seesaws.size())
+	var q1: Dictionary = s1.cars[0]
+	var q2: Dictionary = s2.cars[0]
+	check(absf(float(q1.steer) - 0.85) < 0.004 and absf(float(q2.steer) + 0.85) < 0.004 and absf(float(q1.spin) - 4.37) < 0.026 and is_equal_approx(float(q2.spin), 12.75),
+		"Rundreise: Lenkung %.3f / %.3f rad (gesetzt ±0,85), Durchdrehen %.2f / %.2f m/s² (gesetzt 4,37 / 13,84)" % [float(q1.steer), float(q2.steer), float(q1.spin), float(q2.spin)])
+	# (Ankunft in der Marionette: test_drift, dort gibt es ein echtes NetRace.)
 	# Kaputte Pakete
 	var c2 := circuit("azure")
 	var f2 := RaceField.new(c2)
 	f2.setup(c2.ai_route(2.0), 1)
 	var good := NetRace.pack_snapshot(5, f2.cars, f2.seesaws, f2.post_state, c2, false)
-	check(good.size() == NetRace.HEADER_BYTES + f2.cars.size() * NetRace.CAR_BYTES, "Rundkurs mit %d Autos: %d Byte (Kopf 8 + 34 je Auto)" % [f2.cars.size(), good.size()])
+	check(good.size() == NetRace.HEADER_BYTES + f2.cars.size() * NetRace.CAR_BYTES, "Rundkurs mit %d Autos: %d Byte (Kopf 8 + %d je Auto)" % [f2.cars.size(), good.size(), NetRace.CAR_BYTES])
 	var cut := good.slice(0, good.size() - 3)
 	var bad := good.duplicate()
 	bad.encode_float(NetRace.HEADER_BYTES, NAN)
@@ -466,6 +502,19 @@ func test_drift() -> void:
 	var score_shown := absf(rv.view.cars[1].drift_score - r.sim.cars[1].drift_score) < 1.0
 	var f := NetRace.replay(Circuit.load_track("arena"), rv.entries, rv.contacts, rv.grip, rv.final_info.turbo, int(rv.final_info.ticks), rv.rows_tick)
 	check(score_shown and NetRace.sim_digest(f) == r.final_info.digest, "Drift: Punkte der Marionette wie in der Simulation, Gastgeber bitgleich wie RaceField")
+	# Nach allen Prüfungen (die Rechnung ist fertig): Durchdrehen hinten und Gegenlenken kommen in Veras Marionette an, zwischen zwei
+	# Schnappschüssen überblendet (nur Anzeige: Reifenqualm, Gummispuren, Klang). Zwei Schnappschüsse vom Auto des Gastgebers mit gesetzten Werten.
+	var probe: RaceVehicle = r.sim.cars[0]
+	probe.steering = 0.85
+	probe.rear_spin = 4.37
+	var s1 := NetRace.unpack_snapshot(NetRace.pack_snapshot(1, r.sim.cars, r.sim.seesaws, r.sim.post_state, r.track, true), r.sim.cars.size(), r.sim.seesaws.size())
+	probe.steering = -0.85
+	probe.rear_spin = 13.84      # über dem Messbereich: kommt als 12,75 an
+	var s2 := NetRace.unpack_snapshot(NetRace.pack_snapshot(3, r.sim.cars, r.sim.seesaws, r.sim.post_state, r.track, true), r.sim.cars.size(), r.sim.seesaws.size())
+	rv._put(0, s1.cars[0], s2.cars[0], 0.5, 0.0, {}, 0.0, 1)
+	var shown: RaceVehicle = rv.view.cars[0]
+	check(not s1.is_empty() and not s2.is_empty() and absf(shown.rear_spin - (4.35 + 12.75) * 0.5) < 0.03 and absf(shown.steering) < 0.01,
+		"Marionette: Durchdrehen %.2f m/s² (zwischen 4,35 und 12,75) und Lenkung %.3f rad (zwischen ±0,85) halb überblendet" % [shown.rear_spin, shown.steering])
 	for x in all:
 		dispose(x)
 	lobbies.clear()

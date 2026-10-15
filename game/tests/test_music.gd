@@ -177,7 +177,7 @@ func music_on(own_setting: bool, lb: NetLobby) -> bool:
 	return own_setting and (lb == null or not lb.music_muted())
 
 func test_session() -> void:
-	check(NetProtocol.VERSION == 7, "Protokollversion 7 (gemeinsame Musik)")
+	check(NetProtocol.VERSION >= 7, "Protokollversion %d (ab 7: gemeinsame Musik)" % NetProtocol.VERSION)
 	var host := make("Anna", "energie")
 	var a := make("Ben", "ruhig")
 	check(host.host("azure", 0) == OK, "Spiel eröffnet")

@@ -14,9 +14,10 @@ extends RefCounted
 # APK-Angebot (decode → "_foreign"), damit die ältere Seite die neuere Version holen kann.
 # Suche (UDP): JSON-Text mit Kennung "m" – klein, ohne Engine-Fehlermeldungen bei Fremdpaketen prüfbar.
 
-const VERSION := 7                  # Protokollversion: bei jeder inkompatiblen Änderung erhöhen (2 = Lobby, M3; 3 = Zeichnen, M4; 4 = Rennen, M5;
+const VERSION := 8                  # Protokollversion: bei jeder inkompatiblen Änderung erhöhen (2 = Lobby, M3; 3 = Zeichnen, M4; 4 = Rennen, M5;
                                     # 5 = Lebenszeichen im Rennen, race_alive; 6 = Spielerfarben, Autos mehrfach wählbar;
-                                    # 7 = gemeinsame Musik: music, Musik der Mitspieler abschaltbar)
+                                    # 7 = gemeinsame Musik: music, Musik der Mitspieler abschaltbar; 8 = Schnappschuss mit Durchdrehen
+                                    # hinten (Reifenqualm), Lenkung bis ±0,9 rad)
 const GAME_PORT := 24680            # ENet (UDP), fester Port des Hosts
 const DISCOVERY_PORT := 24681       # Host lauscht hier auf Suchanfragen und Gateway-Proben (UDP)
 const BEACON_PORT := 24682          # Mitspieler lauschen hier auf die Ankündigung des Hosts (UDP-Rundruf, jede Sekunde)

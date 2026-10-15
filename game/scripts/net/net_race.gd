@@ -53,9 +53,11 @@ const SILENCE := 0.5                # s (echte Zeit) ohne Paket eines Mitspieler
 const ALIVE_EVERY := 0.1            # s (echte Zeit): Mitspieler senden so oft race_alive
 const JUMP := 8.0                   # m zwischen zwei Schnappschüssen: Sprung, nicht überblenden
 const HEADER_BYTES := 8
-const CAR_BYTES := 34
+const CAR_BYTES := 35
+const STEER_SCALE := 140.0          # Lenkung s8: ±127/140 = ±0,907 rad (bis 15.10.2026 ×200, gekappt bei ±0,635 – zu knapp fürs Gegenlenken)
+const SPIN_SCALE := 20.0            # Durchdrehen hinten u8: 0–12,75 m/s² in Schritten von 0,05 (Anfahren ~5, mit Turbo bis ~14)
 const LOOP_BYTES := 15
-const DRIFT_BYTES := 6
+const DRIFT_BYTES := 9             # Punkte f32, Faktor u8, Wandberührungen u8, laufende Kette u16, verlorene Ketten u8 (Anzeige der Gäste)
 const F_BOOST := 1
 const F_FINISH := 2
 const F_CRASH := 4
@@ -560,6 +562,7 @@ func _put(k: int, a: Dictionary, b: Dictionary, alpha: float, ex: float, prev: D
 	var steer := float(a.steer)
 	var thr := float(a.thr)
 	var turbo := float(a.turbo)
+	var spin := float(a.get("spin", 0.0))
 	var theta := float(a.loop.th) if a.has("loop") else 0.0
 	var score := float(a.get("ds", 0.0))
 	if not b.is_empty() and alpha > 0.0:
@@ -578,6 +581,7 @@ func _put(k: int, a: Dictionary, b: Dictionary, alpha: float, ex: float, prev: D
 			steer = lerpf(steer, float(b.steer), alpha)
 			thr = lerpf(thr, float(b.thr), alpha)
 			turbo = lerpf(turbo, float(b.turbo), alpha)
+			spin = lerpf(spin, float(b.get("spin", spin)), alpha)
 			if a.has("loop") and b.has("loop"):
 				theta = lerpf(theta, float(b.loop.th), alpha)
 			score = lerpf(score, float(b.get("ds", score)), alpha)
@@ -605,6 +609,7 @@ func _put(k: int, a: Dictionary, b: Dictionary, alpha: float, ex: float, prev: D
 	v.steering = steer
 	v.throttle = thr
 	v.turbo = turbo
+	v.rear_spin = spin    # nur Anzeige (Reifenqualm, Gummispuren, Klang); Marionetten schreiten nie
 	v.boosting = f & F_BOOST != 0
 	v.crashed = f & F_CRASH != 0
 	v.airborne = f & F_AIR != 0
@@ -632,6 +637,8 @@ func _put(k: int, a: Dictionary, b: Dictionary, alpha: float, ex: float, prev: D
 		v.drift_score = score
 		v.drift_multiplier = float(a.dm)
 		v.wall_hits = int(a.wh)
+		v.drift_chain = float(a.get("dc", 0))
+		v.chain_lost = int(a.get("cl", 0))
 
 func _local_turbo() -> void:
 	# Eigener Knopf: Flamme und Ton sofort (nur Optik), bis die Schnappschüsse den Wechsel zeigen.
@@ -820,10 +827,11 @@ static func loop_index(circuit: Circuit, v: RaceVehicle) -> int:
 	return 255
 
 static func pack_snapshot(t: int, cars: Array, seesaws: Array, posts: Dictionary, circuit: Circuit, drift_mode: bool) -> PackedByteArray:
-	# Kompakt (Byte): Kopf 8 (Takt u32, Autos, Wippen, Pfosten, Drift?) + je Auto 34 (Lage f32, Fortschritt f32, Richtung s16, Höhe s16
-	# in cm, Tempo/Steigen/Rutschen/Bremsen f16, Lenkung s8, Gas/Turbo u8, Streckenphase u16, Zustandsbits u16, Wippe s8) + im Looping 15
-	# (Winkel, Ursprung f32, Versatz f16, Looping u8) + im Drift 6 (Punkte f32, Faktor u8, Wandberührungen u8) + je Wippe 2 (Neigung
-	# f16) + je umgefahrenem Pfosten 3 (Nummer u16, Fallrichtung s8).
+	# Kompakt (Byte): Kopf 8 (Takt u32, Autos, Wippen, Pfosten, Drift?) + je Auto 35 (Lage f32, Fortschritt f32, Richtung s16, Höhe s16
+	# in cm, Tempo/Steigen/Rutschen/Bremsen f16, Lenkung s8, Gas/Turbo u8, Streckenphase u16, Zustandsbits u16, Wippe s8, Durchdrehen
+	# hinten u8 für Reifenqualm, Spuren und Klang) + im Looping 15 (Winkel, Ursprung f32, Versatz f16, Looping u8) + im Drift 9 (Punkte
+	# f32, Faktor u8, Wandberührungen u8, laufende Kette u16, verlorene Ketten u8) + je Wippe 2 (Neigung f16) + je umgefahrenem Pfosten 3
+	# (Nummer u16, Fallrichtung s8).
 	var down: Array = []
 	for idx in posts:
 		if bool((posts[idx] as Dictionary).get("down", false)) and down.size() < 255:
@@ -862,13 +870,14 @@ static func pack_snapshot(t: int, cars: Array, seesaws: Array, posts: Dictionary
 		b.encode_half(o + 20, v.vz)
 		b.encode_half(o + 22, v.slip)
 		b.encode_half(o + 24, v.braking)
-		b.encode_s8(o + 26, clampi(roundi(v.steering * 200.0), -127, 127))
+		b.encode_s8(o + 26, clampi(roundi(v.steering * STEER_SCALE), -127, 127))
 		b[o + 27] = clampi(roundi(v.throttle * 255.0), 0, 255)
 		b[o + 28] = clampi(roundi(v.turbo * 255.0), 0, 255)
 		b.encode_u16(o + 29, clampi(roundi(fposmod(v.previous_phase, 1.0) * 65535.0), 0, 65535))
 		b.encode_u16(o + 31, f)
 		var deck := seesaws.find(v.deck) if v.deck != null else -1
 		b.encode_s8(o + 33, clampi(deck, -1, 127))
+		b[o + 34] = clampi(roundi(v.rear_spin * SPIN_SCALE), 0, 255)
 		o += CAR_BYTES
 		if loop_data:
 			b.encode_float(o, v.loop_theta)
@@ -881,6 +890,9 @@ static func pack_snapshot(t: int, cars: Array, seesaws: Array, posts: Dictionary
 			b.encode_float(o, v.drift_score)
 			b[o + 4] = clampi(roundi(v.drift_multiplier * 50.0), 0, 255)
 			b[o + 5] = clampi(v.wall_hits, 0, 255)
+			# Kettenwertung (score_drift): ohne sie zeigten Gäste keine laufende Kette und im Ergebnis „Ketten verloren: 0“.
+			b.encode_u16(o + 6, clampi(roundi(v.drift_chain), 0, 65535))
+			b[o + 8] = clampi(v.chain_lost, 0, 255)
 			o += DRIFT_BYTES
 	for w in seesaws:
 		b.encode_half(o, w.phi)
@@ -907,8 +919,9 @@ static func unpack_snapshot(b: PackedByteArray, cars: int, seesaws: int, _circui
 		var c := {"p": Vector2(b.decode_float(o), b.decode_float(o + 4)), "s": b.decode_float(o + 8),
 			"h": float(b.decode_s16(o + 12)) / 32767.0 * PI, "z": float(b.decode_s16(o + 14)) / 100.0,
 			"v": Vector2(b.decode_half(o + 16), b.decode_half(o + 18)), "vz": b.decode_half(o + 20), "slip": b.decode_half(o + 22),
-			"brake": b.decode_half(o + 24), "steer": float(b.decode_s8(o + 26)) / 200.0, "thr": float(b[o + 27]) / 255.0,
-			"turbo": float(b[o + 28]) / 255.0, "ph": float(b.decode_u16(o + 29)) / 65535.0, "f": f, "deck": b.decode_s8(o + 33)}
+			"brake": b.decode_half(o + 24), "steer": float(b.decode_s8(o + 26)) / STEER_SCALE, "thr": float(b[o + 27]) / 255.0,
+			"turbo": float(b[o + 28]) / 255.0, "ph": float(b.decode_u16(o + 29)) / 65535.0, "f": f, "deck": b.decode_s8(o + 33),
+			"spin": float(b[o + 34]) / SPIN_SCALE}
 		o += CAR_BYTES
 		var nums := [c.p.x, c.p.y, c.s, c.v.x, c.v.y, c.vz, c.slip, c.brake]
 		if f & F_LOOPDATA:
@@ -923,6 +936,8 @@ static func unpack_snapshot(b: PackedByteArray, cars: int, seesaws: int, _circui
 			c["ds"] = b.decode_float(o)
 			c["dm"] = float(b[o + 4]) / 50.0
 			c["wh"] = b[o + 5]
+			c["dc"] = b.decode_u16(o + 6)
+			c["cl"] = b[o + 8]
 			nums.append(c.ds)
 			o += DRIFT_BYTES
 		for x in nums:

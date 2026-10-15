@@ -8,6 +8,8 @@ const OFFSET_SMOOTH := 2.4   # Meter Weg bis ~63 % einer seitlichen Änderung ü
 const SPEED_SMOOTH := 2.8    # dito für das Tempo
 const FINAL_WINDOW := 5      # Nachglättung nach dem Zeichnen: ±5 Routenpunkte (~±3 m)
 const EDGE_MARGIN := 0.35
+const PLANE_JUMP := 0.5      # m Sprung der Zeichenhöhe zwischen zwei Abtastungen, ab dem das Tempo gehalten wird (sample)
+const RAIL_FUNNEL := 0.35    # m zusätzlicher Seitenversatz je Pfadmeter vor der Lineal-Einfahrt (Trichter auf ±rail, sample)
 # Pflicht-Wegpunkte: Tore quer zur Strecke; knapp daneben (Toleranz) zählt noch als durchfahren.
 const GATES_PER_LAP := 24
 const GATE_TOLERANCE := 1.5
@@ -204,11 +206,50 @@ func end() -> void:
 		hint = "Zu kurz – nach dem Ansetzen mindestens 0,5 s weitermalen."
 
 func lateral(p: Vector2, ph: float) -> float:
-	var sc := track.shortcut_at(p)
+	return lateral_in(p, ph, track.shortcut_at(p))
+
+func lateral_in(p: Vector2, ph: float, sc: Dictionary) -> float:
+	# Seitenversatz von p im Bezug sc (Treffer auf einem Abkürzungspfad) bzw. der Hauptstrecke an Stelle ph (sc leer).
 	if not sc.is_empty():
 		return (p - Vector2(sc.point)).dot(Vector2(sc.normal))
 	var t := track.tangent(ph)
 	return (p - track.at(ph)).dot(Vector2(-t.y, t.x))
+
+func reference_for(p: Vector2, prev_sc: int) -> Dictionary:
+	# Bezug der neuen Abtastung: {} = Hauptstrecke, sonst der Treffer auf dem Abkürzungspfad. Mit Hysterese: Wer auf einer Abkürzung
+	# zeichnet, bleibt in ihrem Bezug, solange der Finger in ihrem Korridor ist – auch wo die Hauptstrecke näher liegt (Kinder: Abzweig,
+	# Kreuzung bei Pfadmeter 54, Einmündung); erst am Pfadende geht es zurück. Von der Hauptstrecke auf die Abkürzung nur am Abzweig, wo
+	# beide Bezüge denselben Streckenanteil zeigen (Circuit.shortcut_entry), oder sobald der Finger die Hauptfahrbahn verlassen hat. Vorher
+	# kippte der Bezug bis zu 20-mal je Zeichnung, und Punkte sprangen bis 3,4 m auf die Mitte der anderen Fahrbahn (Lineal, 15.10.2026).
+	if track.shortcuts.is_empty():
+		return {}
+	if prev_sc >= 0:
+		var keep := track.shortcut_on(p, prev_sc)
+		if not keep.is_empty() and float(keep.u) < 0.999:
+			return keep
+	var sc := track.shortcut_here(p, last_phase)
+	if sc.is_empty() or int(sc.index) == prev_sc:
+		return {}
+	var k := int(sc.index)
+	var main := track.query(p)
+	if float(sc.u) * track.shortcut_length(k) <= track.shortcut_entry(k) or float(main.distance) > track.hw(float(main.s)):
+		return sc
+	return {}
+
+func frame_of(q: Vector2, sc_index: int, hint: float) -> Vector2:
+	# (s, o) des Punkts q im Bezug sc_index (-1 = Hauptstrecke); die Runde kommt aus dem Streckenanteil hint.
+	var lap := floorf(hint)
+	if sc_index >= 0:
+		var h := track.shortcut_on(q, sc_index, false)
+		return Vector2(lap + float(h.s), (q - Vector2(h.point)).dot(Vector2(h.normal)))
+	var ph := track.main_phase_near(q, hint, 0.15)
+	var t := track.tangent(ph)
+	var s := lap + ph
+	if s < hint - 0.5:
+		s += 1.0
+	elif s > hint + 0.5:
+		s -= 1.0
+	return Vector2(s, (q - track.at(ph)).dot(Vector2(-t.y, t.x)))
 
 func sample(p: Vector2, time: float) -> bool:
 	if not active or complete:
@@ -225,13 +266,18 @@ func sample(p: Vector2, time: float) -> bool:
 			route[-1].speed = 5.0
 			speed_f = 5.0
 		return false
-	var ph := track.phase_near(p, last_phase, 0.15)
+	var prev_sc := int(route[-1].get("sc", -1))
+	var on_shortcut := reference_for(p, prev_sc)
+	var sc_index := int(on_shortcut.index) if not on_shortcut.is_empty() else -1
+	var ph := float(on_shortcut.s) if not on_shortcut.is_empty() else track.main_phase_near(p, last_phase, 0.15)
 	var advance := wrapf(ph - last_phase, -0.5, 0.5)
 	if distance > MAX_JUMP or track.center_distance(p) > DRAW_LIMIT + track.hw(ph) - Circuit.HALF_WIDTH:
 		hint = "Zu weit von der Strecke – bleib in ihrer Nähe."
 		stop()
 		return false
-	if advance < -0.008 and advance > -0.2:
+	# Beim Bezugswechsel zählt, ob der Finger im neuen Bezug zurückläuft: Pfad- und Hauptstreckenanteil weichen bis ~10 m voneinander ab
+	# (Kinder), ein Wechsel vom Pfad zurück auf die Hauptstrecke sah sonst wie Rückwärtszeichnen aus und beendete den Strich.
+	if advance < -0.008 and advance > -0.2 and (sc_index == prev_sc or wrapf(ph - fposmod(frame_of(last_pos, sc_index, progress).x, 1.0), -0.5, 0.5) < -0.008):
 		hint = "Folge den Pfeilen."
 		stop()
 		return false
@@ -240,7 +286,6 @@ func sample(p: Vector2, time: float) -> bool:
 	var gates_before := gates_passed
 	count_gates(last_pos, p)
 	var candidate := progress + (0.0 if cut else maxf(advance, 0.0))
-	var on_shortcut := track.shortcut_at(p)
 	if not on_shortcut.is_empty() and not cut:
 		# Abkürzung: übersprungene Tore der Hauptstrecke gelten als durchfahren.
 		gates_passed = maxi(gates_passed, int(floor(candidate * GATES_PER_LAP)))
@@ -253,22 +298,42 @@ func sample(p: Vector2, time: float) -> bool:
 		return false
 	if candidate <= progress + 0.0001:
 		return false
-	var speed := clampf(5.0 + distance / elapsed * tempo_factor, 5.0, 29.0)
+	# Springt die Zeichenhöhe zwischen zwei Abtastungen (hohes Lineal-Ende, Schanzenkante), springt auch der Bildschirmpunkt auf der
+	# Zeichenebene (main.gd world_point): Das hohe Ende verdeckt den Boden dahinter, der Weltpunkt macht einen Satz von 0,5–1,8 m.
+	# Das ist kein Fingertempo – sonst wurde die Linie dort plötzlich schmal und rot (+0,3 bis +8,5 m/s je nach Ansicht und Fingertempo).
+	# Diese Abtastung hält das Tempo.
+	var hold := absf(track.draw_height(ph, sc_index, p) - track.draw_height(last_phase, prev_sc, last_pos)) > PLANE_JUMP
+	var speed := speed_f if hold else clampf(5.0 + distance / elapsed * tempo_factor, 5.0, 29.0)
 	var start_offset := offset_f
 	var start_speed := speed_f
+	var start_s := float(route[-1].s)
+	if sc_index != prev_sc:
+		# Bezugswechsel (Hauptstrecke ↔ Abkürzung): Filterzustand und Beginn der Zwischenpunkte im neuen Bezug ausdrücken – die Weltlage
+		# des letzten Punkts bleibt, s läuft nur vorwärts. Vorher galt der alte Versatz im neuen Bezug weiter.
+		var f := frame_of(Vector2(route[-1].p), sc_index, start_s)
+		start_offset = f.y
+		offset_f = f.y
+		start_s = clampf(f.x, start_s, maxf(start_s, minf(candidate, cap)))
 	var limit := DRAW_LIMIT + track.hw(ph) - Circuit.HALF_WIDTH - EDGE_MARGIN
-	offset_f = clampf(lerpf(offset_f, lateral(p, ph), 1.0 - exp(-distance / OFFSET_SMOOTH)), -limit, limit)
+	offset_f = clampf(lerpf(offset_f, lateral_in(p, ph, on_shortcut), 1.0 - exp(-distance / OFFSET_SMOOTH)), -limit, limit)
 	if not on_shortcut.is_empty():
-		# Auf einem Lineal (Wippe) rastet die Linie mittig ein: Seitenversatz höchstens ±rail.
+		# Auf einem Lineal (Wippe) rastet die Linie mittig ein: Seitenversatz höchstens ±rail ab 1 m vor dem Deck. Davor läuft die Grenze als
+		# Trichter aus (RAIL_FUNNEL je Pfadmeter bis dorthin, Pfadmeter wegen der Kurve vor dem Kinderzimmer-Lineal): Wer 1,5–2,5 m neben der
+		# Mitte auf das 4 m breite Deck zeichnete, bekam sonst in einer einzigen Abtastung einen Seitensprung bis 1,9 m – einen Z-Knick in der
+		# noch ungeglätteten Linie am Lineal-Anfang (Gegenprüfung 15.10.2026). Nach der Ausfahrt gibt der Tiefpass die Linie gleitend frei.
 		for w in track.rest_seesaws():
-			if w.shortcut == int(on_shortcut.index) and w.inside(p, 1.0):
+			if w.shortcut != int(on_shortcut.index):
+				continue
+			var lead: float = float(w.spec.get("at", 0.0)) - w.half_len - 1.0 - float(on_shortcut.u) * track.shortcut_length(w.shortcut)
+			var funnel: float = w.rail + maxf(lead, 0.0) * RAIL_FUNNEL
+			if w.inside(p, 1.0):
 				offset_f = clampf(offset_f, -w.rail, w.rail)
+			elif lead > 0.0 and funnel < w.half_w + 1.0:
+				offset_f = clampf(offset_f, -funnel, funnel)
 	speed_f = lerpf(speed_f, speed, 1.0 - exp(-distance / SPEED_SMOOTH))
 	progress = minf(candidate, cap)
 	raw.append({"x": p.x, "z": p.y, "time": time, "active_dt": elapsed})
 	var count := maxi(1, ceili(distance / 0.6))
-	var start_s := float(route[-1].s)
-	var sc_index := int(on_shortcut.index) if not on_shortcut.is_empty() else -1
 	for i in range(1, count + 1):
 		var t := float(i) / count
 		var s := lerpf(start_s, progress, t)
@@ -311,13 +376,18 @@ func count_gates(a: Vector2, b: Vector2) -> void:
 		gates_passed += 1
 
 func finalize() -> void:
-	# Gaußsche Nachglättung von Versatz und Tempo; Startpunkt bleibt fest.
+	# Gaußsche Nachglättung von Versatz und Tempo; Startpunkt bleibt fest. o einer Abkürzung und o der Hauptstrecke sind verschiedene
+	# Koordinaten: Nachbarn mit anderem Bezug gehen mit ihrem Versatz im Bezug des Punkts ein (Weltlage vor der Glättung bleibt).
 	var n := route.size()
 	var offsets := PackedFloat32Array()
 	var speeds := PackedFloat32Array()
+	var frames := PackedInt32Array()
+	var spots := PackedVector2Array()
 	for point in route:
 		offsets.append(float(point.get("o", 0.0)))
 		speeds.append(float(point.speed))
+		frames.append(int(point.get("sc", -1)))
+		spots.append(point.p)
 	for i in range(1, n):
 		var wsum := 0.0
 		var osum := 0.0
@@ -326,7 +396,10 @@ func finalize() -> void:
 			var j := clampi(i + k, 0, n - 1)
 			var w := exp(-float(k * k) / (2.0 * pow(FINAL_WINDOW * 0.5, 2)))
 			wsum += w
-			osum += offsets[j] * w
+			if frames[j] == frames[i]:
+				osum += offsets[j] * w
+			else:
+				osum += frame_of(spots[j], frames[i], float(route[i].s)).y * w
 			ssum += speeds[j] * w
 		route[i].o = osum / wsum
 		route[i].speed = ssum / wsum

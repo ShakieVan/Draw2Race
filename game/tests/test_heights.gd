@@ -341,7 +341,17 @@ func test_seesaw() -> void:
 		edge_wrecks += 1 if v.wrecked and v.edge_hit > 0.0 else 0
 	print("Wippe-Feld: ", runs[0].text, " | Entscheidungen ", f0.decisions)
 	check(runs[0].failed.is_empty() and edge_wrecks == 0, "Wippe-Feld: alle im Ziel, keine Kantenunfälle (%s)" % runs[0].text)
-	check(takes > 0, "KI nimmt das Lineal, wenn die Kante frei ist (%d von %d Entscheidungen)" % [takes, f0.decisions.size()])
+	# Fährt der Spieler-Ersatz übers Lineal, lässt die KI es ihm (Nachfolger schützen). Ob sie es nimmt, wenn die Kante frei ist, zeigt ein
+	# Feld mit dem Spieler-Ersatz auf dem Hauptweg.
+	var main_track := Circuit.new("res://tests/tracks/wippe_oval.json")
+	var main_run := RaceField.run_field(main_track, 1, main_track.ai_route(2.0, 0.0))
+	var main_field: RaceField = main_run.field
+	var main_wrecks := 0
+	for d in main_field.decisions:
+		takes += 1 if bool(d[2]) else 0
+	for v in main_field.cars:
+		main_wrecks += 1 if v.wrecked and v.edge_hit > 0.0 else 0
+	check(takes > 0 and main_wrecks == 0, "KI nimmt das Lineal, wenn die Kante frei ist (%d von %d Entscheidungen, %s)" % [takes, f0.decisions.size() + main_field.decisions.size(), main_run.text])
 	check(str(runs[0].times) == str(runs[1].times) and str(f0.decisions) == str(runs[1].field.decisions), "Wippe-Feld zweimal gerechnet: identisch")
 	# Geist: eigene Wippe, auf der nur er Last ist.
 	var gt := Circuit.new("res://tests/tracks/wippe_oval.json")

@@ -34,7 +34,7 @@ func run() -> void:
 	touch.pressed = true
 	app._unhandled_input(touch)
 	check(app.pointer==2,"Erster Finger übernimmt Zeichnung")
-	app.stroke_started -= 1.0   # zweiter Finger kommt deutlich später (kein Zoom-Griff)
+	app.recorder.confirm()   # Strich schon länger als die Probezeit gemalt: Ein zweiter Finger zoomt dann nicht mehr
 	touch = touch.duplicate()
 	touch.index = 3
 	app._unhandled_input(touch)

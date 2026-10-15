@@ -62,3 +62,12 @@ seesaw = {
 }
 json.dump(seesaw, open(os.path.join(OUT, 'wippe_oval.json'), 'w', encoding='utf8'), ensure_ascii=False, indent=1)
 print('L', round(L, 2), 'at', round(at, 2))
+# 3) Stadion (Fahrer-Regler, test_recovery.gd): zwei Geraden à 220 m, Kurven R 22 m, ohne Bausteine und Hindernisse. Hier zählt nur, wie
+#    das Auto auf seine Linie zurückfindet (Überschwinger, Tempo nach Abstand); die Fahrbahn ist 7 m breit wie überall, daneben Erde.
+pts3, L3 = oval(straight=220.0, radius=22.0)
+stadion = {
+    "format": 1, "id": "stadion", "name": "Prüfoval Stadion", "theme": "coast", "road": "asphalt", "laps": 2,
+    "points": [[round(x, 3), round(z, 3)] for x, z in pts3],
+}
+json.dump(stadion, open(os.path.join(OUT, 'stadion.json'), 'w', encoding='utf8'), ensure_ascii=False, indent=1)
+print('Stadion L', round(L3, 2))

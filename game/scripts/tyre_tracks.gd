@@ -15,7 +15,9 @@ func clear() -> void:
 	cars.clear()
 	total = 0
 
-func sample(id: int, pos: Vector2, heading: float, speed: float, brake: float, slip: float, track: Circuit, time: float, lift := 0.0) -> void:
+# spin: nicht übertragener Antrieb der Hinterräder (RaceVehicle.rear_spin, m/s²). Durchdrehende Hinterräder radieren dunklen Gummi
+# auf den Asphalt, nur an ihren eigenen Spuren (Indizes 2 und 3) und auch beim Anfahren unter Schritttempo (Startstreifen).
+func sample(id: int, pos: Vector2, heading: float, speed: float, brake: float, slip: float, track: Circuit, time: float, lift := 0.0, spin := 0.0) -> void:
 	var forward := Vector2.from_angle(heading)
 	var side := forward.orthogonal()
 	if not cars.has(id):
@@ -46,11 +48,13 @@ func sample(id: int, pos: Vector2, heading: float, speed: float, brake: float, s
 		state.anchor = p
 		var start_surface := track.surface_at(a)
 		var rubber := maxf(clampf((slip-0.14)/0.45,0,1),clampf((brake-4.0)/8.0,0,1))
+		var burn := clampf((spin-1.0)/4.0,0,1) if i>=2 else 0.0
+		rubber = maxf(rubber,burn)
 		if dirty or float(state.load)>0.02:
 			var color: Color = state.dirt_color
 			color.a = 0.65 if dirty else float(state.load)*0.65
 			add_segment(a,p,0.24 if surface.kind=="mud" else 0.20,color,start_surface.height + lift,surface.height + lift,time,"soil")
-		if surface.kind=="asphalt" and rubber>0.03 and speed>2.0:
+		if surface.kind=="asphalt" and rubber>0.03 and (speed>2.0 or burn>0.03):
 			add_segment(a,p,0.14,Color(0.065,0.085,0.09,rubber*0.68),start_surface.height + lift,surface.height + lift,time,"rubber")
 
 func add_segment(a: Vector2, b: Vector2, width: float, color: Color, height_a: float, height_b: float, time: float, kind: String) -> void:

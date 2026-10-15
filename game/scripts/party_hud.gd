@@ -286,10 +286,15 @@ func race() -> void:
 	var pt := party()
 	hud.clear()
 	hud.header("%s     /     MEHRSPIELER" % app.track.name.to_upper())
-	var info := hud.panel(hud.content, Rect2(520, 124, 400, 64))
+	# Drift: Restzeit in einer zweiten Zeile (RaceHUD.show_drift); in der Statuszeile verdrängte sie die Runde, und mit Runde passte die Zeile
+	# nicht neben die Zeit. Die Punkte stehen auf den Turboknöpfen.
+	var drift: bool = app.track.mode == "drift"
+	var info := hud.panel(hud.content, Rect2(520, 124, 400, 98 if drift else 64))
 	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.status = hud.label(info, "RUNDE 1 / 2", Vector2(20, 18), 17, MUTED)
 	hud.time_label = hud.label(info, "00:00.000", Vector2(214, 8), 30)
+	if drift:
+		hud.drift_left = hud.label(info, "", Vector2(20, 58), 17, MUTED)
 	hud.center = hud.label(hud.content, "3", Vector2(590, 300), 130, PAPER, 260)
 	hud.center.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint = hud.label(hud.content, "Jeder hält seinen Turbo-Knopf. Bremsen lädt ihn auf.", Vector2(420, 852), 17, PAPER, 600)
@@ -315,7 +320,7 @@ func update_race() -> void:
 	var v: RaceVehicle = app.vehicles[lead]
 	hud.status.text = app.lap_text(v.progress)
 	if app.track.mode == "drift":
-		hud.status.text = "noch %d s" % maxi(0, int(ceil(app.drift_limit() - app.race_time)))
+		hud.show_drift(app.lap_text(v.progress), v.drift_multiplier, int(ceil(app.drift_limit() - app.race_time)))
 	hud.time_label.text = app.format_time(app.race_time)
 	if app.phase == "race" and hud.center != null:
 		hud.center.text = "LOS" if app.race_time < 0.65 else ""
@@ -335,7 +340,11 @@ func results(rows: Array) -> void:
 	var winner: Dictionary = rows[0] if not rows.is_empty() else {}
 	var title := "Alle raus!"
 	if not winner.is_empty() and not bool(winner.get("out", false)):
-		title = ("Sieg für %s!" % hud.driver_name(int(winner.index))) if app.field.is_human(int(winner.index)) else "%s war schneller." % hud.driver_name(int(winner.index))
+		if drift and not bool(winner.get("in_time", true)):
+			# Wer im Zeitlimit ins Ziel kam, steht vorn; steht dort niemand, war keiner im Limit (wie im Einzelspieler: kein Sieg).
+			title = "Niemand im Zeitlimit."
+		else:
+			title = ("Sieg für %s!" % hud.driver_name(int(winner.index))) if app.field.is_human(int(winner.index)) else "%s war schneller." % hud.driver_name(int(winner.index))
 	var t := hud.label(p, title, Vector2(30, 56), 38, INK, 640)
 	t.name = "ResultTitle"
 	hud.label(p, "PUNKTE" if drift else "ZEIT", Vector2(500, 120), 13, MUTED)

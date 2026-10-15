@@ -13,6 +13,8 @@ var detail: Label
 var time_label: Label
 var speed_label: Label
 var rank_label: Label
+var drift_left: Label           # Drift-Modus: Restzeit im Rennen (eigene Zeile, show_drift)
+var drift_gain: Label           # Drift-Modus: Punkte des laufenden Drifts („+312“, weg bei Wand oder Dreher; Einzelspieler)
 var turbo_button: Button
 var center: Label
 var progress_bar: ProgressBar
@@ -175,6 +177,8 @@ func clear() -> void:
 	time_label = null
 	speed_label = null
 	rank_label = null
+	drift_left = null
+	drift_gain = null
 	result_times.clear()
 	if pads != null:
 		pads.hide_pads()
@@ -594,11 +598,17 @@ func race() -> void:
 		return
 	clear()
 	header("%s     /     %s" % [app.track.name.to_upper(),"VORFÜHRFAHRT" if app.demonstration else "RENNEN"])
-	var p := panel(content,Rect2(40,136,247,180))
+	# Drift: Restzeit in einer eigenen Zeile unter der Zeit (show_drift). In der Statuszeile lief „RUNDE 1 / 2   ×1.7   noch 58 s“ über den
+	# 247 px breiten Kasten hinaus.
+	var drift: bool = app.track.mode == "drift"
+	var p := panel(content,Rect2(40,136,247,214 if drift else 180))
 	status = label(p,"RUNDE 1 / 2",Vector2(22,15),17,MUTED)
 	time_label = label(p,"00:00.000",Vector2(20,46),36)
-	rank_label = label(p,"1 / 2",Vector2(22,105),36)
-	label(p,"PUNKTE" if app.track.mode == "drift" else "PLATZ",Vector2(122,125),14,MUTED)
+	if drift:
+		drift_left = label(p,"",Vector2(22,94),17,MUTED)
+		drift_gain = label(p,"",Vector2(142,94),17,ORANGE)
+	rank_label = label(p,"0" if drift else "1 / 2",Vector2(22,139 if drift else 105),36)
+	label(p,"PUNKTE" if drift else "PLATZ",Vector2(122,159 if drift else 125),14,MUTED)
 	var speed := panel(content,Rect2(40,783,242,78))
 	speed_label = label(speed,"0",Vector2(22,6),43)
 	label(speed,"km/h",Vector2(160,37),17,MUTED)
@@ -622,6 +632,24 @@ func race() -> void:
 	hint.name = "TurboHint"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 
+static func drift_status(lap: String, multiplier: float) -> String:
+	# Statuszeile im Drift-Modus: Runde und Multiplikator (die Restzeit steht darunter, siehe show_drift).
+	return "%s   ×%.1f" % [lap, multiplier]
+
+static func drift_countdown(left: int) -> String:
+	return "noch %d s" % maxi(0, left)
+
+func show_drift(lap: String, multiplier: float, left: int, chain := 0) -> void:
+	# Drift-Anzeige im Rennen: Runde und Multiplikator in der Statuszeile, Restzeit in eigener Zeile (die letzten 10 s orange), daneben die
+	# Punkte des laufenden Drifts (chain, RaceVehicle.drift_chain): Sie sind erst sicher, wenn der Drift endet – Wand oder Dreher kosten sie.
+	if status != null:
+		status.text = drift_status(lap, multiplier)
+	if drift_left != null:
+		drift_left.text = drift_countdown(left)
+		drift_left.add_theme_color_override("font_color", ORANGE if left <= 10 else MUTED)
+	if drift_gain != null:
+		drift_gain.text = "+%d" % chain if chain > 0 else ""
+
 func drift_results(score: int, target: int, in_time: bool, record: bool) -> void:
 	clear()
 	header("%s     /     DRIFT-WERTUNG" % app.track.name.to_upper())
@@ -634,7 +662,8 @@ func drift_results(score: int, target: int, in_time: bool, record: bool) -> void
 	label(p,"Ziel: %d Punkte im Zeitlimit" % target,Vector2(34,253),20,MUTED,515)
 	var solo: bool = app.solo()
 	label(p,("★  Gold für Herausforderung %d" % (app.stage+1)) if won and not app.demonstration and solo else ("Das Zeitlimit war vorbei." if not in_time else ("Punkteziel erreicht." if won and not solo else "Plane die Kurven schneller – das Heck soll kommen.")),Vector2(34,300),20,ORANGE,515)
-	label(p,"Wandberührungen: %d" % app.vehicles[app.me].wall_hits,Vector2(34,380),18,MUTED)
+	var own: RaceVehicle = app.vehicles[app.me]
+	label(p,"Wandberührungen: %d   ·   Ketten verloren: %d" % [own.wall_hits, own.chain_lost],Vector2(34,380),18,MUTED,515)
 	if solo and not app.demonstration and app.store.last_place > 0 and in_time:
 		label(p,"Platz %d deiner Bestenliste" % app.store.last_place,Vector2(34,494),18,ORANGE if app.store.last_place==1 else MUTED)
 	button(p,"Neue Linie     →",Rect2(34,548,518,62),app.start_drawing,true)

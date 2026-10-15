@@ -42,6 +42,14 @@ var quay_z := 1e9          # Kaikante: Land nur bei z < quay_z (quay_dir 1) bzw.
 var quay_dir := 1.0
 var time_limit := 0.0
 var drift_targets: Array = []
+# Drift-Ziele und Zeitlimit, gemessen mit dem Profi-Fahrer (RaceVehicle.drift_driver) und der Kettenwertung (score_drift: Wand oder Dreher
+# kosten die Punkte des laufenden Drifts), 15.10.2026, je 40 „menschliche“ Linien (tests/test_drift.gd) und mit dem LineRecorder gezeichnete
+# Fingerlinien: Stufe 1 schaffen mit dem Drift King etwa 3 von 4 Linien, Stufe 2 etwa jede dritte, Stufe 3 (Regen) etwa jede zehnte, saubere
+# Ideallinien mit schnellen Kurven meist; grob überall schnell gezeichnete Linien die Regenstufe nicht. Die Werte gehören in die Streckendatei
+# (drift_targets, time_limit); jede Änderung an tracks/arena.json macht aber Diorama und Abriebkarte ungültig (SHA-256 der Datei), bis beide
+# neu gebaut sind. Bis dahin überschreiben sie beim Laden die Dateiwerte – so gelten im Einzelspieler, beim Weitergeben und im WLAN-Rennen
+# (NetRace.drift_limit_for liest time_limit) dieselben Werte; vorher wertete das WLAN mit 1,4 × Bot (64,5 s) statt 55 s.
+const DRIFT_CALIBRATION := {"arena": {"targets": [1000, 1650, 2000], "limit": 55.0}}
 var max_half_width := HALF_WIDTH
 const BREAK_SPEED := 9.0      # m/s senkrecht zur Leitplanke: darüber bricht sie
 var open := false         # Sprintstrecke: Start und Ziel getrennt, eine Durchfahrt
@@ -87,6 +95,9 @@ func _init(file_path := DEFAULT_TRACK) -> void:
 	mode = str(data.get("mode", "race"))
 	time_limit = float(data.get("time_limit", 0.0))
 	drift_targets = data.get("drift_targets", [])
+	if DRIFT_CALIBRATION.has(id):
+		time_limit = float(DRIFT_CALIBRATION[id].limit)
+		drift_targets = DRIFT_CALIBRATION[id].targets
 	for w in widths:
 		max_half_width = maxf(max_half_width, float(w[1]))
 	for sc in data.get("shortcuts", []):
@@ -277,6 +288,10 @@ func phase_near(p: Vector2, hint: float, window := 0.12) -> float:
 			var h := unit(hint)
 			if h >= entry - 0.03 and h <= exit + 0.01:
 				return float(sc.s)
+	return main_phase_near(p, hint, window)
+
+func main_phase_near(p: Vector2, hint: float, window := 0.12) -> float:
+	# Wie phase_near, aber immer auf die Hauptstrecke projiziert (Abkürzungen bleiben außen vor): Bezug der Linie auf der Hauptstrecke.
 	var count := points.size()
 	var center := int(unit(hint) * span())
 	var reach := int(window * count)
@@ -348,6 +363,49 @@ func shortcut_at(p: Vector2, main_distance := -1.0) -> Dictionary:
 				best = {"index": k, "distance": d, "u": u, "s": lerpf(float(sc.from), float(sc.to), u),
 					"normal": Vector2(-dir.y, dir.x), "point": q}
 	return best
+
+func shortcut_on(p: Vector2, k: int, corridor := true) -> Dictionary:
+	# Wie shortcut_at, aber nur für Abkürzung k und ohne Vergleich mit der Hauptstrecke (dort, wo die Hauptstrecke näher liegt, bleibt
+	# der Pfad der Bezug). corridor: nur innerhalb Breite + 1 m (sonst {}); false: nächster Pfadpunkt in jedem Abstand (Umrechnung).
+	if k < 0 or k >= shortcuts.size():
+		return {}
+	var sc: Dictionary = shortcuts[k]
+	var path: Array = sc.path
+	var cum: PackedFloat32Array = sc.cum
+	var best := {}
+	for i in range(path.size() - 1):
+		var q := Geometry2D.get_closest_point_to_segment(p, path[i], path[i + 1])
+		var d := p.distance_to(q)
+		if corridor and d > float(sc.width) * 0.5 + 1.0:
+			continue
+		if best.is_empty() or d < float(best.distance):
+			var along: float = cum[i] + Vector2(path[i]).distance_to(q)
+			var u: float = along / maxf(cum[-1], 0.001)
+			var dir: Vector2 = (path[i + 1] - path[i]).normalized()
+			best = {"index": k, "distance": d, "u": u, "s": lerpf(float(sc.from), float(sc.to), u),
+				"normal": Vector2(-dir.y, dir.x), "point": q}
+	return best
+
+const ENTRY_MATCH := 1.0   # m: am Abzweig gilt der Pfad als Einstieg, solange Pfad- und Hauptstreckenanteil höchstens so weit auseinanderliegen
+var entry_cache := PackedFloat32Array()
+
+func shortcut_entry(k: int) -> float:
+	# Pfadmeter ab dem Abzweig, bis zu denen Pfad und Hauptstrecke denselben Streckenanteil zeigen (|s_Pfad − s_Haupt|·Länge ≤ ENTRY_MATCH).
+	# Nur dort wechselt eine Linie von der Hauptstrecke in den Bezug der Abkürzung, ohne zu springen (Kinder ≈ 4 m, Hafen ≈ 2 m).
+	if entry_cache.size() != shortcuts.size():
+		entry_cache.resize(shortcuts.size())
+		for j in range(shortcuts.size()):
+			var sc: Dictionary = shortcuts[j]
+			var total := shortcut_length(j)
+			var m := 0.0
+			while m + 0.25 <= total:
+				var q: Vector2 = path_pose(j, m + 0.25)[0]
+				var on_path := lerpf(float(sc.from), float(sc.to), (m + 0.25) / maxf(total, 0.001))
+				if absf(wrapf(on_path - main_phase_near(q, float(sc.from), 0.05), -0.5, 0.5)) * length > ENTRY_MATCH:
+					break
+				m += 0.25
+			entry_cache[j] = m
+	return entry_cache[k] if k >= 0 and k < entry_cache.size() else 0.0
 
 func place(s: float, offset: float, shortcut := -1) -> Vector2:
 	# Punkt zu Streckenanteil s und Seitenversatz; auf einer Abkürzung entlang ihres Pfads.
@@ -540,6 +598,30 @@ func guardrail_at(s: float, side: float) -> bool:
 		if inside_range and ((g.side == "left") == (side > 0.0)):
 			return true
 	return false
+
+var entry_list: Array = []
+var entries_built := false
+
+func momentum_entries() -> Array:
+	# Einfahrten, vor denen ein Auto auf seiner Linie und ausgerichtet sein muss (Fahrer-Regler: der Zielpunkt einer Rückkehr liegt höchstens
+	# davor): Looping-Einfahrt, Schanze, Absprungkante einer Lücke ohne Schanze und das Deck jeder Wippe (Streckenanteil auf dem Pfad ihrer
+	# Abkürzung – nicht deren Abzweig). Je Eintrag [s, Abkürzung oder -1].
+	if not entries_built:
+		entries_built = true
+		for l in loops:
+			entry_list.append([float(l.s), -1])
+		for r in ramps:
+			entry_list.append([float(r.s), -1])
+		for g in gaps:
+			if gap_kicker(g).is_empty():
+				entry_list.append([float(g.from), -1])
+		for w in rest_seesaws():
+			if w.shortcut < 0:
+				continue
+			var sc: Dictionary = shortcuts[w.shortcut]
+			var m: float = float(w.spec.get("at", 0.0)) - w.half_len
+			entry_list.append([lerpf(float(sc.from), float(sc.to), m / maxf(shortcut_length(w.shortcut), 0.001)), w.shortcut])
+	return entry_list
 
 func momentum_needs() -> Array:
 	# Mindesttempo (m/s) vor Loopings (oben muss v²/R ≥ g gelten; Einfahrt ≈ √(5gR), plus Reserve für Luftwiderstand).

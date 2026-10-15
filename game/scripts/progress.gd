@@ -126,7 +126,12 @@ func result_drift(track_id: String, stage: int, car: int, score: int, won: bool)
 		data.times = {}
 	var key := "%s/%d" % [board_key(track_id), stage]
 	var list: Array = data.times.get(key, [])
-	var best := 0 if list.is_empty() else int(list[0].get("score", 0))
+	# Rekord wie bei Rennen (data.best je Physikversion) nur gegen Fahrten derselben Physik: bicycle-7 brachte Profi-Drifter und
+	# Kettenwertung, alte Punkte sind nicht vergleichbar. Die Liste selbst zeigt ältere Fahrten weiter.
+	var best := 0
+	for old in list:
+		if str(old.get("physics", "")) == RaceVehicle.VERSION:
+			best = maxi(best, int(old.get("score", 0)))
 	var entry := {"score": score, "time": 0.0, "car": car, "date": Time.get_date_string_from_system(), "physics": RaceVehicle.VERSION}
 	list.append(entry)
 	list.sort_custom(func(a, b): return int(a.get("score", 0)) > int(b.get("score", 0)))

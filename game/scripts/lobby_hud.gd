@@ -1024,7 +1024,10 @@ func net_results(rows: Array) -> void:
 	var title := "Alle raus!"
 	if not winner.is_empty() and not (bool(winner.crashed) and float(winner.time) < 0.0):
 		var who := int(winner.index)
-		if who == app.me and r != null and r.my_index >= 0:
+		if drift and not bool(winner.get("in_time", true)):
+			# Niemand im Zeitlimit im Ziel: kein Sieg (passt zur Musik, NetRace.human_won verlangt in_time).
+			title = "Niemand im Zeitlimit."
+		elif who == app.me and r != null and r.my_index >= 0:
 			title = "Du gewinnst, %s!" % hud.driver_name(who)
 		elif app.field != null and app.field.is_human(who):
 			title = "Sieg für %s!" % hud.driver_name(who)

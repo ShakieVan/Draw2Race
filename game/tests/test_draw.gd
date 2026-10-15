@@ -6,6 +6,7 @@ extends SceneTree
 # eine abgelehnte, eine zurückgezogene → alle Linien bei allen bytegleich → Enthüllung und Ampelzeit gleich. Danach Abbruch beim
 # Zeichnen (mit abgegebener Linie bleibt man, ohne fällt man aus der Runde) und die echte Oberfläche (main.tscn) als Mitspieler:
 # 3-2-1, Stand der anderen, Fertig, Doch neu zeichnen, Enthüllung, Übergabe an M5, Zurück-Taste, Verlassen beim Zeichnen.
+# Dazu der Zeichner (LineRecorder) an Abkürzungen und am Kinderzimmer-Lineal: keine Ausreißer, Bezug mit Hysterese, Tempo am hohen Ende.
 const PORT := 24796
 const DISCOVERY_PORT := 24797
 const BEACON_PORT := 24798
@@ -33,6 +34,8 @@ func _initialize() -> void:
 
 func run() -> void:
 	test_plans()
+	test_shortcut_lines()
+	test_rail_entry()
 	await test_sessions()
 	await test_drop()
 	await test_ui()
@@ -221,6 +224,297 @@ func test_plans() -> void:
 	var source := FileAccess.get_file_as_string("res://scripts/net/net_draw.gd")
 	check(not source.contains("RaceField") and not source.contains("RaceVehicle.new") and not source.contains(".save(") and not source.contains("store."),
 		"Gemeinsames Zeichnen rechnet nichts und schreibt keinen Spielstand")
+
+# ---------- Zeichner an Abkürzungen und am Lineal (LineRecorder) ----------
+# Nutzerbefund Kinderzimmer (15.10.2026): Am Lineal riss die gezeichnete Linie an Anfang und Ende der Abkürzung aus. Der Zeichner kippte an
+# Abzweig, Kreuzung und Einmündung zwischen den Bezügen Hauptstrecke/Pfad hin und her (bis 20 Wechsel je Zeichnung) und rechnete den
+# Filterzustand nicht um: Punkte sprangen bis 3,4 m auf die Mitte der anderen Fahrbahn. Synthetischer Finger mit 60 Hz, Wackeln 0,3 m (feste
+# Saat), Fingertempo 26 m/s bzw. Tempo der KI-Linie. Prüfsummen der festen Zeichnung: aufgenommen vor der Änderung (Strecken ohne Abkürzung
+# müssen bitgleich bleiben; Jahrmarkt und Steinbruch nur in der Lage, ihr Tempo hält an der Schanzenkante – siehe sample).
+const SUMS_FULL := {"arena": "29c0963b2abf12c3", "azure": "93add7b9d818221a", "city": "d756f732a17d324c", "forest": "9dcde60099ec1c10",
+	"serra": "44457a2a9e02e9f8"}
+const SUMS_GEOMETRY := {"arena": "377065d165d221b0", "azure": "83f8f575061167e5", "city": "ab19190551d7b0df", "fair": "bd93218096d9122d",
+	"forest": "c77866ab7dc64e51", "quarry": "4212fc50e17c089f", "serra": "05ba539d2449dc3b"}
+
+func digest(data: Array) -> String:
+	var ctx := HashingContext.new()
+	ctx.start(HashingContext.HASH_SHA256)
+	ctx.update(var_to_bytes(data))
+	return ctx.finish().hex_encode().left(16)
+
+func fixed_drawing(t: Circuit) -> LineRecorder:
+	# Feste Zeichnung: Fingertempo 8–28 m/s, Seitenlage ±1,4 m, 60 Hz (Sprintstrecke: über das Ende hinaus geradeaus).
+	var pen := LineRecorder.new(t)
+	pen.begin(t.at(0.0), 0.0)
+	var s := 0.0
+	var i := 0
+	while not pen.complete and pen.active and i < 40000:
+		i += 1
+		s += (18.0 + 10.0 * sin(i * 0.013)) / 60.0 / t.length
+		var lane := 1.4 * sin(s * 31.0)
+		pen.sample(t.at(1.0, lane) + t.tangent(1.0) * (s - 1.0) * t.length if t.open and s > 1.0 else t.at(s, lane), i / 60.0)
+	return pen
+
+func finger_path(t: Circuit, k: int, lane_main: float, lane_path: float) -> PackedVector2Array:
+	# Fingerweg in 0,1-m-Schritten: Hauptstrecke (Spur lane_main) → Pfad k (Spur lane_path, Übergang über je 8 m) → Hauptstrecke, beide
+	# Runden; k < 0: nur Hauptstrecke.
+	var out := PackedVector2Array()
+	var step := 0.1 / t.length
+	var s := 0.0
+	if k >= 0:
+		var from := float(t.shortcuts[k].from)
+		var total := t.shortcut_length(k)
+		for lap in range(t.laps):
+			while s < lap + from:
+				out.append(t.at(s, lane_main))
+				s += step
+			var m := 0.0
+			while m <= total:
+				var pose := t.path_pose(k, m)
+				var dir: Vector2 = pose[1]
+				var lane := lerpf(lane_main, lane_path, smoothstep(0.0, 8.0, m) * smoothstep(total, total - 8.0, m))
+				out.append(Vector2(pose[0]) + Vector2(-dir.y, dir.x) * lane)
+				m += 0.1
+			s = lap + float(t.shortcuts[k].to)
+	while s <= t.laps + 0.03:
+		out.append(t.at(s, lane_main))
+		s += step
+	return out
+
+func draw_finger(t: Circuit, path: PackedVector2Array, speed: float, plan: Array, wobble: float, seed_value: int, samples: PackedVector2Array, stop_at := INF) -> LineRecorder:
+	# Finger fährt den Weg mit speed m/s ab (speed 0: Tempo der KI-Linie plan an der nächsten Stelle); Wackeln quer, feste Saat.
+	# stop_at: Finger bleibt ab diesem Fortschritt liegen (Linie noch nicht fertig, also roh wie beim Zeichnen).
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value
+	var phases := [rng.randf() * TAU, rng.randf() * TAU, rng.randf() * TAU]
+	var cum := PackedFloat32Array([0.0])
+	for i in range(1, path.size()):
+		cum.append(cum[-1] + path[i - 1].distance_to(path[i]))
+	var pen := LineRecorder.new(t)
+	pen.begin(t.at(0.0), 0.0)
+	var walked := 0.0
+	var j := 0
+	var near := 0
+	var tick := 0
+	while not pen.complete and pen.active and walked < cum[-1] and tick < 60000 and pen.progress < stop_at:
+		tick += 1
+		var v := speed
+		if speed <= 0.0:
+			var best := INF
+			for k in range(near, mini(near + 40, plan.size())):
+				var d := Vector2(plan[k].p).distance_to(path[j])
+				if d < best:
+					best = d
+					near = k
+			v = clampf((float(plan[near].speed) - 5.0) / pen.tempo_factor, 4.0, 60.0)
+		walked += v / 60.0
+		while j < cum.size() - 2 and cum[j + 1] < walked:
+			j += 1
+		var f := clampf((walked - cum[j]) / maxf(1e-6, cum[j + 1] - cum[j]), 0.0, 1.0)
+		var dir := (path[j + 1] - path[j]).normalized()
+		var time := tick / 60.0
+		var shake := wobble * (0.6 * sin(1.3 * time + phases[0]) + 0.3 * sin(3.1 * time + phases[1]) + 0.1 * sin(7.9 * time + phases[2]))
+		var p := path[j].lerp(path[j + 1], f) + Vector2(-dir.y, dir.x) * shake
+		samples.append(p)
+		pen.sample(p, time)
+	return pen
+
+func line_errors(t: Circuit, pen: LineRecorder, samples: PackedVector2Array) -> Dictionary:
+	# Abweichungen im Bereich der Abkürzung ±15 m: größter Abstand Routenpunkt–Fingerweg (ohne Lineal-Deck: dort rastet die Linie bewusst
+	# auf ±rail ein), größter Nachbarabstand, Zacken (Abstand zur Sehne der Nachbarn ±2), Bezugswechsel, Lage = place(s, o, sc).
+	var out := {"side": 0.0, "step": 0.0, "zig": 0.0, "switches": 0, "place": 0.0, "rail": 0.0, "problem": ""}
+	if not pen.complete:
+		out.problem = "nicht fertig: " + pen.hint
+		return out
+	var grid := {}
+	for i in range(samples.size() - 1):
+		var key := Vector2i(floori(samples[i].x / 2.0), floori(samples[i].y / 2.0))
+		if not grid.has(key):
+			grid[key] = PackedInt32Array()
+		grid[key].append(i)
+	var from := float(t.shortcuts[0].from) - 15.0 / t.length
+	var to := float(t.shortcuts[0].to) + 15.0 / t.length
+	var route := pen.route
+	for i in range(1, route.size()):
+		var p: Vector2 = route[i].p
+		var sc := int(route[i].get("sc", -1))
+		if sc != int(route[i - 1].get("sc", -1)):
+			out.switches += 1
+		out.place = maxf(out.place, p.distance_to(t.place(float(route[i].s), float(route[i].o), sc)))
+		var u := fposmod(float(route[i].s), 1.0)
+		if u < from or u > to:
+			continue
+		var deck := false
+		for w in t.rest_seesaws():
+			if w.inside(p, 4.0):
+				deck = true
+			if sc == w.shortcut and absf(w.local(p).x) <= w.half_len - 4.0 and absf(w.local(p).y) <= w.half_w:
+				out.rail = maxf(out.rail, absf(float(route[i].o)))
+		out.step = maxf(out.step, p.distance_to(route[i - 1].p))
+		if i >= 2 and i < route.size() - 2:
+			out.zig = maxf(out.zig, p.distance_to(Geometry2D.get_closest_point_to_segment(p, route[i - 2].p, route[i + 2].p)))
+		if deck:
+			continue
+		var best := INF
+		var cell := Vector2i(floori(p.x / 2.0), floori(p.y / 2.0))
+		for gx in range(cell.x - 2, cell.x + 3):
+			for gz in range(cell.y - 2, cell.y + 3):
+				for k in grid.get(Vector2i(gx, gz), PackedInt32Array()):
+					best = minf(best, p.distance_to(Geometry2D.get_closest_point_to_segment(p, samples[k], samples[k + 1])))
+		out.side = maxf(out.side, best)
+	out.problem = NetDraw.check_plan(t, LineRecorder.plan_to_data(route))
+	return out
+
+func test_shortcut_lines() -> void:
+	# 1) Über die Abkürzung, auch mit breiten Spuren (±2,5 m: früher bis 3,5 m Ausreißer und 5,2 m Nachbarsprung).
+	for id in ["kids", "harbor"]:
+		var t := circuit(id)
+		var plan := t.ai_route(2.0, 0.0, 0)
+		var worst := {"side": 0.0, "step": 0.0, "zig": 0.0, "switches": 0, "place": 0.0, "rail": 0.0}
+		var fails: Array = []
+		var lanes := [[0.0, -2.5], [0.0, -2.0], [0.0, -1.0], [0.0, 0.0], [0.0, 1.0], [0.0, 2.0], [0.0, 2.5], [-1.5, 0.0], [1.5, 0.0]]
+		for c in lanes:
+			for speed in [26.0, 0.0]:
+				var samples := PackedVector2Array()
+				var pen := draw_finger(t, finger_path(t, 0, c[0], c[1]), speed, plan, 0.3, 7 + int(c[1] * 10.0) + int(c[0] * 100.0), samples)
+				var e := line_errors(t, pen, samples)
+				if e.problem != "":
+					fails.append("%s H%+.1f P%+.1f %s: %s" % [id, c[0], c[1], "26 m/s" if speed > 0.0 else "KI-Tempo", e.problem])
+				for key in worst:
+					worst[key] = maxf(float(worst[key]), float(e[key]))
+		check(fails.is_empty(), "%s: Linien über die Abkürzung fertig und plausibel (NetDraw.check_plan) %s" % [id, str(fails)])
+		check(float(worst.side) <= 1.0 and float(worst.place) <= 0.25, "%s: Linie über die Abkürzung höchstens %.2f m neben dem Fingerweg (≤ 1,0; Lage aus s/o/sc %.3f m)"
+			% [id, worst.side, worst.place])
+		check(float(worst.step) <= 1.5 and float(worst.zig) <= 0.3, "%s: keine Sprünge und Zacken (Nachbarpunkte ≤ %.2f m, Zacken ≤ %.2f m)" % [id, worst.step, worst.zig])
+		check(int(worst.switches) <= 2 * t.laps, "%s: Bezug wechselt nur an Abzweig und Einmündung (%d Wechsel in %d Runden)" % [id, int(worst.switches), t.laps])
+		if not t.rest_seesaws().is_empty():
+			var rail := float(t.rest_seesaws()[0].rail)
+			check(float(worst.rail) <= rail + 0.05, "%s: auf dem Lineal rastet die Linie mittig ein (|o| ≤ %.2f m, rail %.1f)" % [id, worst.rail, rail])
+	# 2) Nur auf der Hauptstrecke, Spur zur Pfadseite hin: Die Linie bleibt am Finger (früher bis 3,4 m daneben, 7 m Sprünge). Wo eine Linie
+	# den Pfad ein Stück entlangläuft und dann der Hauptstrecke folgt, bleibt eine Vorwärtslücke (Pfad- und Hauptstreckenanteil weichen dort
+	# um einige Meter ab; s läuft nur vorwärts) – höchstens 4 m; ihre Sehne weicht in Kurven bis 0,5 m vom Bogen ab (Zackenmaß).
+	for id in ["kids", "harbor"]:
+		var t := circuit(id)
+		var worst := {"side": 0.0, "step": 0.0, "zig": 0.0, "switches": 0}
+		var fails: Array = []
+		for lane in [-3.0, -1.5, 1.5, 3.0]:
+			var samples := PackedVector2Array()
+			var pen := draw_finger(t, finger_path(t, -1, lane, 0.0), 26.0, [], 0.3, 3 + int(lane * 10.0), samples)
+			var e := line_errors(t, pen, samples)
+			if e.problem != "":
+				fails.append("%s Spur %+.1f: %s" % [id, lane, e.problem])
+			for key in worst:
+				worst[key] = maxf(float(worst[key]), float(e[key]))
+		check(fails.is_empty() and float(worst.side) <= 1.5 and float(worst.step) <= 4.0 and float(worst.zig) <= 0.5 and int(worst.switches) <= 2 * t.laps,
+			"%s: nur Hauptstrecke (Spur ±1,5/±3) – %.2f m neben dem Finger, Nachbarpunkte ≤ %.2f m, Zacken %.2f m, %d Wechsel %s"
+			% [id, worst.side, worst.step, worst.zig, int(worst.switches), str(fails)])
+	# 3) Kinder: Die Hauptstrecke kreuzt den Pfad bei Pfadmeter ≈ 54 (0,2 m) und begleitet ihn bis zur Einmündung. Wer dort auf dem Pfad
+	# zeichnet, auch zur Hauptstrecke hin versetzt, bleibt im Bezug des Pfads (Hysterese) – früher kippten bis 14 von 20 Punkten.
+	var kids := circuit("kids")
+	var total := kids.shortcut_length(0)
+	var cross_bad := 0
+	var cross_all := 0
+	for lane in [-1.0, -0.6, 0.6, 1.0]:
+		var pen := draw_finger(kids, finger_path(kids, 0, 0.0, lane), 26.0, [], 0.0, 1, PackedVector2Array())
+		for e in pen.route:
+			var m := (fposmod(float(e.s), 1.0) - float(kids.shortcuts[0].from)) / (float(kids.shortcuts[0].to) - float(kids.shortcuts[0].from)) * total
+			if m >= 52.0 and m <= 56.0:
+				cross_all += 1
+				if int(e.get("sc", -1)) != 0:
+					cross_bad += 1
+	check(cross_all > 40 and cross_bad == 0, "Kinder, Kreuzung bei Pfadmeter 52–56: alle %d Punkte im Bezug des Pfads (%d nicht)" % [cross_all, cross_bad])
+	# 4) finalize(): Nachbarn mit anderem Bezug gehen umgerechnet in die Glättung ein. Linie längs der Pfadmitte (Pfadmeter 58–72, die
+	# Hauptstrecke 1,5–3,6 m daneben), ab Pfadmeter 66 im Bezug der Hauptstrecke ausgedrückt: Die Glättung darf sie an der Grenze nicht
+	# verschieben (gemischte Versätze zogen die Punkte dort rund 1 m zur anderen Mitte).
+	var smooth := LineRecorder.new(kids)
+	var m := 58.0
+	while m <= 72.0:
+		var q: Vector2 = kids.path_pose(0, m)[0]
+		var sc := -1 if m >= 66.0 else 0
+		var f := smooth.frame_of(q, sc, lerpf(float(kids.shortcuts[0].from), float(kids.shortcuts[0].to), m / total))
+		smooth.route.append({"p": kids.place(f.x, f.y, sc), "speed": 15.0, "s": f.x, "o": f.y, "sc": sc, "m": m})
+		m += 0.5
+	var before: Array = smooth.route.map(func(e): return e.p)
+	smooth.finalize()
+	var moved := 0.0
+	for i in range(smooth.route.size()):
+		if absf(float(smooth.route[i].m) - 66.0) <= 3.0:
+			moved = maxf(moved, Vector2(before[i]).distance_to(smooth.route[i].p))
+	check(moved <= 0.1, "finalize() an einer Bezugsgrenze: Linie bleibt liegen (%.3f m)" % moved)
+	# 5) Strecken ohne Abkürzung: dieselbe Zeichnung wie vor der Änderung (Prüfsumme über plan_to_data).
+	var same: Array = []
+	var differs: Array = []
+	for id in SUMS_GEOMETRY:
+		var pen := fixed_drawing(circuit(id))
+		var data := LineRecorder.plan_to_data(pen.route)
+		var geometry: Array = data.map(func(q): return {"x": q.x, "z": q.z, "s": q.s, "o": q.o, "sc": q.sc})
+		var ok: bool = pen.complete and digest(geometry) == SUMS_GEOMETRY[id] and (not SUMS_FULL.has(id) or digest(data) == SUMS_FULL[id])
+		if ok:
+			same.append(id)
+		else:
+			differs.append(id)
+	check(differs.is_empty(), "Strecken ohne Abkürzung zeichnen bitgleich wie vorher (%s; abweichend: %s)" % [", ".join(same), str(differs)])
+	# 6) Hohes Lineal-Ende: Die Zeichenhöhe fällt dort um 2,2 m, der Bildschirmpunkt springt (main.gd world_point). Eine Abtastung über diesen
+	# Sprung hält das Tempo; derselbe Satz auf dem Deck (ohne Höhensprung) zählt als schnelles Zeichnen.
+	var w: Seesaw = kids.rest_seesaws()[0]
+	var held := {}
+	for target in [w.half_len - 0.6, 3.0]:
+		var pen := LineRecorder.new(kids)
+		pen.begin(kids.at(0.0), 0.0)
+		var path := finger_path(kids, 0, 0.0, 0.0)
+		var tick := 0
+		var k := 0
+		while k < path.size() - 5 and tick < 20000:
+			var p := path[k]
+			if pen.route.size() > 1 and int(pen.route[-1].get("sc", -1)) == 0 and w.inside(p) and w.local(p).x >= target:
+				break
+			tick += 1
+			pen.sample(p, tick / 60.0)
+			k += 4
+		var speed_before := pen.speed_f
+		var count := pen.route.size()
+		var jump := w.world(w.local(pen.last_pos).x + 1.6)
+		var accepted := pen.sample(jump, (tick + 1) / 60.0)
+		var flat := true
+		for i in range(count, pen.route.size()):
+			flat = flat and float(pen.route[i].speed) == speed_before
+		held[target] = accepted and pen.speed_f == speed_before and flat
+	check(bool(held[w.half_len - 0.6]) and not bool(held[3.0]), "Lineal-Ende: Satz über den Höhensprung hält das Tempo, derselbe Satz auf dem Deck nicht (%s)" % str(held))
+
+func test_rail_entry() -> void:
+	# Die Linie beim Zeichnen (vor finalize – so sieht der Spieler sie): Wer 1,5–2,5 m neben der Mitte auf das Lineal zeichnete, bekam an
+	# der Einfahrt einen Z-Knick. Die Rail-Klemme zog den Versatz in einer Abtastung auf ±rail (Seitensprung bis 1,9 m, Zacken bis 0,7 m);
+	# jetzt läuft sie als Trichter aus (LineRecorder.RAIL_FUNNEL). Erste Runde, Pfadmeter 4–20 (Einfahrt): Zacken und Seitensprung |Δo| (statt
+	# des Punktabstands: an Knicken des Pfad-Polygons liegen Punkte mit großem Versatz außen weiter auseinander). Pfadmeter 36–52 (Ausfahrt):
+	# Zacken; dort gibt der Tiefpass die Linie gleitend frei (|Δo| je Punkt bis ~0,3 m bei Spur 2,5, unverändert).
+	var t := circuit("kids")
+	var plan := t.ai_route(2.0, 0.0, 0)
+	var from := float(t.shortcuts[0].from)
+	var to := float(t.shortcuts[0].to)
+	var total := t.shortcut_length(0)
+	var worst := {"zig": 0.0, "lateral": 0.0, "points": 0, "zig_out": 0.0}
+	var fails: Array = []
+	for lane in [-2.5, -2.0, -1.5, 1.5, 2.0, 2.5]:
+		for speed in [26.0, 0.0]:
+			var pen := draw_finger(t, finger_path(t, 0, 0.0, lane), speed, plan, 0.3, 5 + int(lane * 10.0), PackedVector2Array(), to + 10.0 / t.length)
+			if pen.complete or not pen.active:
+				fails.append("Spur %+.1f: %s" % [lane, pen.hint])
+			var route := pen.route
+			for i in range(2, route.size() - 2):
+				if int(route[i].get("sc", -1)) != 0 or int(route[i - 1].get("sc", -1)) != 0:
+					continue
+				var meter := (fposmod(float(route[i].s), 1.0) - from) / (to - from) * total
+				var p: Vector2 = route[i].p
+				var zig := p.distance_to(Geometry2D.get_closest_point_to_segment(p, route[i - 2].p, route[i + 2].p))
+				if meter >= 4.0 and meter <= 20.0:
+					worst.zig = maxf(worst.zig, zig)
+					worst.lateral = maxf(worst.lateral, absf(float(route[i].o) - float(route[i - 1].o)))
+					worst.points += 1
+				elif meter >= 36.0 and meter <= 52.0:
+					worst.zig_out = maxf(worst.zig_out, zig)
+	check(fails.is_empty() and int(worst.points) > 250 and float(worst.zig) <= 0.3 and float(worst.lateral) <= 0.3 and float(worst.zig_out) <= 0.3,
+		"Lineal beim Zeichnen ohne Z-Knick (Spur ±1,5–2,5): Einfahrt Zacken %.2f m, Seitensprung %.2f m (≤ 0,3; %d Punkte), Ausfahrt Zacken %.2f m %s"
+		% [worst.zig, worst.lateral, int(worst.points), worst.zig_out, str(fails)])
 
 # ---------- Host + 3 Mitspieler ----------
 func test_sessions() -> void:

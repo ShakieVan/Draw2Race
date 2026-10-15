@@ -40,6 +40,7 @@ class Voice extends RefCounted:
 	var limiter: AudioStreamPlayer
 	var limit_amt := 0.0
 	var phase := 0.0                 # Stelle im Arbeitsspiel (0..1); neue Schichten setzen hier ein (Gleichtakt der Zündungen)
+	var spin := 0.0                  # geglättetes Durchdrehen der Hinterräder (Anteil 0..1, nur Heckantrieb)
 
 var manifest: Dictionary = {}
 var streams := {}
@@ -289,6 +290,10 @@ func update_voice(v: Voice, vehicle: RaceVehicle, dt: float, camera: Camera3D, s
 		thr = clampf((1.2 - countdown) / 1.2, 0.0, 1.0) * 0.75
 	v.throttle += (thr - v.throttle) * (1.0 - exp(-dt * 12.0))
 	var goal := target_rpm(v, speed, v.throttle, vehicle.airborne)
+	# Drehen die Hinterräder durch (rear_spin, nur Heckantrieb), läuft der Motor dem Tempo voraus: bis zu 30 % des Wegs zur Rotgrenze,
+	# geglättet wie ein Rad mit Trägheit. Allrad-Autos (rear_spin immer 0) klingen unverändert.
+	v.spin += (clampf((vehicle.rear_spin - 1.0) / 4.0, 0.0, 1.0) * (0.0 if stopped else 1.0) - v.spin) * (1.0 - exp(-dt * 6.0))
+	goal = lerpf(goal, float(v.car.redline) * 0.97, 0.3 * v.spin)
 	v.rpm += (goal - v.rpm) * (1.0 - exp(-dt * (9.0 if goal > v.rpm else 4.0)))
 	# Lautstärke: Gesamtpegel, Abstand zum eigenen Auto, außerhalb des Bildes leiser; Stereolage aus der Bildposition.
 	var db := (PLAYER_DB if v.is_player else RIVAL_DB) + float(v.car.get("gain_db", 0.0)) + rev_db(v) + linear_to_db(maxf(0.0001, level))

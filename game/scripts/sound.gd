@@ -237,6 +237,9 @@ func tick(vehicle: RaceVehicle, racing: bool, paused: bool, sfx: bool, music_on:
 	var speed := vehicle.velocity.length()
 	var skid := clampf((vehicle.slip-0.10)*2.2,0.0,1.0)*clampf(speed/6.0,0.0,1.0)
 	skid = maxf(skid,clampf(vehicle.braking/12.0,0.0,1.0)*clampf(speed/8.0,0.0,1.0)*0.6)
+	# Durchdrehende Hinterräder (Heckantrieb, rear_spin in m/s²) quietschen bzw. scharren auf losem Grund – auch beim Anfahren aus
+	# dem Stand (dort gedämpft, die Räder drehen langsamer durch als im Drift).
+	skid = maxf(skid,clampf((vehicle.rear_spin-1.0)/4.0,0.0,1.0)*clampf(0.4+speed/8.0,0.0,1.0)*0.85)
 	var kind := "asphalt"
 	if track != null:
 		kind = str(track.surface_at(vehicle.pos).kind)

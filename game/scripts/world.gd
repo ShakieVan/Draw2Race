@@ -2415,7 +2415,12 @@ func route_mesh(route: Array[Dictionary], from: int, to: int, subdued: bool, mat
 		normals.append(dir.normalized().orthogonal() if dir.length() > 0.0001 else (normals[-1] if not normals.is_empty() else Vector2.UP))
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Lineal (Wippe), auf dessen Deck der Punkt liegt; je Punkt einmal (die Linie wird beim Zeichnen in jedem Bild neu gebaut).
+	var decks := not track.seesaws.is_empty()
+	var deck_b := seesaw_index(route[from]) if decks else -1
 	for i in range(from + 1, to):
+		var deck_a := deck_b
+		deck_b = seesaw_index(route[i]) if decks else -1
 		var a: Vector2 = route[i-1].p
 		var b: Vector2 = route[i].p
 		if a.is_equal_approx(b):
@@ -2430,20 +2435,83 @@ func route_mesh(route: Array[Dictionary], from: int, to: int, subdued: bool, mat
 		elif (float(route[-1].s)>1.02 and float(route[i].s)<1.0) or subdued:
 			color_a = color_a.darkened(0.30)
 			color_b = color_b.darkened(0.30)
-		if route_on_seesaw and subdued and (on_seesaw_deck(route[i-1]) or on_seesaw_deck(route[i])):
+		if deck_a != deck_b:
+			deck_crossing(st, route[i-1], route[i], side_a, side_b, color_a, color_b, deck_a, deck_b, subdued, lift)
 			continue
-		var corners := [a-side_a,b+side_b,a+side_a,a-side_a,b-side_b,b+side_b]
+		if route_on_seesaw and subdued and deck_a >= 0:
+			continue
 		var ha := track.draw_height(float(route[i-1].s), int(route[i-1].get("sc", -1)), a)
 		var hb := track.draw_height(float(route[i].s), int(route[i].get("sc", -1)), b)
-		for vertex in range(6):
-			var at_end := vertex in [1,4,5]
-			var p: Vector2 = corners[vertex]
-			st.set_color(color_b if at_end else color_a)
-			st.set_normal(Vector3.UP)
-			var s: float = route[i].s if at_end else route[i-1].s
-			st.add_vertex(Vector3(p.x,0.27+s*0.006+(hb if at_end else ha)+lift,p.y))
+		line_band(st, a, b, side_a, side_b, color_a, color_b, line_y(route[i-1].s, ha, lift), line_y(route[i].s, hb, lift))
 	st.set_material(mat)
 	return st.commit()
+
+static func line_y(s: float, height: float, lift: float) -> float:
+	# Höhe der Linie: Zeichenhöhe + 0,27, je Runde minimal höher (die zweite Runde liegt über der ersten), lift für gestaffelte Linien.
+	return 0.27+s*0.006+height+lift
+
+static func line_band(st: SurfaceTool, a: Vector2, b: Vector2, side_a: Vector2, side_b: Vector2, color_a: Color, color_b: Color, ya: float, yb: float) -> void:
+	# Ein Linienstück als Band von a nach b (halbe Breite side_a/side_b, Farbe und Höhe je Ende).
+	var corners := [a-side_a,b+side_b,a+side_a,a-side_a,b-side_b,b+side_b]
+	for vertex in range(6):
+		var at_end := vertex in [1,4,5]
+		var p: Vector2 = corners[vertex]
+		st.set_color(color_b if at_end else color_a)
+		st.set_normal(Vector3.UP)
+		st.add_vertex(Vector3(p.x,yb if at_end else ya,p.y))
+
+func deck_crossing(st: SurfaceTool, ea: Dictionary, eb: Dictionary, side_a: Vector2, side_b: Vector2, color_a: Color, color_b: Color, deck_a: int, deck_b: int, subdued: bool, lift: float) -> void:
+	# Linienstück über eine Deckkante des Lineals (ein Ende auf dem Deck, eines daneben), an der Kante geteilt: Das Bodenstück beginnt genau
+	# unter der Kante, das Deckstück reicht bis an die Kante – beim Zeichnen hier, mit senkrechtem Übergang am hohen Ende; im Rennen kippt
+	# es als Teil von build_seesaw_lines mit. Vorher fehlte das Stück im Rennen ganz (Lücke bis 0,6 m an beiden Enden, am hohen Ende dazu
+	# die Stufe von 2,2 m), beim Zeichnen lief es schräg vom hohen Ende zum Boden.
+	var on_a := deck_a >= 0
+	var w: Seesaw = track.rest_seesaws()[deck_a if on_a else deck_b]
+	var pa: Vector2 = ea.p
+	var pb: Vector2 = eb.p
+	var t := deck_edge(w, pa, pb) if on_a else 1.0 - deck_edge(w, pb, pa)
+	var c := pa.lerp(pb, t)
+	var side_c := side_a.lerp(side_b, t)
+	var color_c := color_a.lerp(color_b, t)
+	var s_c := lerpf(float(ea.s), float(eb.s), t)
+	var on := ea if on_a else eb
+	var off := eb if on_a else ea
+	var out := (pb - pa).normalized() * (0.02 if on_a else -0.02)
+	var y_ground := line_y(s_c, track.draw_height(s_c, int(off.get("sc", -1)), c + out), lift)
+	var y_off := line_y(float(off.s), track.draw_height(float(off.s), int(off.get("sc", -1)), off.p), lift)
+	if on_a:
+		line_band(st, c, pb, side_c, side_b, color_c, color_b, y_ground, y_off)
+	else:
+		line_band(st, pa, c, side_a, side_c, color_a, color_c, y_off, y_ground)
+	if route_on_seesaw and subdued:
+		return
+	var sc := int(on.get("sc", -1))
+	var y_edge := line_y(s_c, track.draw_height(s_c, sc, c), lift)
+	var y_on := line_y(float(on.s), track.draw_height(float(on.s), sc, on.p), lift)
+	if on_a:
+		line_band(st, pa, c, side_a, side_c, color_a, color_c, y_on, y_edge)
+	else:
+		line_band(st, c, pb, side_c, side_b, color_c, color_b, y_edge, y_on)
+	if absf(y_edge - y_ground) > 0.05:
+		# Senkrecht an der Stirnseite hinunter: Die Linie folgt Deckkante und Boden, statt schräg durch die Luft zu laufen.
+		var q := [Vector3(c.x - side_c.x, y_edge, c.y - side_c.y), Vector3(c.x + side_c.x, y_edge, c.y + side_c.y),
+			Vector3(c.x + side_c.x, y_ground, c.y + side_c.y), Vector3(c.x - side_c.x, y_ground, c.y - side_c.y)]
+		for j in [0, 1, 2, 0, 2, 3]:
+			st.set_color(color_c)
+			st.set_normal(Vector3(out.x, 0.0, out.y).normalized())
+			st.add_vertex(q[j])
+
+static func deck_edge(w: Seesaw, inner: Vector2, outer: Vector2) -> float:
+	# Anteil t auf inner → outer, an dem die Linie die Grundfläche des Lineals verlässt (inner liegt darauf); Halbierung, auf < 1 mm genau.
+	var lo := 0.0
+	var hi := 1.0
+	for _k in range(12):
+		var mid := (lo + hi) * 0.5
+		if w.inside(inner.lerp(outer, mid)):
+			lo = mid
+		else:
+			hi = mid
+	return lo
 
 func _process(_dt: float) -> void:
 	# Warnleuchten der Absperrschranken blinken (nur Darstellung), etwa einmal pro Sekunde.
@@ -2891,12 +2959,215 @@ func car_model(color: Color, player := false, style := "coupe") -> Node3D:
 	dust.scale_amount_max = 1.6
 	var puff := QuadMesh.new()
 	puff.size = Vector2(1.1,1.1)
-	var dm := Atmosphere.soft_material(Color(0.78,0.68,0.52,0.35))
-	dm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	puff.material = dm
+	# Licht wie beim Reifenqualm (SMOKE_SHADER): nachts so dunkel wie die Umgebung, unter Laternen erhellt. Vorher leuchtete der Staub
+	# unbeleuchtet in seiner Tagesfarbe (Nutzerregel „nichts leuchtet nachts selbst“). Farbe über die Partikelfarbe (linear).
+	puff.material = dust_material()
+	dust.color = Color(0.78,0.68,0.52,0.35).srgb_to_linear()
 	dust.mesh = puff
 	car.add_child(dust)
+	add_tyre_smoke(car, st)
 	return car
+
+# ---------- Reifenqualm (nur Darstellung; main.gd steuert die Ausstoßrate aus rear_spin und dem Querrutschen) ----------
+# Partikel je Hinterrad und Grafikstufe (Niedrig: kein Qualm) und Lebensdauer relativ zu Hoch. Mittel spart an der Länge der Wolke,
+# nicht an ihrer Dichte: Mit 30 statt 48 Partikeln bei gleicher Lebensdauer stieß ein Rad nur 14 statt 22 Ballen je Sekunde aus, und
+# die Spur zerfiel in einzelne Ballen (Gegenprüfung 15.10.2026). Jetzt beide Stufen ≈25 Ballen je Sekunde und Rad.
+const SMOKE_AMOUNT := [1, 32, 56]
+const SMOKE_LIFE := [1.0, 0.6, 1.0]
+var _smoke_mesh: QuadMesh           # je Welt (Texturen gehören nicht in statische Variablen, siehe _noise_textures)
+
+func rear_wheel_points(car: Node3D, st: Dictionary) -> Array[Vector3]:
+	# Naben der Hinterräder im Wagensystem (x vorn, z links, y 0 = Fahrbahn). Premium: die Rad-Meshes ohne "Wheel_F" (Ursprung in der
+	# Nabe, tools/make_car.py), über die Transformationskette bis zum Wagen gerechnet (geht auch, solange der Wagen nicht im Baum hängt).
+	# Klötzchen: die Radblöcke aus classic_body.
+	var points: Array[Vector3] = []
+	if car.has_meta("wheels"):
+		for wheel: Node3D in car.get_meta("wheels"):
+			if wheel.name.begins_with("Wheel_F"):
+				continue
+			var xf := Transform3D.IDENTITY
+			var node: Node = wheel
+			while node != null and node != car:
+				if node is Node3D:
+					xf = (node as Node3D).transform * xf
+				node = node.get_parent()
+			points.append(xf.origin)
+	if points.is_empty():
+		var L: float = st.len
+		var W: float = st.wid
+		for z in [-W*0.53, W*0.53]:
+			points.append(Vector3(-L*0.32, float(st.wheel)*0.7, z))
+	return points
+
+# Licht ohne Eigenleuchten, Billboard und Deckkraft (Geist, OpenGL-Rückfall): siehe assets/tyre_smoke.gdshader.
+const SMOKE_SHADER := preload("res://assets/tyre_smoke.gdshader")
+static var _smoke_image: Image = null   # Bild (nur Hauptspeicher) für die ganze Sitzung, die Textur daraus je Welt
+var _dust_material: ShaderMaterial
+
+func dust_material() -> ShaderMaterial:
+	# Staub hinter dem Auto: weicher runder Fleck, Licht wie der Qualm (Tageslicht setzt smoke_look mit).
+	if _dust_material == null:
+		_dust_material = ShaderMaterial.new()
+		_dust_material.shader = SMOKE_SHADER
+		_dust_material.set_shader_parameter("puff_tex", Atmosphere.soft_texture())
+	return _dust_material
+
+static func smoke_image() -> Image:
+	# Blumenkohl-Textur eines Ballens: sechs weiche Gauß-Kugeln statt Rauschen (feines Rauschen zeichnete im Kontrollbild helle Kringel).
+	# Fest (seed 23) und einmal je Sitzung gerechnet: 64×64 Bildpunkte × 6 Kugeln kosteten bei jedem Rennstart gut 3 ms (Desktop).
+	if _smoke_image != null:
+		return _smoke_image
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 23
+	var blobs: Array[Vector3] = []          # x, y (Mitte, in halben Bildbreiten), Radius
+	for k in range(6):
+		var at := Vector2.from_angle(rng.randf() * TAU) * (0.0 if k == 0 else rng.randf_range(0.28, 0.42))
+		blobs.append(Vector3(at.x, at.y, 0.55 if k == 0 else rng.randf_range(0.3, 0.4)))
+	var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	for y in range(64):
+		for x in range(64):
+			var p := Vector2(x + 0.5 - 32.0, y + 0.5 - 32.0) / 32.0
+			var clear := 1.0
+			var core := 0.0
+			for b in blobs:
+				var g := exp(-p.distance_squared_to(Vector2(b.x, b.y)) / (b.z * b.z) * 1.6)
+				clear *= 1.0 - g
+				core = maxf(core, g)
+			var a := (1.0 - clear) * (1.0 - smoothstep(0.55, 1.0, p.length()))
+			# Kerne der Kugeln etwas heller als die Ränder: wirkt wie Volumen statt wie eine flache Scheibe.
+			var shade := 0.88 + 0.12 * core
+			img.set_pixel(x, y, Color(shade, shade, shade, a))
+	img.generate_mipmaps()
+	_smoke_image = img
+	return img
+
+func smoke_mesh() -> QuadMesh:
+	# Ein Qualmballen: Billboard mit weich auslaufender Blumenkohl-Textur (je Partikel zufällig gedreht, damit die Wolke nicht aus gleichen
+	# Scheiben besteht). Keine Schatten; Vertex-Farbe = Farbverlauf der Lebensdauer (smoke_look), Licht siehe SMOKE_SHADER.
+	if _smoke_mesh != null:
+		return _smoke_mesh
+	var m := ShaderMaterial.new()
+	m.shader = SMOKE_SHADER
+	m.set_shader_parameter("puff_tex", ImageTexture.create_from_image(smoke_image()))
+	_smoke_mesh = QuadMesh.new()
+	_smoke_mesh.size = Vector2(1.4, 1.4)
+	_smoke_mesh.material = m
+	return _smoke_mesh
+
+func add_tyre_smoke(car: Node3D, st: Dictionary) -> void:
+	# Je Hinterrad ein Emitter, kurz hinter der Aufstandsfläche, Ausstoß nach hinten oben und etwas nach außen. Die Wolke bleibt in der
+	# Welt hängen (local_coords aus), das Auto fährt aus ihr heraus. Klötzchen, KI-Karosserien und der Geist bekommen denselben Knoten.
+	var smoke := Node3D.new()
+	smoke.name = "Smoke"
+	car.add_child(smoke)
+	# Ballen quellen auf: gut 1 m am Reifen, am Ende 3–4 m (Quad 1,4 m × Zufall 0,7–1,3). Schon frisch so groß, dass sich aufeinander
+	# folgende Ballen bei Drifttempo überlappen (bei 0,6 m Startgröße lagen sie bei 40 km/h als einzelne Watteballen hintereinander).
+	var grow := Curve.new()
+	grow.max_value = 3.0                   # Standard 1: größere Werte würden gekappt
+	grow.add_point(Vector2(0.0, 0.85))
+	grow.add_point(Vector2(0.2, 1.4))
+	grow.add_point(Vector2(1.0, 2.6))
+	for hub in rear_wheel_points(car, st):
+		var e := CPUParticles3D.new()
+		e.emitting = false
+		e.local_coords = false
+		e.position = Vector3(hub.x - 0.12, 0.2, hub.z)
+		e.mesh = smoke_mesh()
+		e.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+		e.emission_sphere_radius = 0.22    # etwas gestreut, damit die Ballen nicht wie an einer Schnur aufgereiht liegen
+		e.direction = Vector3(-1.0, 0.35, signf(hub.z) * 0.35)
+		e.spread = 35.0
+		e.angle_min = 0.0
+		e.angle_max = 360.0
+		e.angular_velocity_min = -30.0
+		e.angular_velocity_max = 30.0
+		e.scale_amount_min = 0.7
+		e.scale_amount_max = 1.3
+		e.scale_amount_curve = grow
+		e.lifetime_randomness = 0.2
+		# Keine Tiefensortierung (DRAW_ORDER_VIEW_DEPTH): Mit fahrendem Emitter und Weltkoordinaten paarte Godot dabei Lagen und Farben
+		# verschiedener Partikel – beim Anfahren erschienen schwarze Ballen (Kontrollbild). Gezeichnet wird nach Partikelplatz (Ringpuffer,
+		# DRAW_ORDER_INDEX): An der Umlaufstelle liegen neuere Ballen unter älteren, bei gleich grauem Qualm von oben unsichtbar.
+		e.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		smoke.add_child(e)
+	refresh_smoke(smoke)
+
+func smoke_key() -> String:
+	# Wetter, Tageszeit und Grafikstufe, nach denen sich das Aussehen des Qualms richtet.
+	if atmosphere == null:
+		return "dry/day/2"
+	return "%s/%s/%d" % [str(atmosphere.conditions.weather), str(atmosphere.conditions.time), atmosphere.quality]
+
+func refresh_smoke(smoke: Node3D) -> void:
+	# Aussehen nachziehen, wenn sich Wetter, Tageszeit oder Grafikstufe geändert haben (je Takt aus main.gd; billig, solange alles bleibt).
+	var key := smoke_key()
+	if str(smoke.get_meta("look", "")) != key:
+		var parts := key.split("/")
+		smoke_look(smoke, parts[0], int(parts[2]), parts[1])
+
+func smoke_look(smoke: Node3D, weather: String, quality: int, time := "day") -> void:
+	# Aussehen je Wetter, Tageszeit und Grafikstufe (amount neu setzen leert den Emitter, deshalb nur bei einer Änderung).
+	# Trocken: dichter weiß-grauer Qualm, steigt langsam (heiß) und hängt lange. Regen: Gischt statt Qualm – auf nassem Asphalt wird
+	# der Reifen nicht heiß genug, er schleudert Wasser als Sprühnebel: dünner, schneller ausgeworfen, sinkt und vergeht rasch.
+	# Schnee: aufgewirbelter Pulverschnee, weißer und kürzer als Qualm, sinkt ab.
+	# Licht: wie atmosphere.apply für Schnee und Nebel – Tageslicht relativ zum trockenen Tag, bei Regen/Schnee mit gedämpfter Sonne.
+	var t: Dictionary = Atmosphere.TIMES.get(time, Atmosphere.TIMES.day)
+	if atmosphere != null:
+		var lit := atmosphere.light_rel(t, float(t.sun_energy) * (0.55 if weather != "dry" else 1.0))
+		for m: ShaderMaterial in [smoke_mesh().material, dust_material()]:
+			m.set_shader_parameter("day_light", Vector3(lit.r, lit.g, lit.b))
+	var color := Color(0.82, 0.82, 0.84)
+	var peak := 0.6
+	var life := 2.2
+	var speed := Vector2(0.8, 2.4)
+	var damping := Vector2(0.8, 1.6)
+	var lift := 0.45
+	match weather:
+		"rain":
+			color = Color(0.86, 0.88, 0.9)
+			peak = 0.3
+			life = 0.9
+			speed = Vector2(1.8, 3.6)
+			damping = Vector2(2.5, 3.5)
+			lift = -1.2
+		"snow":
+			color = Color(0.96, 0.97, 1.0)
+			peak = 0.5
+			life = 1.3
+			speed = Vector2(1.4, 3.0)
+			damping = Vector2(1.6, 2.4)
+			lift = -0.5
+	# Deckkraft: am Reifen kurz dünner (sonst eine harte weiße Scheibe direkt am Heck), aber schon nach gut einem Zehntel der Lebensdauer
+	# voll, damit sich die Ballen gleich hinter dem Rad zu einer Wolke schließen (vorher erst nach 20 %: beim Anfahren nur ein Schleier),
+	# dann vergehend. Die Farben oben sind sRGB-Werte; der Shader rechnet linear (wie source_color bei Nebel und Schnee).
+	color = color.srgb_to_linear()
+	var ramp := Gradient.new()
+	ramp.offsets = PackedFloat32Array([0.0, 0.05, 0.12, 0.6, 1.0])
+	ramp.colors = PackedColorArray([Color(color, 0.0), Color(color, peak * 0.55), Color(color, peak), Color(color.darkened(0.04), peak * 0.75),
+		Color(color.darkened(0.06), 0.0)])
+	var tier := clampi(quality, 0, 2)
+	for node in smoke.get_children():
+		var e := node as CPUParticles3D
+		e.amount = SMOKE_AMOUNT[tier]
+		e.lifetime = life * SMOKE_LIFE[tier]
+		e.initial_velocity_min = speed.x
+		e.initial_velocity_max = speed.y
+		e.damping_min = damping.x
+		e.damping_max = damping.y
+		e.gravity = Vector3(0, lift, 0)
+		e.color_ramp = ramp
+	# Staub auf losem Belag (Geschwister-Knoten „Dust“): trocken eine helle Wolke, die aufsteigt. Im Regen staubt nasser Boden nicht;
+	# durchdrehende Räder schleudern dort Matsch – dunkelbraune, kleinere Klumpen, die rasch wieder fallen (main.update_models schaltet).
+	var car := smoke.get_parent()
+	var dust: CPUParticles3D = car.get_node_or_null("Dust") if car != null else null
+	if dust != null:
+		var mud := weather == "rain"
+		dust.color = (Color(0.34,0.27,0.2,0.6) if mud else Color(0.78,0.68,0.52,0.35)).srgb_to_linear()
+		dust.gravity = Vector3(0, -7.0 if mud else 0.4, 0)
+		dust.lifetime = 0.7 if mud else 1.1
+		dust.scale_amount_min = 0.3 if mud else 0.6
+		dust.scale_amount_max = 0.8 if mud else 1.6
+	smoke.set_meta("look", "%s/%s/%d" % [weather, time, quality])
 
 const TRACK_SHADER := preload("res://assets/tyre_track.gdshader")
 var track_multi: MultiMesh
@@ -3117,14 +3388,16 @@ func update_seesaws(list: Array, alpha: float) -> void:
 	for i in range(mini(seesaw_nodes.size(), list.size())):
 		pose_seesaw(i, lerpf(list[i].prev_phi, list[i].phi, alpha))
 
-func on_seesaw_deck(e: Dictionary) -> bool:
+func seesaw_index(e: Dictionary) -> int:
+	# Wippe (Index in rest_seesaws), auf deren Grundfläche der Linienpunkt e liegt; -1 = keine.
 	var sc := int(e.get("sc", -1))
 	if sc < 0:
-		return false
-	for w in track.rest_seesaws():
-		if w.shortcut == sc and w.inside(e.p):
-			return true
-	return false
+		return -1
+	var rest := track.rest_seesaws()
+	for k in range(rest.size()):
+		if rest[k].shortcut == sc and rest[k].inside(e.p):
+			return k
+	return -1
 
 func build_seesaw_lines(routes: Array, tints: Array = []) -> void:
 	# Im Rennen: Linienstück auf jedem Lineal als Kindknoten der Wippe (lokale Koordinaten, Oberseite y 0), kippt mit ihr.
@@ -3141,10 +3414,19 @@ func build_seesaw_lines(routes: Array, tints: Array = []) -> void:
 			var tint: Color = tints[k] if k < tints.size() else Color(0, 0, 0, 0)
 			var y := 0.07 + 0.004 * k
 			for i in range(1, route.size()):
-				if not (on_seesaw_deck(route[i - 1]) and on_seesaw_deck(route[i])):
+				var deck_a := seesaw_index(route[i - 1])
+				var deck_b := seesaw_index(route[i])
+				if deck_a != wi and deck_b != wi:
 					continue
-				var la := w.local(route[i - 1].p)
-				var lb := w.local(route[i].p)
+				var pa: Vector2 = route[i - 1].p
+				var pb: Vector2 = route[i].p
+				# Über die Deckkante: nur das Stück bis zur Kante kippt mit, den Rest zeichnet route_mesh am Boden (deck_crossing).
+				if deck_a != wi:
+					pa = pb.lerp(pa, deck_edge(w, pb, pa))
+				elif deck_b != wi:
+					pb = pa.lerp(pb, deck_edge(w, pa, pb))
+				var la := w.local(pa)
+				var lb := w.local(pb)
 				var half := line_half_width(float(route[i].speed))
 				var col := (tint if tint.a > 0.0 else line_color(float(route[i].speed))).darkened(0.30)
 				var q := [Vector3(la.x, y, -(la.y - half)), Vector3(lb.x, y, -(lb.y - half)), Vector3(lb.x, y, -(lb.y + half)), Vector3(la.x, y, -(la.y + half))]

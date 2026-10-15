@@ -40,16 +40,26 @@ var draw_clock := 0.0
 # Handkamera beim Zeichnen: Ziehen verschiebt, zwei Finger zoomen, Doppeltipp zeigt die ganze Strecke.
 # Gemalt wird nur, wenn der Finger im offenen (schimmernden) Linienende bzw. am Startpunkt aufsetzt.
 const GRAB_PX := 64.0          # Greifradius in Bildpunkten (unabhängig vom Zoom)
-const PINCH_GRACE := 0.15      # zweiter Finger so kurz nach Malbeginn -> Zoom statt Malen
 const MOUSE_ID := 1000
+# Doppeltipp nur aus echten Tippern (kurz, kaum bewegt, ohne zweiten Finger): Vorher zählte jedes erste Aufsetzen, und schnelles
+# Nachwischen oder Nachzoomen sprang zurück in die Übersicht.
+const TAP_TIME := 0.25         # längste Berührung eines Tippers (s)
+const TAP_SLOP := 20.0         # größte Bewegung eines Tippers (Bildpunkte)
+const DOUBLE_TAP := 0.32       # längste Pause vom Loslassen des ersten bis zum Aufsetzen des zweiten Tippers (s)
 var touches := {}              # Finger-Index -> Bildschirmposition
 var pan_index := -99
 var pinch_ids: Array = []
+# Zwei-Finger-Zoom absolut seit dem Aufsetzen (pinch_view): Fingerabstand und Zoom beim Aufsetzen bzw. letzten Neuverankern und der
+# Bodenpunkt (mit Höhe), der unter der Fingermitte bleibt.
 var pinch_dist := 0.0
-var pinch_mid := Vector2.ZERO
-var stroke_started := 0.0
-var stroke_origin := Vector2.ZERO
-var last_tap := -10.0
+var pinch_zoom := 60.0
+var pinch_anchor := Vector3.ZERO
+const PINCH_SLIP := 2.0        # so weit (Bildpunkte) darf die Grenze den Fokus verschieben, ehe die Geste neu verankert
+var tap_id := -99              # Finger, der gerade ein Tipper sein könnte
+var tap_start := 0.0
+var tap_pos := Vector2.ZERO
+var tap_clean := false
+var last_tap := -10.0          # Loslassen des letzten echten Tippers
 var last_tap_pos := Vector2.ZERO
 var view_focus := Vector3.ZERO
 var view_zoom := 60.0
@@ -76,6 +86,7 @@ var chatter := RaceChatter.new()
 # Geisterauto: beste eigene Fahrt je Strecke/Herausforderung (Linie + Turbo-Einsätze), ungestört wiedergegeben.
 var ghost: RaceVehicle
 var ghost_model: Node3D
+var ghost_dir := "user://ghosts"   # Tests leiten ihre Geister in ein eigenes Verzeichnis um; die des Spielers bleiben unberührt
 var ghost_turbo: Array = []
 var last_boost_input := false
 var result_record := false
@@ -150,8 +161,23 @@ func _ready() -> void:
 var drift_limit_cache := {}
 
 func drift_limit() -> float:
-	# Zeitlimit im Drift-Modus: aus der Strecke oder – falls nicht angegeben – 1,4 × Fahrzeit einer
-	# vorsichtigen KI-Fahrt (einmal je Strecke berechnet).
+	# Zeitlimit im Drift-Modus: aus der Strecke (für die Arena kalibriert, Circuit.DRIFT_CALIBRATION) oder – falls nicht angegeben – 1,4 ×
+	# Fahrzeit einer vorsichtigen KI-Fahrt (einmal je Strecke berechnet).
+	# Im WLAN-Rennen das Limit, mit dem der Gastgeber Rennende und Wertung rechnet (NetRace.drift_limit; der Gast rechnet es ebenso nach, mit
+	# der Haftung der Herausforderung), damit Anzeige und Wertung nie auseinanderlaufen.
+	if lobby != null and lobby.race != null:
+		var r: NetRace = lobby.race
+		if r.drift_limit > 0.0:
+			return r.drift_limit
+		if r.track.time_limit > 0.0:
+			return r.track.time_limit     # Gast: die Strecke kennt ihr Limit (Arena: kalibriert), kein Neuladen nötig
+		var key := "net:%s:%.3f" % [r.track.id, r.grip]
+		if not drift_limit_cache.has(key):
+			var saved := RaceVehicle.weather_grip
+			RaceVehicle.weather_grip = r.grip
+			drift_limit_cache[key] = NetRace.drift_limit_for(Circuit.load_track(r.track.id))
+			RaceVehicle.weather_grip = saved
+		return drift_limit_cache[key]
 	if track.time_limit > 0.0:
 		return track.time_limit
 	if not drift_limit_cache.has(track_id):
@@ -427,10 +453,10 @@ func clear_cars() -> void:
 	world.update_edge_posts({})   # Randpfosten wieder aufstellen
 
 func ghost_path() -> String:
-	return "user://ghosts/%s_%d.json" % [track_id, stage]
+	return "%s/%s_%d.json" % [ghost_dir, track_id, stage]
 
 func save_ghost() -> void:
-	DirAccess.make_dir_recursive_absolute("user://ghosts")
+	DirAccess.make_dir_recursive_absolute(ghost_dir)
 	var plan := LineRecorder.plan_to_data(recorder.route)
 	var file := FileAccess.open(ghost_path(), FileAccess.WRITE)
 	if file:
@@ -455,6 +481,9 @@ func spawn_ghost() -> void:
 	for node in ghost_model.find_children("*", "GeometryInstance3D", true, false):
 		(node as GeometryInstance3D).transparency = 0.65
 		(node as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		if node is CPUParticles3D:
+			# Qualm und Staub: Ihr Shader setzt ALPHA selbst, dort gilt transparency nicht; Deckkraft über assets/tyre_smoke.gdshader (fade).
+			(node as CPUParticles3D).set_instance_shader_parameter("fade", 0.35)
 
 func ghost_boost(time: float) -> bool:
 	return RaceField.replay_turbo(ghost_turbo, time)
@@ -495,9 +524,8 @@ func start_drawing() -> void:
 	world.marker.visible = true
 	var start := track.at(0.0)
 	world.marker.position = Vector3(start.x,0.31 + track.surface_z(0.0),start.y)
-	camera_target = track_center()
-	cam_zoom = overview_size()
-	set_camera(camera_target)
+	# Kamera steht schon (reset_view -> apply_view, mit Bandversatz und Bezugshöhe); hier nur das Blickziel dazu passend merken.
+	camera_target = Vector3(view_focus.x,view_focus.y,view_focus.z-band_shift(view_zoom))
 	hud.drawing()
 
 func demo() -> void:
@@ -594,9 +622,11 @@ func prepare_race_view() -> void:
 
 func record_tyre_tracks(i: int) -> void:
 	var v := vehicles[i]
-	if v.airborne or v.in_loop or v.crashed:
+	# Auf dem Deck einer Wippe keine Spuren: Das Lineal ist Holz (der Belag darunter, Erde der Abkürzung, malte braune Erdspuren darauf,
+	# gemessen 482 Stücke je Überfahrt), und es kippt – in der Welt liegende Spuren hingen danach in der Luft.
+	if v.airborne or v.in_loop or v.crashed or v.deck != null:
 		return
-	world.tyre_tracks.sample(i,v.pos,v.heading,v.velocity.length(),v.braking,v.slip,track,race_time,v.z)
+	world.tyre_tracks.sample(i,v.pos,v.heading,v.velocity.length(),v.braking,v.slip,track,race_time,v.z,v.rear_spin)
 
 func update_tyre_tracks() -> void:
 	for i in range(vehicles.size()):
@@ -844,14 +874,34 @@ func humans_done(dt: float) -> bool:
 	return done
 
 func update_models() -> void:
+	var quality: int = world.atmosphere.quality
+	var weather := str(world.atmosphere.conditions.weather)
+	var driving := phase in ["race","result"]
 	for i in range(vehicles.size()):
 		models[i].get_node("Turbo").visible = vehicles[i].boosting and phase=="race"
 		models[i].get_node("Lights").visible = world.atmosphere.is_dark()
-		# Staub nur auf losem Grund, ab Schrittgeschwindigkeit und nicht in der niedrigsten Grafikstufe.
+		# Menschen, die beim Zeitlimit (Drift) bzw. nach AFTER_WINNER/RACE_LIMIT (WLAN) noch fuhren, schreitet die Wertung nicht mehr
+		# (RaceField.step_inputs): rear_spin, Tempo und Kurs bleiben auf dem letzten Wert stehen. Sie stehen – kein Qualm, kein Staub,
+		# keine drehenden Räder (sonst qualmte das stehende Auto im Ergebnisbildschirm endlos weiter).
+		var frozen := phase == "result" and field != null and field.is_human(i) and vehicles[i].finish_time < 0.0
+		# Reifenqualm hinten (nur Darstellung), solange die Autos fahren und nicht in der niedrigsten Grafikstufe.
+		var power := tyre_smoke_power(vehicles[i]) if driving and quality>=1 and not frozen else 0.0
+		# Staub nur auf losem Grund, ab Schrittgeschwindigkeit und nicht in der niedrigsten Grafikstufe. Drehen die Hinterräder durch,
+		# staubt es auch im Stand, und die Räder werfen ihn weiter aus (Anfangstempo wirkt nur auf neue Partikel). Im Regen staubt nasser
+		# Boden nicht; nur durchdrehende Räder schleudern Matsch (Aussehen: world.smoke_look am Staub-Emitter).
 		var dust: CPUParticles3D = models[i].get_node("Dust")
-		var loose: bool = str(track.surface_at(vehicles[i].pos).kind) in ["gravel","dirt","mud","sand","grass"]
-		dust.emitting = loose and world.atmosphere.quality>=1 and vehicles[i].velocity.length()>4.0 and world.atmosphere.conditions.weather!="rain"
-		animate_car(i)
+		var loose := loose_ground(vehicles[i])
+		dust.emitting = not frozen and loose and quality>=1 and (power>0.05 or (vehicles[i].velocity.length()>4.0 and weather!="rain"))
+		dust.initial_velocity_min = 1.0 + 1.5*power
+		dust.initial_velocity_max = 2.6 + 3.0*power
+		# Auf losem Grund Staub statt Qualm: Der Reifen wühlt im Belag, statt auf ihm heiß zu radieren.
+		set_tyre_smoke(models[i], 0.0 if loose else power)
+		animate_car(i, frozen)
+	if ghost != null and is_instance_valid(ghost_model):
+		# Der Geist (Einzelspieler, nie im Drift-Modus) qualmt wie die übrigen Autos – etwa beim Anfahren mit dem Drift King –, aber
+		# durchscheinend (spawn_ghost: fade 0,35). Staub hatte er nie.
+		var ghost_power := tyre_smoke_power(ghost) if driving and quality>=1 and not loose_ground(ghost) else 0.0
+		set_tyre_smoke(ghost_model, ghost_power)
 	if party != null or lobby != null:
 		var beat := 0.5 + 0.5*sin(Time.get_ticks_msec()*0.004)
 		for i in range(mini(models.size(), vehicles.size())):
@@ -871,6 +921,79 @@ func update_models() -> void:
 		elif own.has_meta("paint"):
 			var paint: StandardMaterial3D = own.get_meta("paint")
 			paint.emission_energy_multiplier = 0.18 + 0.22*pulse
+
+func loose_ground(v: RaceVehicle) -> bool:
+	# Loser Belag (Kies, Erde, Matsch, Sand, Gras): dort staubt es, statt zu qualmen. Auf dem Deck einer Wippe (Lineal im Kinderzimmer)
+	# fährt das Auto auf Holz, auch wenn die Abkürzung darunter Erde ist.
+	return v.deck == null and str(track.surface_at(v.pos).kind) in ["gravel","dirt","mud","sand","grass"]
+
+func tyre_smoke_power(v: RaceVehicle) -> float:
+	# Stärke des Reifenqualms hinten (0..1), nur Darstellung (Leitplanke 4). Hauptquelle ist der Antrieb, den die Hinterräder nicht auf
+	# die Straße bringen (rear_spin, m/s², nur Heckantrieb): ab 1 m/s² qualmt es, ab 4 voll (gemessen: Anfahren ~5, im Drift im Mittel
+	# 1,6–3,9). Dazu Querrutschen bei Tempo: Ein quer radierender Reifen qualmt auch ohne Durchdrehen. Schwelle 17° Schwimmwinkel, voll
+	# ab 34°: Normale Kurvenfahrt liegt seit bicycle-7 bei wenigen Grad, echte Rutscher bei 18–31° und Drifts bei 25–35°. Das hält den
+	# Qualm im Drift auch dann, wenn der Fahrer kurz lupft, und lässt Allrad-Autos nur bei echten Rutschern (schwächer) qualmen. Der
+	# Schwimmwinkel kommt aus Lage und Tempo – die haben auch die Marionetten der Mitspieler (die Gierrate nicht).
+	if v.airborne or v.in_loop or v.crashed or v.finish_time >= 0.0:
+		return 0.0
+	var spin := clampf((v.rear_spin - 1.0) / 3.0, 0.0, 1.0)
+	var speed := v.velocity.length()
+	var beta := absf(wrapf(v.velocity.angle() - v.heading, -PI, PI)) if speed > 1.0 else 0.0
+	var slide := clampf((beta - 0.30) / 0.30, 0.0, 1.0) * clampf((speed - 6.0) / 6.0, 0.0, 1.0)
+	return maxf(spin, slide * 0.7)
+
+func set_tyre_smoke(model: Node3D, power: float) -> void:
+	# Stärke je Physiktakt merken; den Ausstoß schaltet pulse_tyre_smoke je gerendertem Bild.
+	var smoke := model.get_node_or_null("Smoke")
+	if smoke == null:
+		return
+	world.refresh_smoke(smoke)   # Aussehen nach Wetter, Tageszeit und Grafikstufe
+	smoke.set_meta("power", power if power > 0.05 else 0.0)
+
+func pulse_tyre_smoke() -> void:
+	# Stärke als Ausstoßrate: emitting im Tastverhältnis (Fehlerdiffusion), denn CPUParticles3D kennt kein amount_ratio. Abgeschaltet
+	# sterben nur die Plätze, die gerade an der Reihe wären; schon ausgestoßene Ballen leben unverändert weiter (gemessen: 50 % → 16 von
+	# 32 Partikeln, 15 % → 5). Über die Farbe (Alpha) würde dagegen die ganze hängende Wolke mit aus- und eingeblendet.
+	# Je gerendertem Bild (aus _process), nicht je Physiktakt: Die Partikel entscheiden im Bildtakt, ob ein Platz neu startet. Im
+	# Physiktakt verteilt, sahen sie bei 30 Bildern/s nur jeden zweiten Wert, und das Muster rastete ein (Stärke 0,5 → nie Qualm,
+	# 0,75 → immer; Gegenprüfung 15.10.2026). Je Bild stimmt der Anteil bei jeder Bildrate.
+	if paused:
+		return   # freeze_effects hat den Ausstoß abgestellt; nach der Pause geht es hier weiter
+	var live := phase in ["race","result"]
+	var all: Array = models.duplicate()
+	if is_instance_valid(ghost_model):
+		all.append(ghost_model)
+	for model in all:
+		var smoke: Node = (model as Node3D).get_node_or_null("Smoke") if is_instance_valid(model) else null
+		if smoke == null:
+			continue
+		var power: float = float(smoke.get_meta("power", 0.0)) if live else 0.0
+		var acc: float = float(smoke.get_meta("acc", 0.0)) + power if power > 0.0 else 0.0
+		var on := acc >= 1.0
+		if on:
+			acc -= 1.0
+		smoke.set_meta("acc", acc)
+		for e in smoke.get_children():
+			(e as CPUParticles3D).emitting = on
+
+func freeze_effects(frozen: bool) -> void:
+	# Pause (nur Darstellung): Staub- und Qualmwolken stehen still, und es kommt nichts nach, solange die Autos stehen. Die Emitter
+	# rechnen sonst weiter (die Pause hält den Baum nicht an); nach der Pause stellt pulse_tyre_smoke bzw. update_models den Ausstoß
+	# wieder ein.
+	var all: Array = models.duplicate()
+	if is_instance_valid(ghost_model):
+		all.append(ghost_model)
+	for model in all:
+		var list: Array = [model.get_node_or_null("Dust")]
+		if model.has_node("Smoke"):
+			list.append_array(model.get_node("Smoke").get_children())
+		for node in list:
+			var p := node as CPUParticles3D
+			if p == null:
+				continue
+			p.speed_scale = 0.0 if frozen else 1.0
+			if frozen:
+				p.emitting = false
 
 func screen_pan(pos: Vector2) -> float:
 	# Lage eines Punktes im Bild als Stereowert (-1 links, 1 rechts).
@@ -929,7 +1052,7 @@ func contact_sparks(a: int, b: int, impact: float) -> void:
 	var away := (vehicles[b].pos-vehicles[a].pos).normalized().orthogonal()
 	world.sparks(Vector3(p.x,0.45,p.y),Vector3(away.x,0,away.y),clampf(impact/5.0,0.2,1.0))
 
-func animate_car(i: int) -> void:
+func animate_car(i: int, frozen := false) -> void:
 	# Nur Darstellung (Leitplanke 4): Räder rollen mit dem gefahrenen Weg und lenken ein, die Karosserie
 	# nickt beim Bremsen/Beschleunigen und wankt in Kurven – abgeleitet aus der Fahrzeugbewegung.
 	var car := models[i]
@@ -938,16 +1061,26 @@ func animate_car(i: int) -> void:
 	var v := vehicles[i]
 	var dt := 1.0/60.0
 	var forward := Vector2(cos(v.heading),sin(v.heading))
-	var speed := v.velocity.dot(forward)
+	var speed := 0.0 if frozen else v.velocity.dot(forward)
 	var spin: float = float(car.get_meta("spin",0.0)) + speed*dt/0.155
 	car.set_meta("spin",spin)
+	# Durchdrehende Hinterräder (Heckantrieb) laufen schneller als die Fahrt: Der Umfangsüberschuss folgt rear_spin (1 m/s je m/s²
+	# nicht übertragenen Antriebs, höchstens 6 m/s) mit der Trägheit des Rades (Zeitkonstante 0,12 s). Beim Anfahren drehen die
+	# Hinterräder so sichtbar, während das Auto noch kaum rollt.
+	var excess: float = lerpf(float(car.get_meta("wheel_slip",0.0)), 0.0 if frozen else minf(v.rear_spin, 6.0), 1.0 - exp(-dt/0.12))
+	car.set_meta("wheel_slip",excess)
+	var spin_rear: float = float(car.get_meta("spin_rear",0.0)) + (speed + excess)*dt/0.155
+	car.set_meta("spin_rear",spin_rear)
 	for wheel: Node3D in car.get_meta("wheels"):
 		# Auf die Grundausrichtung aus dem Modell aufsetzen (nicht ersetzen): Einlenken um die Hochachse,
 		# Rollen um die Radachse (lokal z).
 		if not wheel.has_meta("rest"):
 			wheel.set_meta("rest",wheel.basis)
-		var steer := -v.steering*0.6 if wheel.name.begins_with("Wheel_F") else 0.0
-		wheel.basis = Basis(Vector3.UP,steer)*Basis(Vector3.BACK,-spin)*Basis(wheel.get_meta("rest"))
+		var front := wheel.name.begins_with("Wheel_F")
+		# Lenkwinkel des Einspurmodells unverkürzt (bis 15.10.2026 ×0,6): Gegenlenken im Drift (Einschlag bis 0,62 rad, beim geplanten
+		# Drift-Fahrer bis 0,85) erschien sonst nur gut halb so stark, und die Vorderräder zeigten nicht in die Fahrtrichtung.
+		var steer := -clampf(v.steering,-0.9,0.9) if front else 0.0
+		wheel.basis = Basis(Vector3.UP,steer)*Basis(Vector3.BACK,-(spin if front else spin_rear))*Basis(wheel.get_meta("rest"))
 	var last: Vector2 = car.get_meta("last_velocity",v.velocity)
 	car.set_meta("last_velocity",v.velocity)
 	var accel := (v.velocity-last)/dt
@@ -965,60 +1098,176 @@ func overview_size() -> float:
 	var half_x := track.bounds.size.x*0.5 + Circuit.HALF_WIDTH + 2.0
 	var half_z := track.bounds.size.y*0.5 + Circuit.HALF_WIDTH + 2.0
 	var pitch := maxf(0.5,sin(cam_pitch))
-	return maxf(2.0*half_x/aspect, 2.0*half_z*pitch/0.74)
+	return maxf(2.0*half_x/aspect, 2.0*half_z*pitch/band_share())
+
+func band_share() -> float:
+	# Anteil des freien Bandes (hud.free_band) an der Bildhöhe. Früher fest 0,74; tatsächlich sind es auf Handys 0,71 und auf
+	# 4:3-Tablets 0,59 (die Leisten haben feste Höhe), dort lag ein Viertel bis ein Drittel der Strecke in der Übersicht hinter den
+	# Leisten. Vor dem Aufbau der Oberfläche (erster Kamerastand in _ready) der Handywert.
+	if hud.content == null:
+		return 638.0/900.0
+	var band: Vector2 = hud.free_band()
+	return clampf((band.y-band.x)/maxf(1.0,get_viewport().get_visible_rect().size.y),0.2,1.0)
 
 func reset_view() -> void:
+	# Übersicht, senkrecht von oben. Die Neigung gleich mit: Nach einem Rennen stand sie noch auf 72°, glitt erst in gut einer Sekunde auf
+	# 90°, und die Übersicht (hängt von der Neigung ab) war danach um bis zu 5 % zu eng; Fingeranker (place_point) rechnen mit der
+	# Draufsicht. Der Kamerasprung zur Übersicht geschieht ohnehin im selben Bild.
+	cam_pitch = PITCH_DRAW
 	view_zoom = overview_size()
 	view_focus = track_center()
+	view_focus.y = view_base()
+	apply_view()
 
-const VIEW_MARGIN := 6.0      # so weit über die Streckenkante (samt Bankett) hinaus darf das sichtbare Stück Boden reichen (m)
+func view_base() -> float:
+	# Bezugshöhe der Zeichenkamera (Höhe ihres Blickziels): die tiefste Fahrbahnstelle; Schanzen setzen nur darauf auf, und beide
+	# Verläufe des Höhenprofils bleiben zwischen ihren Stützwerten. Eben 0. Der Serra-Pass liegt 14–40 m hoch; auf Meereshöhe bezogen
+	# stand die Kamera bei starkem Zoom unter der Fahrbahn.
+	if track.elevation.is_empty():
+		return 0.0
+	var low := INF
+	for e in track.elevation:
+		low = minf(low,float(e[1]))
+	return low
+
+const VIEW_MARGIN := 6.0      # so weit über die Fahrbahnkante hinaus darf das sichtbare Stück Boden beim Verschieben reichen (m)
 
 func clamp_view_state() -> void:
 	# Weitester Zoom = ganze Strecke im freien Sichtbereich, engster = Fahrbahn füllt die kürzere Seite.
-	# Verschieben: Das sichtbare Stück Boden (zwischen den HUD-Leisten) bleibt innerhalb der Strecke samt schmalem Rand; ist es in einer
-	# Richtung größer als die Strecke (breiter Bildschirm), bleibt die Ansicht dort mittig. So richtet sich die Grenze nach der
-	# Strecke und nicht nach der Umgebung (Häuser, Bäume), und man sieht nie viel leere Fläche hinter dem Rand.
+	# Verschieben: Der Fokus bleibt je Achse innerhalb von view_room() um die Streckenmitte; in der Übersicht ist das genau die Übersicht.
 	var widest := overview_size()
 	view_zoom = clampf(view_zoom,minf(road_fill_size()*1.2,widest),widest)
-	if view_zoom >= widest*0.98:
-		view_focus = track_center()
-		return
+	var center := track_center()
+	var room := view_room()
+	view_focus.x = clampf(view_focus.x,center.x-room.x,center.x+room.x)
+	view_focus.z = clampf(view_focus.z,center.z-room.y,center.z+room.y)
+
+func view_room() -> Vector2:
+	# Spielraum des Fokus (x, z) beim aktuellen Zoom, die Vereinigung zweier Regeln (Nutzerbefund 14.10.2026: Hineinzoomen am Kartenrand
+	# brach ab). reach = halbe Streckenausdehnung + breiteste Fahrbahn + Rand.
+	# - inward = reach·(1 − Zoom/Übersicht): genau die Ansichten, die aus der Übersicht durch Hineinzoomen um einen Punkt der Strecke
+	#   samt Rand entstehen. Hineinzoomen um einen sichtbaren Streckenpunkt wird darum nie begrenzt. Vorher galt nur die zweite Regel;
+	#   die Übersicht ist im Querformat breiter als die Strecke, also klebte die Ansicht waagerecht in der Mitte, bis die Bildbreite unter
+	#   Strecke + 19 m fiel, und der Punkt unter den Fingern lief aus dem Bild.
+	# - inside = reach − halbe Sichtweite: die bisherige Regel (das sichtbare Stück Boden bleibt innerhalb von Strecke samt Rand). Sie hält
+	#   den senkrechten Spielraum wie bisher; nahe der Übersicht höchstens 3·inward, so endet Herauszoomen stetig in der Übersicht (statt
+	#   der früheren Sprungregel ab 98 %).
+	# Beide sind lineare Funktionen des Zooms mit Wert reach bei 0; je Achse gilt also durchweg inward oder min(inside, 3·inward), konkav –
+	# deshalb bleibt jede Ansicht innerhalb der Grenze, wenn man um einen Punkt innerhalb von reach hineinzoomt. Leere hinter der
+	# Fahrbahnkante: höchstens VIEW_MARGIN oder der Randstreifen, den die Übersicht selbst zeigt (je nach Zoom dazwischen).
+	var widest := overview_size()
 	var screen := get_viewport().get_visible_rect().size
 	var band: Vector2 = hud.free_band()
 	var k := screen_scale()
-	var limit := track.bounds.grow(Circuit.HALF_WIDTH+VIEW_MARGIN)
-	view_focus.x = fit_axis(view_focus.x,limit.position.x,limit.end.x,screen.x*0.5*k.x)
-	view_focus.z = fit_axis(view_focus.z,limit.position.y,limit.end.y,(band.y-band.x)*0.5*k.y)
-
-func fit_axis(value: float, lo: float, hi: float, half: float) -> float:
-	# Mitte der Ansicht so begrenzen, dass ihre Hälfte-Ausdehnung half zwischen lo und hi bleibt; passt sie nicht hinein: mittig.
-	if hi-lo <= 2.0*half:
-		return (lo+hi)*0.5
-	return clampf(value,lo+half,hi-half)
+	var reach := track.bounds.size*0.5 + Vector2.ONE*(track.max_half_width+VIEW_MARGIN)
+	var inward := reach*maxf(0.0,1.0-view_zoom/widest)
+	var inside := reach - Vector2(screen.x*0.5*k.x,(band.y-band.x)*0.5*k.y)
+	return Vector2(maxf(inward.x,minf(inside.x,3.0*inward.x)),maxf(inward.y,minf(inside.y,3.0*inward.y)))
 
 func screen_scale() -> Vector2:
 	# Meter pro Bildpunkt auf dem Boden (x, z) beim aktuellen Zoom.
 	var h := maxf(1.0,get_viewport().get_visible_rect().size.y)
 	return Vector2(view_zoom/h,view_zoom/h/maxf(0.5,sin(cam_pitch)))
 
+func apply_view() -> void:
+	# Grenze anwenden und die Kamera sofort nachführen (wie _process beim Zeichnen), damit das nächste Fingerereignis im selben Bild sie
+	# schon sieht (ground_point beim Aufsetzen).
+	clamp_view_state()
+	cam_zoom = view_zoom
+	set_camera(Vector3(view_focus.x,view_focus.y,view_focus.z-band_shift(view_zoom)))
+
 func pan_view(delta: Vector2) -> void:
 	var k := screen_scale()
 	view_focus.x -= delta.x*k.x
 	view_focus.z -= delta.y*k.y
-	clamp_view_state()
+	apply_view()
 
 func zoom_view(factor: float, anchor: Vector2) -> void:
-	# Um den Punkt unter den Fingern zoomen: Er bleibt an seiner Stelle.
-	var w := world_point(anchor)
-	var old := view_zoom
+	# Mausrad: um den Punkt unter dem Zeiger zoomen, er bleibt an seiner Stelle (wie bei zwei Fingern, pinch_view).
+	var w := ground_point(anchor)
+	view_zoom = clampf(view_zoom*factor,minf(zoom_floor(w),view_zoom),overview_size())
+	place_point(w,anchor)
+	apply_view()
+
+func pinch_view(dist: float, mid: Vector2) -> void:
+	# Zwei Finger, absolut seit dem Aufsetzen: Zoom = Aufsetz-Zoom · Aufsetz-Abstand / Abstand, und der Bodenpunkt vom Aufsetzen bleibt
+	# genau unter der Fingermitte (Zoomen und Verschieben in einem Schritt). Vorher wurde je Fingerereignis um den Punkt unter der
+	# aktuellen Mitte gezoomt; was die Grenze dabei verschob, sammelte sich an, und der Punkt lief beim Hineinzoomen nach außen weg.
+	# Neu verankert wird am Zoomanschlag (Umkehren wirkt sofort) und wenn die Grenze den Fokus um mehr als PINCH_SLIP verschoben hat
+	# (sonst stünde die Ansicht still, bis der gedachte Fokus wieder innerhalb läge). Kleinere Reste nicht: Die Finger melden sich
+	# einzeln, der halbe Schritt des ersten verschiebt die Mitte und stößt gleich nach dem Aufsetzen (Spielraum fast 0) am Kartenrand
+	# kurz an; verankert liefe der Punkt um diesen Rest mit dem Zoom aus, so ist er im nächsten Bild wieder genau unter den Fingern.
 	var widest := overview_size()
-	view_zoom = clampf(view_zoom*factor,minf(road_fill_size()*1.2,widest),widest)
-	var k := view_zoom/old
-	view_focus.x = w.x-(w.x-view_focus.x)*k
-	view_focus.z = w.y-(w.y-view_focus.z)*k
-	clamp_view_state()
-	cam_zoom = view_zoom
-	set_camera(Vector3(view_focus.x,0,view_focus.z-band_shift(view_zoom)))
+	var zoom := pinch_zoom*pinch_dist/dist
+	var lo := minf(zoom_floor(pinch_anchor),pinch_zoom)
+	view_zoom = clampf(zoom,lo,widest)
+	place_point(pinch_anchor,mid)
+	var wanted := view_focus
+	apply_view()
+	var slip := Vector2(view_focus.x-wanted.x,view_focus.z-wanted.z).length()/screen_scale().x
+	if zoom < lo or zoom > widest or slip > PINCH_SLIP:
+		pin_pinch()
+
+func pin_pinch() -> void:
+	# Zwei-Finger-Geste (neu) verankern: Abstand und Zoom jetzt, der Bodenpunkt unter der Fingermitte.
+	var a: Vector2 = touches[pinch_ids[0]]
+	var b: Vector2 = touches[pinch_ids[1]]
+	pinch_dist = maxf(1.0,a.distance_to(b))
+	pinch_zoom = view_zoom
+	pinch_anchor = ground_point((a+b)*0.5)
+
+func place_point(w: Vector3, screen: Vector2) -> void:
+	# Fokus so setzen, dass der Bodenpunkt w beim aktuellen Zoom genau unter dem Bildpunkt screen liegt (Draufsicht, reset_view).
+	# Meter je Bildpunkt in der Höhe von w: Ein Punkt über der Bezugsebene ist der Kamera näher. Untergrenze ein Viertel des Werts der
+	# Bezugsebene: Läge w über oder dicht unter der Kamera, kehrte sich das Vorzeichen um und der Fokus spränge gespiegelt weg.
+	var size := get_viewport().get_visible_rect().size
+	var k := maxf(view_zoom-2.0*(w.y-view_focus.y)*tan(deg_to_rad(CAM_FOV)*0.5),0.25*view_zoom)/maxf(1.0,size.y)
+	view_focus.x = w.x-(screen.x-size.x*0.5)*k
+	view_focus.z = w.z-(screen.y-size.y*0.5)*k+band_shift(view_zoom)
+
+func zoom_floor(w: Vector3) -> float:
+	# Engster Zoom um den Bodenpunkt w: Die Fahrbahn füllt in seiner Höhe die kürzere Bildseite. Über der Bezugsebene liegt sie der
+	# Kamera näher; ohne den Zuschlag geriete die Kamera auf dem Serra-Pass (bis 26 m über der Bezugsebene) unter die Fahrbahn.
+	var lift := maxf(0.0,w.y-0.20-view_focus.y)
+	return minf(road_fill_size()*1.2+2.0*tan(deg_to_rad(CAM_FOV)*0.5)*lift,overview_size())
+
+func ground_point(screen: Vector2) -> Vector3:
+	# Bodenpunkt samt Höhe unter einem Bildpunkt (Zoom-Anker). Wie world_point, aber die Höhe kommt von der Fahrbahn an der getroffenen
+	# Stelle, nicht aus einem Fenster um die Linienspitze (Anker liegen oft weit davon; am Hang stimmte der Maßstab dann nicht).
+	var from := camera.project_ray_origin(screen)
+	var direction := camera.project_ray_normal(screen)
+	var plane := 0.20
+	var hit := from + direction*((plane-from.y)/direction.y)
+	if not track.elevation.is_empty() or not track.ramps.is_empty() or not track.terrain.is_empty() or not track.seesaws.is_empty():
+		for _i in range(3):
+			plane = 0.20 + road_height(Vector2(hit.x,hit.z))
+			hit = from + direction*((plane-from.y)/direction.y)
+	return hit
+
+func road_height(p: Vector2) -> float:
+	# Sichtbare Höhe bei p: der höchste Ast, auf dessen Fahrbahn (samt 1 m Rand) p liegt – an einer Brückenkreuzung sieht man von oben
+	# die Brücke –, Abkürzungen eingeschlossen; abseits das Gelände, ohne Höhenraster die nächstgelegene Streckenstelle bzw. weit weg
+	# die Bezugshöhe (dort keine Suche über alle Streckenpunkte, die liefe beim Ziehen über den Rand je Fingerereignis).
+	var best := -INF
+	var count := track.points.size()
+	var near := track.candidates(p)
+	for i in near:
+		if track.open and i >= count-1:
+			continue
+		var a := track.points[i]
+		var b := track.points[track.wrap_index(i+1)]
+		var q := Geometry2D.get_closest_point_to_segment(p,a,b)
+		var s := (float(i) + a.distance_to(q)/maxf(1e-6,a.distance_to(b)))/track.span()
+		if p.distance_to(q) <= track.hw(s)+1.0:
+			best = maxf(best,track.surface_z(s))
+	var sc := track.shortcut_at(p,INF)   # auf dem Pfad einer Abkürzung, gleich wie nah die Hauptstrecke ist
+	if not sc.is_empty():
+		best = maxf(best,track.draw_height(float(sc.s),int(sc.index),p))
+	if best > -INF:
+		return best
+	if not track.terrain.is_empty():
+		return track.terrain_height(p)
+	return track.surface_z(track.phase(p)) if not near.is_empty() else view_focus.y
 
 func band_shift(zoom: float) -> float:
 	# Bildschirm nach unten = Welt +z: um so viel versetzen, dass der Fokus in der Mitte des freien Bereichs erscheint.
@@ -1040,12 +1289,14 @@ func _process(dt: float) -> void:
 		snapshot_vehicles()
 	if not vehicles.is_empty():
 		place_models()
+	pulse_tyre_smoke()
 	# Detailstufe nach Zoom: nah volle KI-Modelle, in der Übersicht die vereinfachten.
 	world.set_detail(cam_zoom < 26.0)
 	world.atmosphere.limit_reflection(cam_zoom / maxf(1.0, overview_size()), cam_pitch)
 	var target := track_center()
 	var zoom := overview_size()
-	if phase == "draw" and recorder != null:
+	if (phase == "draw" and recorder != null) or phase == "net_countdown":
+		# WLAN-Zeichencountdown wie das Zeichnen selbst (Bandversatz, Bezugshöhe): Sonst sprang die Karte beim Zeichenstart.
 		clamp_view_state()
 		zoom = view_zoom
 		target = view_focus
@@ -1100,7 +1351,7 @@ func _process(dt: float) -> void:
 		hud.speed_label.text = str(int(v.velocity.length()*3.6))
 		if track.mode == "drift":
 			hud.rank_label.text = "%d" % int(v.drift_score)
-			hud.status.text = "%s   ×%.1f   noch %d s" % [lap_text(v.progress), v.drift_multiplier, maxi(0, int(ceil(drift_limit() - race_time)))]
+			hud.show_drift(lap_text(v.progress), v.drift_multiplier, int(ceil(drift_limit() - race_time)), int(v.drift_chain))
 		else:
 			hud.rank_label.text = "%d / %d" % [live_rank(),vehicles.size()]
 		if hud.progress_bar != null:
@@ -1176,59 +1427,68 @@ func touch_down(id: int, pos: Vector2) -> void:
 	touches[id] = pos
 	var now := now_seconds()
 	if touches.size()==1:
+		tap_id = -99
 		# Greifradius in Bildpunkten -> Meter beim aktuellen Zoom.
 		if recorder.begin(world_point(pos),now,maxf(0.8,GRAB_PX*screen_scale().x)):
 			pointer = id
-			stroke_started = now
-			stroke_origin = pos
+			last_tap = -10.0
 			refresh_line()
 			return
-		if now-last_tap < 0.32 and pos.distance_to(last_tap_pos) < 90.0:
-			reset_view()
-			last_tap = -10.0
-		else:
-			last_tap = now
-			last_tap_pos = pos
+		# Kamera greifen; ob es ein Tipper war (Doppeltipp), entscheidet erst das Loslassen.
+		tap_id = id
+		tap_start = now
+		tap_pos = pos
+		tap_clean = true
 		pan_index = id
 	elif touches.size()==2:
+		tap_clean = false
 		if pointer!=-99:
-			var first: Vector2 = touches.get(pointer,stroke_origin)
-			if now-stroke_started < PINCH_GRACE and first.distance_to(stroke_origin) < 24.0:
-				# Zwei Finger fast gleichzeitig: Zoomen gemeint, der Malbeginn wird verworfen.
+			if recorder.trial:
+				# Der Strich ist noch Probe (unter 0,5 s Malzeit seit der ersten Bewegung): Zoomen gemeint, der Ansatz wird verworfen.
+				# recorder.stop() stellt die Linie samt Malzeit exakt wieder her. Vorher nur in den ersten 0,15 s und 24 px – kam der
+				# zweite Finger am Startpunkt etwas später, malte der erste weiter, und es gab gar keinen Zoom.
 				recorder.stop()
 				pointer = -99
+				refresh_line()
 			else:
 				touches.erase(id)
 				return
 		pan_index = -99
 		pinch_ids = touches.keys()
-		var a: Vector2 = touches[pinch_ids[0]]
-		var b: Vector2 = touches[pinch_ids[1]]
-		pinch_dist = maxf(1.0,a.distance_to(b))
-		pinch_mid = (a+b)*0.5
+		pin_pinch()
 	else:
 		touches.erase(id)
 
 func touch_move(id: int, pos: Vector2) -> void:
 	var previous: Vector2 = touches[id]
 	touches[id] = pos
+	if id==tap_id and pos.distance_to(tap_pos) > TAP_SLOP:
+		tap_clean = false
 	if id==pointer:
 		record_point(pos)
 	elif pinch_ids.size()==2 and id in pinch_ids:
 		var a: Vector2 = touches[pinch_ids[0]]
 		var b: Vector2 = touches[pinch_ids[1]]
-		var dist := maxf(1.0,a.distance_to(b))
-		var mid := (a+b)*0.5
-		zoom_view(pinch_dist/dist,mid)
-		pan_view(mid-pinch_mid)
-		pinch_dist = dist
-		pinch_mid = mid
+		pinch_view(maxf(1.0,a.distance_to(b)),(a+b)*0.5)
 	elif id==pan_index:
 		pan_view(pos-previous)
 
 func touch_up(id: int) -> void:
 	if id==pointer:
 		end_stroke()
+	if id==tap_id and touches.has(id):
+		# Echter Tipper: kurz, kaum bewegt, ohne zweiten Finger. Zwei davon kurz hintereinander an derselben Stelle zeigen alles;
+		# jede andere Geste dazwischen zählt als Unterbrechung.
+		var now := now_seconds()
+		if not tap_clean or now-tap_start >= TAP_TIME:
+			last_tap = -10.0
+		elif tap_start-last_tap < DOUBLE_TAP and tap_pos.distance_to(last_tap_pos) < 90.0:
+			reset_view()
+			last_tap = -10.0
+		else:
+			last_tap = now
+			last_tap_pos = tap_pos
+		tap_id = -99
 	touches.erase(id)
 	if id in pinch_ids:
 		pinch_ids = []
@@ -1379,6 +1639,7 @@ func pause_game() -> void:
 		if phase=="result": show_menu()
 		return
 	paused = true
+	freeze_effects(true)
 	turbo_held = false
 	release_pads()
 	if recorder!=null: recorder.end()
@@ -1388,6 +1649,7 @@ func pause_game() -> void:
 
 func resume_game() -> void:
 	paused = false
+	freeze_effects(false)
 	if party != null:
 		match phase:
 			"handover": hud.party_ui.handover()
@@ -1739,7 +2001,9 @@ func party_finish() -> void:
 	party.note_result(order)
 	result_record = false
 	var winner: int = int(rows[0].index) if not rows.is_empty() else -1
-	result_won = winner >= 0 and field.is_human(winner) and not vehicles[winner].crashed
+	# Wie im Einzelspieler und im WLAN (NetRace.human_won): Im Drift-Modus siegt nur, wer im Zeitlimit ins Ziel kam. Die Zeilen des
+	# Rundkurses haben kein in_time (Standard true, unverändert).
+	result_won = winner >= 0 and field.is_human(winner) and not vehicles[winner].crashed and bool(rows[0].get("in_time", true))
 	hud.party_ui.results(rows)
 	if result_won:
 		var v := vehicles[winner]
@@ -1950,9 +2214,10 @@ func net_begin_drawing() -> void:
 	world.marker.visible = true
 	var start := track.at(0.0)
 	world.marker.position = Vector3(start.x,0.31 + track.surface_z(0.0),start.y)
-	camera_target = track_center()
-	cam_zoom = overview_size()
-	set_camera(camera_target)
+	# Übersicht wie beim Zeichnen selbst (reset_view -> apply_view: Bandversatz, Bezugshöhe), damit die Karte beim Zeichenstart nicht springt.
+	# Übersicht wie beim Zeichnen selbst (reset_view -> apply_view: Bandversatz, Bezugshöhe), damit die Karte beim Zeichenstart nicht springt.
+	reset_view()
+	camera_target = Vector3(view_focus.x,view_focus.y,view_focus.z-band_shift(view_zoom))
 	hud.lobby_ui.draw_countdown()
 
 func net_tick() -> void:

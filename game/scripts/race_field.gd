@@ -10,8 +10,23 @@ extends RefCounted
 # Der Einzelspieler ist der Sonderfall „ein Mensch auf Startplatz 0“ (setup) und bleibt bitgleich.
 # Eigene Spuren der Gegner mit Seitenabstand zur (meist mittigen) Spielerlinie.
 const RIVAL_LANES := [1.0, -1.0, 0.4]
-# Spielstärke je Herausforderung (1, 2, 3 Rivalen) und Gegner; 3 = nahe am physikalischen Limit.
-const RIVAL_SKILL := [[1.6], [2.3, 1.9], [3.0, 2.7, 2.3]]
+# Spielstärke je Herausforderung (1, 2, 3 Rivalen) und Gegner = Stufe von Circuit.ai_route. In bicycle-6 war 3 das gemessene Optimum; in
+# bicycle-7 fahren trocken auch 3,3–4,5 ohne Ausfall schneller (die Skala von ai_route ist neu zu vermessen, das wirkt auf diese Werte).
+# Seit 15.10.2026 auf die Physik bicycle-7 (ohne Scheindrift) und den neuen Fahrer-Regler eingestellt (vorher [[1.6], [2.3, 1.9], [3.0, 2.7, 2.3]]).
+# Alle Autos fahren 7–13 % schneller, schnelle Linien gewinnen dabei etwas mehr: Mit den alten Werten waren die Gegner der Stufen 2 und 3
+# relativ zum Spieler-Ersatz im Mittel 0,4–1,0 % schneller als in bicycle-6, der beste Gegner 1,2 % (Stufe 2) bzw. 1,15 % (Stufe 3).
+# Maßstab ist die RELATIVE Schwierigkeit von bicycle-6 – Gegnerzeit / Zeit des Spieler-Ersatzes ai_route(2.0) je Herausforderung und
+# Gegner, gemittelt über die Rennstrecken –, weil ein Mensch mit der neuen Physik ebenso schneller fährt. Mit diesen Werten weicht jedes
+# Mittel höchstens 0,6 % ab, keine Strecke mehr als 2,7 % (Prüfung und Referenz: tests/test_field.gd, B6_RATIO). Stufe 2, zweiter Gegner,
+# bleibt 1,9 = SEESAW_SKILL: Er darf weiter aufs Lineal. Dadurch ist Stufe 2 etwas zu schwer: Über den Sieg entscheidet der beste Gegner,
+# und der liegt im Mittel 0,9 % näher am Spieler als in bicycle-6 (Stufe 1 +0,2 %, Stufe 3 −0,3 %).
+# Geltungsbereich: Die Werte halten die Schwierigkeit für Spieler auf dem Niveau des Spieler-Ersatzes mit Auto 0 (nachgeprüft auch mit Turbo,
+# 1,6, 2,6 mit Turbo und 2,3 mit Kurven ×1,15: je Gegner im Mittel etwa ±1 %). Grenznahe Linien gewinnen in bicycle-7 mehr als früher –
+# ihr Vorsprung auf den besten Gegner wuchs in Stufe 1/2/3 von 10,0/3,7/4,2 % auf 12,8/5,4/5,2 % –, und die Fahrzeugdaten haben sich
+# verschoben (Drift King: bester Gegner 2,2–2,4 % näher). Ob die Stufen für starke Spieler schärfer werden, entscheidet der Nutzer nach der
+# Geräteabnahme. Nebenwirkung auf die (unveränderten) Lineal-Regeln: Stufe 3, zweiter Gegner, liegt mit 2,4 unter der 2,7-Schwelle von
+# SEESAW_MARGIN und hält beim Lineal jetzt 0,9 statt 0,5 s Sicherheitsabstand.
+const RIVAL_SKILL := [[1.6], [2.2, 1.9], [2.9, 2.4, 2.2]]
 const START_GAP := 0.012          # Rundkurs: Startplätze je Auto um diesen Streckenanteil zurück
 const SPRINT_SLOT := 4.5          # Sprintstrecke: Meter je Startplatz hinter der Linie (entlang der Starttangente)
 const SEESAW_SKILL := 1.9         # erst ab dieser Stufe nimmt die KI ein Lineal
@@ -289,6 +304,20 @@ func decide_seesaws() -> void:
 						free_at = maxf(free_at, t_exit + Seesaw.T_RETURN)
 				var margin: float = SEESAW_MARGIN[0] if skill < 2.7 else SEESAW_MARGIN[1]
 				take = free_at + margin < arrive
+				# Nachfolger schützen (15.10.2026): Ein Auto hinter mir, das selbst übers Lineal fährt (Mensch: seine Linie; KI: ihre Entscheidung
+				# dieser Runde), käme vor meiner Ausfahrt + T_RETURN + Marge an die noch hochstehende Einfahrtskante – dann Umweg. Sonst konnte die
+				# KI einem Menschen, der seine Linie nicht mehr ändern kann, das Rennen zerstören (Prüfoval Stufe 2/3: Wrack 0,3 s nach der Abfahrt).
+				if take:
+					var my_free: float = arrive + 2.0 * w.half_len / maxf(v.velocity.length(), 6.0) + Seesaw.T_RETURN + margin
+					for j in range(cars.size()):
+						var o := cars[j]
+						if j == i or o.crashed or o.finish_time >= 0.0 or o.progress >= v.progress or floorf(o.progress) != float(lap):
+							continue
+						if not takes_seesaw(j, w):
+							continue
+						var o_arrive: float = ((float(sc.from) - track.unit(o.progress)) * track.length + float(w.spec.get("at", 0.0)) - w.half_len) / maxf(o.velocity.length(), 6.0)
+						if o_arrive < my_free:
+							take = false
 				# Im Pulk kein Lineal: Abzweig und Einmündung liegen am Kurvenausgang; ein Auto daneben oder dicht dahinter, das dort weit
 				# hinausrutscht, schob den Abkürzer neben das Lineal (Prüfung 03.10.: Wrack am Stiftende). Gilt auch für den Spieler.
 				for j in range(cars.size()):

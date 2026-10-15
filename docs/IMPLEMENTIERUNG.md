@@ -727,7 +727,9 @@ Der Hotspot zweigleisig aus 0.3.0 bleibt unverändert, das Spiel-WLAN ist ein zu
   - Warnungen von Chrome und Samsung Internet beim APK-Download über http.
   - Scanner-Modul ohne Internet beim allerersten Scan.
 
-## Fahrphysik bicycle-7, Linienfolger, Drift-Modus, Lineal und Zeichen-Zoom (15.10.2026)
+## Fahrphysik bicycle-7, Linienfolger, Drift-Modus, Lineal und Zeichen-Zoom (15.10.2026, Beta 1.0.3)
+
+Veröffentlicht als Beta 1.0.3 (Pre-Release in `ShakieVan/Draw2Race-Beta`, `Draw2Race-1.0.3.apk`, 313 534 676 Byte, SHA-256 `3fc7e2e6…f8e084e0`, gebaut aus b664701 in einem eigenen Worktree, `version/code` 1000003, Projektschlüssel). 25 Testläufe grün. Die Restpunkte aus 9953616 (Drift-Kette auf den Turboknöpfen beim Weitergeben, Gegner-Turbo nicht in Rückkehr-Episoden) sind darin noch nicht enthalten. Auf dem Handy noch nicht abgenommen.
 
 Nutzerwünsche vom 14.10.2026 (vier Punkte) samt Entscheidungen vom selben Tag: Vorzeichenfehler für alle Autos beheben, Drift King überall mit Heckantrieb, der Stift unter dem Lineal bleibt, Zurücksetzen beim Festfahren erlaubt. Analyse, Umsetzung und Gegenprüfung liefen je Strang mit eigenen Messungen.
 

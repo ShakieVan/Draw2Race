@@ -7,13 +7,18 @@ extends Control
 # Kopfleiste, wenn sie neben ihr keinen Platz haben (schmale Bildschirme).
 # Nur Darstellung und Trefferprüfung; welche Finger welchen Knopf halten, verwaltet main.gd (pad_touch/pad_held, Mehrfachberührung
 # über InputEventScreenTouch, nicht über die Knopf-Logik der Oberfläche, die nur einen Finger kennt).
-# Je Knopf: Name, Platz (Drift: Punkte); der Knopf selbst ist die Turbo-Anzeige (wie TurboGauge): dunkel getönt = leer, von unten in
-# der Spielerfarbe gefüllt, Prozentzahl, „+“ beim Laden, pulsierend, solange der Turbo zieht; gehalten mit weißem Rand.
+# Je Knopf: Name, Platz (Drift: Punkte, unten rechts die laufende Kette); der Knopf selbst ist die Turbo-Anzeige (wie TurboGauge): dunkel
+# getönt = leer, von unten in der Spielerfarbe gefüllt, Prozentzahl, „+“ beim Laden, pulsierend, solange der Turbo zieht; gehalten mit
+# weißem Rand.
 
 const SIZE := Vector2(268, 156)
 const MARGIN := 16.0
+const PAD := 16.0               # Innenabstand der Schrift
 const INK := Color("173a40")
 const WORD_SIZE := 40           # „TURBO“
+const PERCENT_SIZE := 26
+const CHAIN_SIZE := 22          # Drift: laufende Kette
+const CHAIN_INK := Color(1.0, 0.86, 0.5, 0.97)   # warmes Hellgelb: hebt sich von der weißen Schrift ab und bleibt auf jeder Spielerfarbe lesbar
 
 var app: Node
 var font: Font
@@ -129,7 +134,7 @@ func _draw() -> void:
 		var light := true   # Schrift immer hell mit Kontur: liegt teils über dunkler, teils über farbiger Fläche
 		var ink := Color(1, 1, 1, 0.97) if light else Color(INK, 0.97)
 		var outline := Color(0.02, 0.07, 0.09, 0.8)
-		var pad := 16.0
+		var pad := PAD
 		# Name oben links, Platz bzw. Punkte oben rechts.
 		var name_text := names[k] if k < names.size() else ""
 		_text(Vector2(rect.position.x + pad, rect.position.y + 34.0), name_text, 24, ink, outline, light)
@@ -148,11 +153,22 @@ func _draw() -> void:
 		_text(Vector2(rect.get_center().x - ww * 0.5, rect.position.y + 98.0), word, WORD_SIZE, ink, outline, light)
 		# Prozent unten; „+“ beim Laden rechts neben TURBO (rechts oben steht der Platz).
 		var pct := "%d %%" % int(round(clampf(v.turbo, 0.0, 1.0) * 100.0))
-		var qw := font.get_string_size(pct, HORIZONTAL_ALIGNMENT_LEFT, -1, 26).x
-		_text(Vector2(rect.get_center().x - qw * 0.5, rect.end.y - 16.0), pct, 26, ink, outline, light)
+		var qw := font.get_string_size(pct, HORIZONTAL_ALIGNMENT_LEFT, -1, PERCENT_SIZE).x
+		_text(Vector2(rect.get_center().x - qw * 0.5, rect.end.y - 16.0), pct, PERCENT_SIZE, ink, outline, light)
+		var chain := chain_text(v) if drift else ""
+		if chain != "":
+			# Drift: Punkte des laufenden Drifts unten rechts neben der Prozentzahl (wie im Einzelspieler neben der Restzeit).
+			var cw := font.get_string_size(chain, HORIZONTAL_ALIGNMENT_LEFT, -1, CHAIN_SIZE).x
+			_text(Vector2(rect.end.x - pad - cw, rect.end.y - 16.0), chain, CHAIN_SIZE, CHAIN_INK, outline, true)
 		if k < _plus.size() and _plus[k] > 0.0:
 			var a := clampf(_plus[k] / TurboGauge.PLUS_TIME, 0.0, 1.0)
 			_text(Vector2(rect.get_center().x + ww * 0.5 + 8.0, rect.position.y + 92.0 - 6.0 * (1.0 - a)), "+", 38, Color(1.0, 0.95, 0.7, a), Color(outline, a), true)
+
+static func chain_text(v: RaceVehicle) -> String:
+	# Drift: Punkte des laufenden Drifts (RaceVehicle.drift_chain, wie RaceHUD.show_drift). Sie sind erst sicher, wenn der Drift endet – Wand
+	# oder Dreher kosten sie; im Ziel und nach dem Aus leer.
+	var chain := int(v.drift_chain)
+	return "+%d" % chain if chain > 0 and v.finish_time < 0.0 and not v.crashed else ""
 
 func _text(pos: Vector2, text: String, size: int, color: Color, outline: Color, with_outline: bool) -> void:
 	if with_outline:

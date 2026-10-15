@@ -607,6 +607,17 @@ func test_hud() -> void:
 	var time_left := hud.time_label.position.x
 	check(party_ok and hud.status.position.x + hud.status.get_minimum_size().x < time_left - 8.0,
 		"Weitergeben: „%s“ links der Zeit, „%s“ in eigener Zeile" % [hud.status.text, hud.drift_left.text if hud.drift_left != null else "-"])
+	# Die laufende Kette steht je Spieler auf seinem Turboknopf unten rechts neben der Prozentzahl (breiteste Inhalte „100 %“ und „+9999“).
+	var pads: TurboPads = hud.pads
+	var own: RaceVehicle = app.vehicles[app.me]
+	own.drift_chain = 9999.0
+	var chain := TurboPads.chain_text(own)
+	own.drift_chain = 0.0
+	var empty := TurboPads.chain_text(own)
+	var percent_right := TurboPads.SIZE.x * 0.5 + pads.font.get_string_size("100 %", HORIZONTAL_ALIGNMENT_LEFT, -1, TurboPads.PERCENT_SIZE).x * 0.5
+	var chain_left := TurboPads.SIZE.x - TurboPads.PAD - pads.font.get_string_size(chain, HORIZONTAL_ALIGNMENT_LEFT, -1, TurboPads.CHAIN_SIZE).x
+	check(pads.visible and chain == "+9999" and empty == "" and chain_left > percent_right + 6.0,
+		"Weitergeben: Kette „%s“ auf dem Turboknopf neben „100 %%“ (%d px Abstand), ohne Kette leer" % [chain, int(chain_left - percent_right)])
 	hud.pads.hide_pads()
 	app.party = null
 	app.show_menu()

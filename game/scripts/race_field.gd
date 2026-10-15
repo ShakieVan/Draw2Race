@@ -17,7 +17,8 @@ const RIVAL_LANES := [1.0, -1.0, 0.4]
 # relativ zum Spieler-Ersatz im Mittel 0,4–1,0 % schneller als in bicycle-6, der beste Gegner 1,2 % (Stufe 2) bzw. 1,15 % (Stufe 3).
 # Maßstab ist die RELATIVE Schwierigkeit von bicycle-6 – Gegnerzeit / Zeit des Spieler-Ersatzes ai_route(2.0) je Herausforderung und
 # Gegner, gemittelt über die Rennstrecken –, weil ein Mensch mit der neuen Physik ebenso schneller fährt. Mit diesen Werten weicht jedes
-# Mittel höchstens 0,6 % ab, keine Strecke mehr als 2,7 % (Prüfung und Referenz: tests/test_field.gd, B6_RATIO). Stufe 2, zweiter Gegner,
+# Mittel höchstens 0,6 % ab, keine Strecke mehr als 2,7 % (seit rival_boost in der Rückkehr-Episode schweigt 2,8 %: Serra, Stufe 3, G1;
+# Prüfung und Referenz: tests/test_field.gd, B6_RATIO). Stufe 2, zweiter Gegner,
 # bleibt 1,9 = SEESAW_SKILL: Er darf weiter aufs Lineal. Dadurch ist Stufe 2 etwas zu schwer: Über den Sieg entscheidet der beste Gegner,
 # und der liegt im Mittel 0,9 % näher am Spieler als in bicycle-6 (Stufe 1 +0,2 %, Stufe 3 −0,3 %).
 # Geltungsbereich: Die Werte halten die Schwierigkeit für Spieler auf dem Niveau des Spieler-Ersatzes mit Auto 0 (nachgeprüft auch mit Turbo,
@@ -178,9 +179,12 @@ func set_ghost(v: RaceVehicle) -> void:
 	if ghost != null:
 		ghost.seesaws = ghost_seesaws
 
+const RIVAL_BOOST_FADE := 0.5    # Gegner-Turbo nur, solange die Rückkehr-Episode höchstens so weit eingeblendet ist (RaceVehicle.rec_fade)
+
 static func rival_boost(v: RaceVehicle) -> bool:
-	# Turbo der Gegner: in einem festen Rhythmus über die Runde, nicht in den gesperrten Zonen vor und hinter Sprüngen.
-	return absf(sin(v.progress * TAU)) < 0.35 and v.turbo > 0.25 and not v.track.boost_locked(v.progress)
+	# Turbo der Gegner: in einem festen Rhythmus über die Runde, nicht in den gesperrten Zonen vor und hinter Sprüngen und nicht auf dem Rückweg
+	# zur Linie. In der Rückkehr-Episode dosiert der Fahrer das Gas im Reibkreis (drive_room); der Turbo legte dort +8,5 m/s² darüber.
+	return absf(sin(v.progress * TAU)) < 0.35 and v.turbo > 0.25 and not v.track.boost_locked(v.progress) and v.rec_fade <= RIVAL_BOOST_FADE
 
 func step(dt: float, time: float, player_boost := false, phase := "race", ghost_boost := false) -> void:
 	# Einzelspieler-Form: player_boost ist der Turbo des ersten Menschen (im Einzelspieler Auto 0), weitere Menschen ohne Turbo.

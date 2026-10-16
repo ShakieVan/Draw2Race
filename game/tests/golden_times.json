@@ -1,11 +1,11 @@
 {
 	"note": "Solo ai_route(2.3, 0), trocken, ohne Turbo (tests/make_golden.gd)",
-	"physics": "bicycle-7",
+	"physics": "bicycle-8",
 	"times": {
 		"arena": {
 			"crashed": false,
-			"s": 2.0005,
-			"time": 41.957612
+			"s": 2.0006,
+			"time": 44.123331
 		},
 		"azure": {
 			"crashed": false,

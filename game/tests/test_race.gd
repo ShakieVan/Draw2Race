@@ -203,7 +203,11 @@ func test_pack() -> void:
 				worst.z = maxf(worst.z, absf(v.z - float(q.z)))
 				worst.v = maxf(worst.v, v.velocity.distance_to(q.v) / maxf(1.0, v.velocity.length()))
 				worst.turbo = maxf(worst.turbo, absf(v.turbo - float(q.turbo)))
-				worst.steer = maxf(worst.steer, absf(v.steering - float(q.steer)))
+				# Der Schnappschuss trägt die Lenkung bis ±127/STEER_SCALE (±0,907 rad, Protokoll 8). Der Drift King lenkt seit dem 16.10.2026
+				# im Drift bis 60° (1,047 rad) gegen; darüber zeigen die Gäste den Anschlag des Protokolls (52°) – nur Anzeige der Vorderräder,
+				# ohne Protokolländerung. Geprüft wird die Genauigkeit innerhalb des Bereichs.
+				var steer_range := 127.0 / NetRace.STEER_SCALE
+				worst.steer = maxf(worst.steer, absf(clampf(v.steering, -steer_range, steer_range) - float(q.steer)))
 				worst.max_steer = maxf(worst.max_steer, absf(v.steering))
 				worst.spin = maxf(worst.spin, absf(minf(v.rear_spin, 12.75) - float(q.spin)))
 				spin_seen = spin_seen or (v.rear_spin > 1.0 and float(q.spin) > 1.0)

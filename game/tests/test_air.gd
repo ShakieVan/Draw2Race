@@ -420,12 +420,14 @@ func test_rear_drive() -> void:
 	check(others == 0.0 and float(v8.t20) < float(dk.t20) - 0.8,
 		"Allrad-Grundmodell: rear_spin bleibt 0 (auch mit Turbo); Thunder V8 0–20 m/s in %.2f s" % float(v8.t20))
 	# Gas in der Kurve (R 25 m, 11 m/s, dann Plantempo 25): Beim Heckantrieb kommt das Heck (Nase weiter innen, Bahn enger),
-	# das Allrad-Grundauto schiebt dagegen eher nach außen.
+	# das Allrad-Grundauto schiebt dagegen eher nach außen. Geprüft wird das Fahrwerk: ohne die Gasdosierung des Rennfahrers (driver_tc), die
+	# das Heck seit dem 15.10.2026 (Durchdrehen überträgt den Antrieb, traction) im Rennen gerade nicht kommen lässt.
 	var ring := circle_track(25.0)
 	var result := {}
 	for car in [0, 7]:
 		var route := steady_route(ring, 11.0)
 		var v := RaceVehicle.new(ring, route, 0.0, 0.0, car)
+		v.driver_tc = false
 		v.velocity = Vector2.from_angle(v.heading) * 11.0
 		var beta := -9.0
 		var spin := 0.0
@@ -470,13 +472,15 @@ func slide_stats(track: Circuit, route: Array[Dictionary]) -> Dictionary:
 		"throttle": sum_throttle / maxf(1.0, slides)}
 
 func test_drift_throttle(arena: Circuit, wild_route: Array[Dictionary]) -> void:
-	# Seit 03.10.2026: Im Drift-Modus gibt es beim Rutschen keinen Erholungsdeckel und kein Bremsen unter dem Plantempo; Abflug, Dreher und
-	# Wandkontakt entstehen aus der Fahrphysik (seit 15.10.2026 mit dem Profi-Drifter, der den Winkel mit dem Gas hält). Dieselbe Linie im
-	# Rennmodus bremst beim Ausbrechen wie bisher.
+	# Seit 03.10.2026: Im Drift-Modus gibt es beim Rutschen keinen Erholungsdeckel; Abflug, Dreher und Wandkontakt entstehen aus der Fahrphysik
+	# (seit 15.10.2026 mit dem Profi-Drifter, der den Winkel mit dem Gas hält). Seit dem Nutzerplan vom 15.10.2026 bremst er vor einer Kurve
+	# auf das Tempo, mit dem er sie beim Zielwinkel hält (drift_line), auch unter das Plantempo – quer rutschend kaum (höchstens 3 % der Takte
+	# quer: am Kurvenausgang vor der nächsten Kurve und, seit 16.10.2026, bei zu schnell gezeichneten Kurven vor dem Anstellen unter 20°,
+	# gemessen 26 von 1228). Dieselbe Linie im Rennmodus siehe unten.
 	var drift := slide_stats(arena, wild_route)
 	var drift_car: RaceVehicle = drift.car
-	check(int(drift.slides) > 300 and int(drift.braked) == 0 and int(drift.capped) == 0,
-		"Drift-Modus: %d Takte quer, dabei nie unter Plan gebremst (%d) und kein Erholungsdeckel (%d)" % [drift.slides, drift.braked, drift.capped])
+	check(int(drift.slides) > 300 and int(drift.braked) * 100 <= int(drift.slides) * 3 and int(drift.capped) == 0,
+		"Drift-Modus: %d Takte quer, dabei kaum unter Plan gebremst (%d) und kein Erholungsdeckel (%d)" % [drift.slides, drift.braked, drift.capped])
 	# Seit bicycle-7 (15.10.2026) kostet echtes Querrutschen Tempo (die Reifen reiben quer zur Fahrt); der Schein-Drift lief bei über 78 % des
 	# Plans. Seit dem Profi-Drifter (drift_driver, 15.10.2026) hält das Gas den Driftwinkel, statt stur auf dem Plan zu bleiben: Vollgas, wenn
 	# Winkel fehlt, Lupfen bei zu viel (gemessen 58 % im Mittel, vorher 93 %); über das Plantempo gibt er nie Gas (tests/test_drift.gd).
@@ -491,14 +495,18 @@ func test_drift_throttle(arena: Circuit, wild_route: Array[Dictionary]) -> void:
 	# Unterschied der Modi ist der Rückkehr-Deckel. Seit dem Fahrer-Regler vom 15.10.2026 (Rückkehr-Episoden) ist er stetig: Das Rückkehrtempo
 	# folgt dem fahrbaren Bogen (nie unter 7 m/s), und quer rutschend bremst der Fahrer höchstens mit BRAKE_FLOOR (vorher Vollbremsung auf
 	# 7 m/s, die das Heck kommen ließ). Unter den Plan gebremst wird deshalb kaum noch, und im Mittel ist der Rennmodus beim Rutschen nicht
-	# mehr langsamer (gemessen 69 % gegen 63 % des Plans); geprüft wird, dass der Deckel greift (im Drift-Modus nie, siehe oben).
-	check(int(race.capped) > 0 and float(race.min_ratio) < 0.5,
-		"Rennmodus: dieselbe Linie wird beim Ausbrechen gedeckelt (%d Takte, Tempo im Mittel %.0f %% gegen %.0f %% im Drift-Modus, min. %.0f %% des Plans, Gas %.0f %%)" % [race.capped, float(race.mean_ratio) * 100.0, float(drift.mean_ratio) * 100.0, float(race.min_ratio) * 100.0, float(race.throttle) * 100.0])
+	# mehr langsamer (gemessen 69 % gegen 63 % des Plans); geprüft wurde, dass der Deckel greift (im Drift-Modus nie, siehe oben). Seit dem
+	# 15.10.2026 (Durchdrehen überträgt den Antrieb, traction) dosiert der Rennfahrer beim Heckantrieb das Gas am Reibkreis der Hinterachse
+	# (traction_room): Der Drift King bricht im Rennmodus auf dieser Linie kaum noch aus, also greift der Deckel dort kaum; geprüft wird, dass
+	# er im Rennmodus weit seltener quer steht als im Drift-Modus oder der Deckel greift.
+	check(int(race.capped) > 0 or int(race.slides) * 4 < int(drift.slides),
+		"Rennmodus: dieselbe Linie – %d Takte quer (Drift-Modus %d), gedeckelt %d Takte, Tempo im Mittel %.0f %% gegen %.0f %% im Drift-Modus, Gas %.0f %%" % [race.slides, drift.slides, race.capped, float(race.mean_ratio) * 100.0, float(drift.mean_ratio) * 100.0, float(race.throttle) * 100.0])
 	# Der Zeitvergleich (Drift-Modus mindestens 3 s schneller) entfällt ebenfalls: Er beruhte darauf, dass der Rennmodus nach dem Ausbrechen
 	# mit 7 m/s zur Linie zurückkroch; mit der stetigen Rückkehr ist er gleich schnell oder schneller. Der Drift-Modus muss ins Ziel kommen
-	# und Punkte sammeln. Für den Profi-Drifter ist ×1,85 deutlich zu schnell gezeichnet (Zielwinkel bis 60°, Dreher): 1488 Punkte, weniger als
-	# mit ×1,6 (2030, tests/test_drift.gd) – daher 1200 statt 1600 als Schwelle.
-	check(drift_car.finish_time > 0.0 and race_car.finish_time > 0.0 and drift_car.drift_score > 1200.0,
+	# und Punkte sammeln. Für den Profi-Drifter ist ×1,85 deutlich zu schnell gezeichnet (Zielwinkel rund 65°): Er driftet mit mehr Winkel,
+	# aber langsamer, und bekommt rund die Hälfte der Punkte des Sweetspots (Wertungskurve: tests/test_drift.gd; gemessen 815, Sweetspot-Linien
+	# 1400–1700) – daher 600 als Schwelle (vorher 1200, als zu schnell noch zwei Drittel brachte).
+	check(drift_car.finish_time > 0.0 and race_car.finish_time > 0.0 and drift_car.drift_score > 600.0,
 		"Drift-Modus: Linie mit 85 %% zu schnellen Kurven im Ziel (%.1f s, Rennmodus %.1f s, %d Punkte)" % [drift_car.finish_time, race_car.finish_time, int(drift_car.drift_score)])
 	# Woran der Fahrer das Plantempo misst, unterscheidend geprüft (auf der 85-%-Linie ist der Plan unerreichbar, dort gäbe jeder Fahrer
 	# Vollgas): Das Auto rutscht 30° quer, genau mit Plantempo. Im Drift-Modus zählt das Fahrtempo, also kein Gas über den Plan hinaus; im
@@ -510,6 +518,7 @@ func test_drift_throttle(arena: Circuit, wild_route: Array[Dictionary]) -> void:
 	var gas := {}
 	for track in [arena, race_arena]:
 		var probe := RaceVehicle.new(track, steady_route(track, 15.0), straight, 0.0, 7)
+		probe.driver_tc = false     # gemessen wird, woran der Fahrer das Plantempo misst, nicht seine Gasdosierung am Reibkreis
 		probe.velocity = Vector2.from_angle(probe.heading - deg_to_rad(30.0)) * 15.0
 		probe.step(1.0 / 60.0, false, 1.0 / 60.0)
 		gas[track.mode] = [probe.throttle, probe.braking, probe.recovering]

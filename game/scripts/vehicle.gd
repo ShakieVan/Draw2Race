@@ -2,7 +2,12 @@ class_name RaceVehicle
 extends RefCounted
 
 # Dynamic bicycle model. World position is integrated ONLY here.
-const VERSION := "bicycle-7"   # 15.10.2026: Vorzeichenfehler im Einspurmodell behoben (Querachse zeigte nach rechts, Schräglauf, Kraft und
+const VERSION := "bicycle-8"   # 16.10.2026 (nach Beta 1.0.3): angetriebene Achse über traction (Durchdrehen überträgt den Antrieb) samt
+                               # Gasdosierung des Rennfahrers (traction_room) – der Drift King fährt im Rennen anders; im Drift-Modus
+                               # Vorderradkraft quer zum Rad, der Profi-Drifter mit kontrolliertem Ausbrechen und die Wertung
+                               # je Meter. Allrad im Rennmodus bitgleich. Neue Version, weil Drift-Punkte, Geister und Rekorde des Drift King
+                               # mit bicycle-7 nicht vergleichbar sind und Geräte mit verschiedener Physik nicht zusammen spielen dürfen.
+                               # bicycle-7 (15.10.2026): Vorzeichenfehler im Einspurmodell behoben (Querachse zeigte nach rechts, Schräglauf, Kraft und
                                # Giermoment rechneten mit links); Antriebsart je Auto, Drift King mit Heckantrieb über den Reibkreis der
                                # Hinterachse (Traktionsgrenze, rear_spin). Alle Fahrten ändern sich: alte Geister nicht mehr abspielen.
                                # Am selben Tag (noch unveröffentlicht, daher dieselbe Version): Fahrer-Regler mit Rückkehr-Episoden statt
@@ -24,7 +29,8 @@ const SURFACE_DRAG := {"asphalt": 0.0, "curb": 0.05, "gravel": 0.18, "dirt": 0.5
 const ISLAND_LIMIT := Circuit.HALF_WIDTH + 10.0
 # Fahrzeuge der Karriere. grip/power wirken in der Reifen- bzw. Antriebsphysik, offroad teilt die Strafen
 # neben der Fahrbahn (2 = halbe Strafe), turbo skaliert Laden und Verbrauchsdauer. unlock = benötigtes Gold.
-# rear = Anteil der Haftung an der Hinterachse (Standard 0,47), drive = Antriebsart ("awd" Standard, "rwd" Heckantrieb).
+# rear = Anteil der Haftung an der Hinterachse (Standard 0,47), drive = Antriebsart ("awd" Standard, "rwd" Heckantrieb), lock = Lenkanschlag
+# beim Gegenlenken im Drift in Grad (Standard 49°, DRIFT_COUNTER; Drift-Autos haben mehr Einschlag).
 const CARS := [
 	{"id":"sprint","name":"Sprint","grip":12.0,"power":9.0,"offroad":1.0,"turbo":1.0,"color":"f16c4c","style":"coupe","unlock":0,"text":"Leicht & schnell – der Allrounder."},
 	{"id":"grip","name":"Grip","grip":13.8,"power":7.8,"offroad":1.0,"turbo":1.0,"color":"5ac4d1","style":"hatch","unlock":1,"text":"Mehr Haftung, sanfterer Antrieb."},
@@ -33,7 +39,7 @@ const CARS := [
 	{"id":"gt","name":"Apex GT","grip":14.2,"power":10.6,"offroad":0.9,"turbo":1.3,"color":"ececec","style":"gt","unlock":9,"text":"Die Spitze: Haftung, Kraft, starker Turbo."},
 	{"id":"roadster","name":"Col Racer","grip":14.6,"power":9.6,"offroad":1.1,"turbo":1.1,"color":"2e86c1","style":"roadster","unlock":12,"text":"Leicht und wendig – gemacht für Kehren."},
 	{"id":"pickup","name":"Quarry Truck","grip":12.4,"power":10.4,"offroad":2.6,"turbo":0.9,"color":"7d8c4a","style":"pickup","unlock":15,"text":"Unverwüstlich auf Schotter und Matsch."},
-	{"id":"drift","name":"Drift King","grip":13.0,"power":10.8,"offroad":0.9,"turbo":1.0,"rear":0.42,"drive":"rwd","color":"d35400","style":"drift","unlock":18,"text":"Heckantrieb: Gas in der Kurve, und das Heck kommt – für Drift-Punkte."},
+	{"id":"drift","name":"Drift King","grip":13.0,"power":10.8,"offroad":0.9,"turbo":1.0,"rear":0.42,"drive":"rwd","lock":60,"color":"d35400","style":"drift","unlock":18,"text":"Heckantrieb: Gas in der Kurve, und das Heck kommt – für Drift-Punkte."},
 ]
 var pos := Vector2.ZERO
 var velocity := Vector2.ZERO
@@ -61,65 +67,108 @@ var track: Circuit
 var max_slip := 0.0
 var rear_share := 0.47     # Anteil der Haftung an der Hinterachse (Drift-Auto: weniger)
 # Antriebsart (CARS "drive"): "awd" (Standard) überträgt jede Längskraft und kürzt damit nur die Seitenführung beider Achsen (52/48);
-# "rwd" (Heckantrieb) schickt den Vortrieb allein über den Reibkreis der Hinterachse. Im Drift-Modus treiben die Allrad-Autos hecklastig an
-# (DRIFT_AWD_REAR).
+# "rwd" (Heckantrieb) schickt den Vortrieb allein über die Hinterachse, bis zu ihrer Haftgrenze (traction). Im Drift-Modus treiben die
+# Allrad-Autos hecklastig an (DRIFT_AWD_REAR).
 var rear_drive := false
-# Antrieb, den die Hinterräder nicht auf die Straße bringen (m/s², >= 0, d. h. sie drehen durch). Nur für Reifenqualm, Spuren und Klang
-# ausgelesen; beeinflusst die Simulation nicht. 0 in der Luft, im Looping, nach Ziel und Wrack. Beim Allrad-Grundmodell (Rennmodus) immer 0:
+var driver_tc := true      # Fahrer dosiert das Gas am Reibkreis der Hinterachse (traction_room, Heckantrieb im Rennmodus); aus nur für Fahrwerksprüfungen
+# Umfangsüberschuss der durchdrehenden Hinterräder (spin_excess: Antrieb über der Haftgrenze bzw. im Rutschen der Längsschlupf, bis 8 m/s;
+# >= 0). Nur für Reifenqualm, Spuren und Klang ausgelesen; beeinflusst die Simulation nicht. 0 in der Luft, im Looping, nach Ziel und Wrack. Beim Allrad-Grundmodell (Rennmodus) immer 0:
 # Das ist eine Modellgrenze (es überträgt jede Längskraft und kürzt dafür nur die Seitenführung, Durchdrehen kennt es nicht).
 var rear_spin := 0.0
 const SLIP_FADE_SPEED := 1.0   # m/s Achsgeschwindigkeit, ab der die Seitenkraft voll aufgebaut ist
 # --- Drift-Wertung (nur im Drift-Modus ausgewertet; beeinflusst die Fahrt nicht) ---
 var drift_score := 0.0
 var drift_multiplier := 1.0
-var drift_time := 0.0      # Dauer des aktuellen Drifts
+var drift_time := 0.0      # Dauer des aktuellen Drifts (hält die Kette über kurze Unterbrechungen)
+var drift_way := 0.0       # gewertete Strecke des aktuellen Drifts (m × Winkelgutschrift × Tempofaktor): Multiplikator
 var drift_angle := 0.0     # aktueller Driftwinkel (Grad)
 var drift_chain := 0.0     # Punkte des laufenden Drifts (Kette): weg bei Wandberührung oder Dreher (score_drift)
 var chain_lost := 0        # verlorene Ketten (Anzeige im Ergebnis)
 const DRIFT_SPIN := PI * 0.5   # rad quer: Dreher, die Kette ist weg
+const SCORE_ANGLE := 30.0 * PI / 180.0   # Winkelgutschrift voll ab hier (Sweetspot 30–45°) …
+const SCORE_STEEP := 0.1       # … über 45° fällt sie bis SCORE_STEEP_ANGLE auf diesen Anteil und bleibt dort (zu schnell gezeichnet: mehr
+const SCORE_STEEP_ANGLE := 60.0 * PI / 180.0   #   Winkel ist nicht besser)
+const SCORE_V_REF := 15.0      # m/s Tempo mit Tempofaktor 1 …
+const SCORE_V_POW := 1.5       # … Tempofaktor = (Tempo / SCORE_V_REF) hoch so viel: Tempo zählt mehr als Winkel über 45°
+const SCORE_PER_M := 4.0       # Punkte je Meter bei voller Gutschrift, Tempofaktor 1 und ×1
+const SCORE_GROW := 0.075      # Multiplikator je gewertetem Meter Drift (Meter × Gutschrift × Tempofaktor, bis ×4)
 var wall_hits := 0
 var wall_contact := false
 # Drift-Modus: Ausbrechen ist gewollt. Seit 15.10.2026 fährt dort ein Profi-Drifter (drift_driver; der Rennmodus bleibt unberührt). Der
 # Fahrer vom 03.10. (Pure Pursuit auf die Nase, Gas nach dem Plantempo) lenkte die Nase statt des Kurses und hielt das Tempo statt des
 # Winkels: Mit der vorzeichenrichtigen Physik (bicycle-7) driftete der Drift King erst bei grob überzeichneten Kurven (×1,45: 0 Punkte,
-# ×1,7: 1500), andere Autos fast gar nicht. Der Profi
+# ×1,7: 1500), andere Autos fast gar nicht. Nach dem Nutzerbefund an Beta 1.0.3 (zu schnell gezeichnet stellte er das Auto fast 90° quer,
+# es verlor den Vortrieb und blieb fast stehen) gilt der Plan: Das Auto bricht kontrolliert aus, der Fahrer behält die Kontrolle. Der Profi
 # - führt den Kurs (Geschwindigkeitsvektor) zur Linie, nicht die Nase: Die Vorderräder zeigen in die Bewegungsrichtung der Vorderachse
-#   (im Drift ist das Gegenlenken), dazu der Schräglauf für Kurs und Gierrate;
-# - liest die gezeichnete Linie: Überschuss Plantempo² · Krümmung / Bezugshaftung, ab DRIFT_E_ON verlangt die Kurve einen Driftwinkel,
-#   je schneller gezeichnet, desto mehr (die Tempofarbe bleibt der Plan); er stellt das Auto DRIFT_T_INIT s vor der Kurve an;
-# - hält den Winkel mit dem Gas (Heckantrieb: Gas lässt das Heck kommen, Lupfen lässt es greifen), aber nie über das Plantempo hinaus;
+#   (im Drift ist das Gegenlenken, bis counter_lock), dazu der Schräglauf für Kurs und Gierrate; bei zu viel Winkel ziehen sie nicht mehr ein;
+# - liest die gezeichnete Linie: Überschuss Plantempo² · Krümmung / Bezugshaftung bestimmt den Zielwinkel (DRIFT_ANGLES: zu langsam keiner,
+#   Sweetspot bis 45°, zu schnell mehr) und das Kurventempo (DRIFT_HOLD; die Tempofarbe bleibt die Obergrenze); er stellt das Auto
+#   DRIFT_T_INIT s vor der Kurve an (bei mehr Winkel als im Sweetspot entsprechend früher, DRIFT_EARLY_MAX) und nimmt den Winkel am
+#   Ausgang stetig zurück (DRIFT_UNWIND);
+# - hält den Winkel mit dem Gas (Vorsteuerung aus dem Zielwinkel, gedämpft; Gas lässt das Heck kommen, Lupfen lässt es greifen), schaut
+#   dabei DRIFT_PREDICT s voraus und gibt über DRIFT_BETA_CAP nie Gas; deutlich zu schnell gezeichnet bremst er vor dem Anstellen auf das
+#   Kurventempo zum Zielwinkel, stellt mit Gas bis zum Zielwinkel an und nimmt erst dort das Gas weg: mehr Winkel, langsamer;
 # - fängt vor Nadelöhren ab (dort kein Anstellen), setzt zurück, wenn er verloren steht (drift_reverse, wie beim Freifahren; danach erst
 #   vorwärts, DRIFT_REV_HOLD), kehrt abseits der Fahrbahn wie im Rennmodus zurück (race_driver) und fährt nach dem Hängen um die Ecke des
 #   Hindernisses herum (drift_detour); ohne Fortschritt über DRIFT_STALL_TIME ist das Auto festgefahren (Wrack).
-# Verlangt die Linie mehr Winkel, als sich halten lässt, dreht sich das Auto; zu schnell in die Kurve trägt es nach außen. Beides kostet
-# Punkte: Dreher und Wand nehmen die Kette des laufenden Drifts (score_drift).
+# Zu schnell in die Kurve trägt es nach außen; ein Dreher entsteht nur noch aus Berührungen. Wand und Dreher nehmen die Kette des
+# laufenden Drifts (score_drift).
 const DRIFT_LOST_ERROR := 2.0     # rad: Ziel seitlich hinter dem Auto (gedreht)
 const DRIFT_LOST_EDGE := 1.0      # m jenseits des Fahrbahnrands (dort ist der Drift ohnehin schon als Wandberührung bestraft)
 const DRIFT_TURN_SPEED := 3.0     # m/s Kriechtempo, solange ein verlorenes Auto sich zum Ziel umdreht
 const DRIFT_LOST_COURSE := 1.2    # rad: gedreht ist das Auto erst, wenn auch der Kurs vom Ziel weg zeigt (im Drift steht die Nase quer)
 const DRIFT_REV_SPEED := 1.5      # m/s: verloren und fast stehend -> zurücksetzen (drift_reverse) statt im Kreis zu kriechen
-const DRIFT_LOCK := 0.85          # rad Lenkeinschlag des Profis (Grundfahrer 0,62): Gegenlenken bis 49°
+const DRIFT_LOCK := 0.85          # rad Lenkeinschlag des Profis beim Rangieren (Zurücksetzen, Umweg, Umdrehen; Grundfahrer 0,62)
+const DRIFT_COUNTER := 0.85        # rad Lenkanschlag beim Gegenlenken (49°), Drift King 60° (CARS "lock", counter_lock): mit 49° radierten
+                                   #   seine Vorderräder schon bei 50° Driftwinkel quer zur Fahrt und bremsten das Auto fast bis zum Stand
+var counter_lock := DRIFT_COUNTER
 const DRIFT_STEER_RATE := 5.0     # rad/s, er fängt schnell ab (Grundfahrer 2,6)
 const DRIFT_KP := 0.9             # Schräglauf vorn (rad) je rad Kursfehler
 const DRIFT_KR := 0.4             # je rad/s Gierfehler (dreht die Nase schneller als der Kurs, wird gegengelenkt)
-const DRIFT_KBU := 0.4            # je rad fehlender Driftwinkel: Anstellen vor und in der Kurve
+const DRIFT_KBU := 0.8            # je rad fehlender Driftwinkel: Anstellen vor und in der Kurve
 const DRIFT_GEO0 := 4.0           # m/s: darunter lenkt er geometrisch (Pure Pursuit) – Schräglaufbefehle wirken im Schritttempo nicht …
 const DRIFT_GEO1 := 8.0           # … ab hier ganz nach Schräglauf
 const DRIFT_REF_GRIP := 13.0      # m/s² Bezugshaftung, an der er die Linie liest (Drift King trocken): gleiche Linie, gleicher Plan – für
                                   #   jedes Auto und jedes Wetter; was das Auto daraus macht, entscheidet seine Physik (Regen: weniger Haftung).
                                   #   Auf anderem Belag skaliert mit dessen Haftung allein (SURFACE_GRIP), ohne die Geländegängigkeit des Autos
-const DRIFT_E_ON := 0.75          # Überschuss der Linie, ab dem quer gefahren wird (KI-Linie ai_route(1,5) liegt bei 0,65)
-const DRIFT_GAIN := 45.0 * PI / 180.0       # Zielwinkel je Einheit Überschuss …
-const DRIFT_BETA_MAX := 60.0 * PI / 180.0   # … höchstens
-const DRIFT_BETA_HARD := 55.0 * PI / 180.0  # darüber Gas weg …
-const DRIFT_BETA_OVER := 15.0 * PI / 180.0  # … bzw. erst so weit über dem Zielwinkel: Verlangt die Linie viel Winkel, hält er drauf und dreht sich
-const DRIFT_THR0 := 0.4           # Gas (Anteil) bei erreichtem Zielwinkel …
-const DRIFT_THR_GAIN := 3.0       # … je rad fehlendem Winkel mehr
+# Zielwinkel (Grad) über dem Überschuss der Linie (Nutzerplan 15.10.2026: „Unsere Geschwindigkeit bewirkt, wie weit der Fahrer das Auto
+# ausbrechen lässt“): darunter Haftung (KI-Linie ai_route(1,5) liegt bei 0,65), knapp über der Grenze leicht quer, ein breiter Sweetspot bis
+# 45° mit dem höchsten Kurventempo, deutlich zu schnell mehr bis 80° (ab e 2,5 gedeckelt), aber langsamer. Zwischen den Stützstellen
+# linear. Das Langsamer kommt vom Fahrer (Vorbremsen auf DRIFT_HOLD), nicht von selbst: Die Vorderräder radieren jenseits von
+# counter_lock zwar, ein 70–80°-Drift hält im Modell aber fast die volle Querbeschleunigung (gemessen ohne Vorbremsen 12,1 m/s wie im
+# Sweetspot). Bis 16.10.2026 bei 70° gedeckelt (mit 80° Ziel kam das Auto damals über 90°); mit dem Gasdeckel erst nahe am Zielwinkel
+# und dem früheren Anstellen bleibt es darunter (Raster e 2,5–2,8 ohne Berührung höchstens 80°).
+const DRIFT_ANGLES := [[0.8, 10.0], [1.0, 30.0], [1.4, 45.0], [1.6, 45.0], [2.5, 80.0]]
+const DRIFT_BETA_OVER := 8.0 * PI / 180.0   # so weit über dem Zielwinkel: Gas weg (das Heck greift wieder)
+const DRIFT_OVER_TOL := 6.0 * PI / 180.0    # … und so weit darüber ziehen die Vorderräder nicht mehr in die Rutschrichtung
+# Querbeschleunigung, mit der er den Bogen beim jeweiligen Driftwinkel (Grad) fährt, als Anteil der eigenen Haftung (drift_line): bis 45°
+# hält das gegengelenkte Auto fast die Haftungsgrenze (die Vorderräder zeigen in die Fahrt, das Heck schiebt quer zu ihr), darüber stehen die
+# Vorderräder am Anschlag schräg zur Fahrt, und er nimmt Tempo heraus (bei 70° Ziel rund 68 % des Sweetspot-Tempos als Vorgabe; erreicht
+# werden rund 85 %, weil das Anstellen mit Gas wieder beschleunigt – stärkeres Vorbremsen nahm nur Winkel, kaum Tempo).
+const DRIFT_HOLD := [[0.0, 0.85], [30.0, 0.92], [45.0, 0.92], [60.0, 0.55], [80.0, 0.3]]
+const DRIFT_SETTLED := 12.0 * PI / 180.0  # so nah am Zielwinkel (höchstens DRIFT_SWEET) steht der Drift
+const DRIFT_SWEET := 45.0 * PI / 180.0      # größter Winkel des Sweetspots
+const DRIFT_PRE_ANGLE := 20.0 * PI / 180.0  # zu schnell gezeichnet und noch nicht so quer: erst auf das Kurventempo bremsen (drift_driver)
+# Eine Handbremse (Fassung vom 15.10.2026, bis 8° unter dem Zielwinkel und schon knapp über dem Kurventempo) ist entfallen: Das gesperrte Heck
+# hielt den Winkel bei 25–35° fest und verzögerte nur – zu schnell gezeichnet stand das Auto weniger quer als im Sweetspot (Gegenprüfung).
+# Nur zum Anstellen (unter 20°) gezogen, verzögerte sie lange ohne zu drehen (die Lenkung hält den Kurs): Kurven ×1,6 brachten 67 statt
+# 845 Punkte, 15 % aller Takte mit Handbremse. Das Anstellen macht das Gas, das Verzögern die Bremse davor.
+const DRIFT_PREDICT := 0.45       # s, so weit schaut er beim Winkel voraus
+const DRIFT_BETA_CAP := 72.0 * PI / 180.0   # darüber (vorausgeschaut) nie Gas: kein Dreher durch zu schnell gezeichnete Linien, Spitze unter 80° (mit 78° bis 86°)
+const DRIFT_CAP_BAND := 1.5       # m/s: steht der Drift, geht das Gas über Kurventempo + DRIFT_CAP_BAND stetig zurück (bei + 2 · DRIFT_CAP_BAND null)
+const DRIFT_UNWIND := 90.0 * PI / 180.0     # rad/s, so schnell nimmt er den Zielwinkel am Kurvenausgang zurück
+const DRIFT_BRAKE := 7.0          # m/s², mit denen er vor der Kurve auf ihr Tempo bremst …
+const DRIFT_SPEED_LOOK := 40.0    # … und so weit voraus höchstens
+var drift_cap := INF              # Tempo, das er gerade höchstens fährt (drift_line), nur Auswertung
+const DRIFT_THR_GAIN := 1.5       # Gas (Anteil von power) je rad fehlendem Winkel, zusätzlich zur Vorsteuerung (drift_driver) …
+const DRIFT_THR_DAMP := 0.3       # … und weniger je rad/s, mit dem der Winkel wächst (Dämpfung)
+var drift_slip := 0.0             # Schwimmwinkel des Vortakts (Winkeländerung für die Dämpfung)
 const DRIFT_COAST := 1.25         # m/s über dem Plantempo rollt er im Drift, erst darüber bremst er
 const DRIFT_CATCH := 10.0 * PI / 180.0      # quer ohne Driftwunsch (Kurvenausgang, vor dem Nadelöhr): nur den Fahrwiderstand halten, das Heck greift
 const DRIFT_LOOK := 20.0          # m, so weit voraus liest er die Linie höchstens
-const DRIFT_T_INIT := 0.6         # s vor einer Kurve beginnt das Anstellen (voll), …
+const DRIFT_T_INIT := 0.8         # s vor einer Kurve beginnt das Anstellen (voll), …
 const DRIFT_RAMP := 8.0           # … davor auf so vielen Metern eingeblendet
+const DRIFT_EARLY_MAX := 1.6      # mehr Winkel als im Sweetspot: entsprechend früher anstellen (Zielwinkel / 45°, höchstens so viel)
 const DRIFT_NARROW := 4.0         # m halbe Breite: darunter Nadelöhr …
 const DRIFT_T_CATCH := 0.7        # … so viele s davor fängt er ab, und hinter ihm angestellt wird erst …
 const DRIFT_EXIT := 3.0           # … so viele m vor dem Ausgang
@@ -130,7 +179,7 @@ const DRIFT_DETOUR_TIME := 6.0    # … je Umwegpunkt höchstens so viele s, …
 const DRIFT_DETOUR_HOPS := 3      # … und über höchstens so viele Ecken
 const DRIFT_REV_HOLD := 1.0       # s bzw. …
 const DRIFT_REV_HOLD_WAY := 1.0   # … m vorwärts nach jeder Rückwärtsfahrt, bevor der Fahrer erneut zurücksetzt
-const DRIFT_STALL_TIME := 15.0    # s ohne FREE_NET m Nettofortschritt: festgefahren, Wrack (das Zeitlimit liegt bei 55 s)
+const DRIFT_STALL_TIME := 15.0    # s ohne FREE_NET m Nettofortschritt: festgefahren, Wrack (Zeitlimit: Circuit.DRIFT_CALIBRATION)
 var detour_on := false            # Umweg begonnen (drift_detour)
 var detour_point := Vector2.ZERO  # angefahrene Ecke
 var detour_index := -1            # Hindernis, um das der Umweg führt
@@ -148,7 +197,8 @@ var drift_hold := 0.0             # s Sperre gegen erneutes Zurücksetzen (DRIFT
 var drift_hold_from := Vector2.ZERO
 var drift_mark := 0.0             # Fortschritt bei den letzten FREE_NET m (Stillstandswache) …
 var drift_stall := 0.0            # … und die Zeit seither
-var drift_goal := 0.0             # Zielwinkel des Profis (rad), nur Auswertung
+var drift_goal := 0.0             # Zielwinkel des Profis (rad), nur Auswertung …
+var drift_bend := 0.0             # … und die Kurvenrichtung dazu (links +1)
 # Antrieb der Allrad-Autos im Drift-Modus: hecklastig, DRIFT_AWD_REAR des Antriebs hinten, je Achse durch ihren Reibkreis (wie der Drift-Modus
 # realer Allrad-Sportwagen, die 70–100 % nach hinten schicken). Mit dem Allrad-Grundmodell lässt sich kein Drift halten, gleich mit welchem
 # Fahrer: Ist das Heck am Reibkreis (ab ~8° Schwimmwinkel), muss die Vorderachse das Giermoment halten, 1,1 · F_vorn ≥ 1,2 · F_hinten +
@@ -271,6 +321,7 @@ func _init(circuit: Circuit, plan: Array[Dictionary], start_s := 0.0, lane := 0.
 	turbo_factor = float(spec.turbo)
 	rear_share = float(spec.get("rear", 0.47))
 	rear_drive = str(spec.get("drive", "awd")) == "rwd"
+	counter_lock = deg_to_rad(float(spec.get("lock", rad_to_deg(DRIFT_COUNTER))))
 
 func step(dt: float, boost: bool, time: float) -> void:
 	rear_spin = 0.0
@@ -303,6 +354,16 @@ func step(dt: float, boost: bool, time: float) -> void:
 		desired_speed = drift_driver(dt, behind_line)
 	else:
 		desired_speed = race_driver(dt, behind_line, surface_grip, ground_drag)
+		if rear_drive and driver_tc and not reversing and not airborne:
+			# Heckantrieb im Rennmodus: Gas nur, soweit die Hinterachse es neben ihrer Seitenführung überträgt (traction_room), quer rutschend
+			# nur den Fahrwiderstand. Seit die durchdrehenden Räder den Antrieb übertragen (traction statt friction_circle), nahm Gas am
+			# Kurvenausgang dem Heck die Seitenführung, und der Drift King drehte sich auf den KI-Linien (Wald, Hafen, Jahrmarkt, Kinderzimmer:
+			# 16–300 Drehertakte je Fahrt).
+			var u0 := velocity.dot(Vector2.from_angle(heading))
+			var room := traction_room(grip * surface_grip * rear_share, maxf(0.0, 0.010 * u0 * absf(u0) + u0 * (0.09 + ground_drag)))
+			if velocity.length() > 3.0 and absf(wrapf(heading - velocity.angle(), -PI, PI)) > BRAKE_SLIDE0:
+				room = maxf(0.0, 0.010 * u0 * absf(u0) + u0 * (0.09 + ground_drag))
+			drive_room = minf(drive_room, room)
 	var forward := Vector2.from_angle(heading)
 	# Querachse "links" = Richtung positiver Gierrate und positiven Lenkwinkels (heading wächst zu from_angle(heading + PI/2)).
 	# Bis bicycle-6 stand hier forward.orthogonal(), das zeigt nach rechts, während Schräglauf (v ± Hebel·Gier), Kraftrichtung und
@@ -367,25 +428,27 @@ func step(dt: float, boost: bool, time: float) -> void:
 	var rear_grip := grip * ground_grip * rear_share
 	var front_force: float
 	var rear_force: float
+	var front_x := 0.0         # Antrieb der Vorderachse in Radrichtung (nur Allrad im Drift-Modus)
 	if rear_drive and wheel > 0.0:
-		# Heckantrieb unter Zug: Die Radkraft läuft allein über den Reibkreis der Hinterachse (Traktionsgrenze). Was er nicht überträgt,
-		# lässt die Räder durchdrehen (rear_spin) und fehlt dem Vortrieb; zugleich bleibt hinten weniger Seitenführung – Gas in der Kurve
-		# lässt das Heck kommen (Leistungsübersteuern). Die Vorderräder rollen frei und führen mit voller Haftung.
+		# Heckantrieb unter Zug: Die Radkraft läuft allein über die Hinterachse, bis zu ihrer Haftgrenze (traction: durchdrehende Räder
+		# übertragen den Antrieb, die Seitenführung bekommt den Rest des Reibkreises). Darüber drehen die Räder durch (rear_spin), und das
+		# fehlt dem Vortrieb; Gas in der Kurve lässt das Heck kommen (Leistungsübersteuern). Die Vorderräder rollen frei und führen voll.
 		front_force = clampf(-alpha_front * 36.0, -front_grip, front_grip)
-		var rear := friction_circle(wheel, -alpha_rear * 40.0, rear_grip)
+		var rear := traction(wheel, -alpha_rear * 40.0, rear_grip)
 		rear_force = rear.y
-		rear_spin = maxf(0.0, wheel - rear.x)
+		rear_spin = spin_excess(wheel, rear, -alpha_rear * 40.0, v - yaw * 1.2)
 		longitudinal = rear.x - slope
 	elif drift_mode and wheel > 0.0:
 		# Allrad im Drift-Modus (DRIFT_AWD_REAR; nur dort, der Rennmodus bleibt bitgleich): Der Antrieb ist hecklastig verteilt und läuft je Achse
-		# durch ihren Reibkreis wie beim Heckantrieb – Gas lässt das Heck kommen, die Vorderachse zieht mit und behält weniger Seitenführung.
+		# über ihre Haftgrenze wie beim Heckantrieb (traction) – Gas lässt das Heck kommen, die Vorderachse zieht mit und behält weniger Seitenführung.
 		var rear_part := wheel * DRIFT_AWD_REAR
-		var front := friction_circle(wheel - rear_part, -alpha_front * 36.0, front_grip)
-		var rear := friction_circle(rear_part, -alpha_rear * 40.0, rear_grip)
+		var front := traction(wheel - rear_part, -alpha_front * 36.0, front_grip)
+		var rear := traction(rear_part, -alpha_rear * 40.0, rear_grip)
 		front_force = front.y
+		front_x = front.x
 		rear_force = rear.y
-		rear_spin = maxf(0.0, rear_part - rear.x)
-		longitudinal = front.x + rear.x - slope
+		rear_spin = spin_excess(rear_part, rear, -alpha_rear * 40.0, v - yaw * 1.2)
+		longitudinal = rear.x - slope
 	else:
 		# Allrad (Grundmodell), beim Heckantrieb Bremsen und Rollen: Längskraft 52/48 auf die Achsen; sie wird voll übertragen und kürzt
 		# die Seitenführung (Modellgrenze: Bremsen ist nicht durch die Haftung begrenzt, die Seitenführung fällt bis auf 1 m/s²).
@@ -393,18 +456,30 @@ func step(dt: float, boost: bool, time: float) -> void:
 		var rear_capacity := sqrt(maxf(1.0, pow(rear_grip, 2) - pow(longitudinal * 0.48, 2)))
 		front_force = clampf(-alpha_front * 36.0, -front_capacity, front_capacity)
 		rear_force = clampf(-alpha_rear * 40.0, -rear_capacity, rear_capacity)
+	# Querkraft der Vorderachse im Fahrzeugbezug. Im Drift-Modus wirkt die Reifenkraft quer zum Rad (um den Lenkwinkel gedreht), Antrieb
+	# vorn in Radrichtung: Beim Gegenlenken zeigen die Räder in die Fahrtrichtung, ihre Seitenkraft steht dann quer zur Fahrt und hält den
+	# Bogen, statt zu bremsen. Die Näherung „quer zur Karosserie“ (Rennmodus, bitgleich; Einschlag dort bis 0,62 rad) ließ im Drift die
+	# Vorderräder auch bei passendem Gegenlenken mit sin(Driftwinkel) bremsen – bei 45° mit 70 % ihrer Seitenkraft. Erst jenseits des
+	# Lenkanschlags radieren sie wirklich (Rad schräg zur Fahrt): das ist die Strafe für zu viel Winkel (DRIFT_LOCK).
+	var front_lat := front_force
+	if drift_mode:
+		var cs := cos(steering)
+		var sn := sin(steering)
+		longitudinal += front_x * cs - front_force * sn
+		front_lat = front_x * sn + front_force * cs
 	if airborne:
 		# In der Luft: keine Reifenkräfte (kein Grip, keine Lenkung, kein Antrieb/Bremsen), nur Luftwiderstand.
 		front_force = 0.0
+		front_lat = 0.0
 		rear_force = 0.0
 		longitudinal = -0.010 * u * absf(u)
 		braking = 0.0
 		boosting = false
 		rear_spin = 0.0
 	# Giermoment: Seitenkraft vorn dreht zur Kraftrichtung, hinten dagegen (Trägheit 1,9 m², dazu Dämpfung 0,55/s).
-	yaw += ((front_force * 1.1 - rear_force * 1.2) / 1.9 - yaw * 0.55) * dt
+	yaw += ((front_lat * 1.1 - rear_force * 1.2) / 1.9 - yaw * 0.55) * dt
 	yaw = clampf(yaw, -3.0, 3.0)
-	velocity += (forward * longitudinal + left * (front_force + rear_force)) * dt
+	velocity += (forward * longitudinal + left * (front_lat + rear_force)) * dt
 	heading += yaw * dt
 	pos += velocity * dt
 	slip = maxf(absf(alpha_front), absf(alpha_rear))
@@ -717,11 +792,21 @@ func drift_driver(dt: float, behind_line: bool) -> float:
 		return back
 	# Linie lesen. Nach einem Ausflug und nach dem Freifahren (bis das Auto am Hängepunkt vorbei ist) kein Drift.
 	var freeing := free_series and free_tries > 0
-	var line := Vector2.ZERO if (recovering or freeing or behind_line) else drift_line(speed, float(SURFACE_GRIP.get(ground, 1.0)))
+	var line := Vector3(0.0, 0.0, INF) if (recovering or freeing or behind_line) else drift_line(speed, float(SURFACE_GRIP.get(ground, 1.0)), grip * surface * weather_grip)
+	# Am Kurvenausgang (die Kurve liegt nicht mehr voraus) nimmt er den Winkel stetig zurück (DRIFT_UNWIND), in dieselbe Richtung; vorher
+	# fiel der Zielwinkel in 0,3 s von 35° auf 0, das Heck griff mit vollem Gegenlenken, und das Auto schlug zur anderen Seite aus.
+	if line.x < 0.0:
+		line.x = 0.0
+	elif line.x < drift_goal and (line.x <= 0.0 or line.y == drift_bend) and drift_bend != 0.0 and not (recovering or freeing or behind_line):
+		line.x = maxf(line.x, drift_goal - DRIFT_UNWIND * dt)
+		line.y = drift_bend
 	drift_goal = line.x
 	var bend := line.y if drift_goal > 0.0 else (signf(e_c) if absf(e_c) > 0.02 else signf(yaw))
+	drift_bend = bend
 	var slip_angle := wrapf(heading - course, -PI, PI) if speed > 2.0 else 0.0
 	var beta := slip_angle * bend                                        # Driftwinkel, + = Nase zur Kurveninnenseite
+	var beta_rate := wrapf(slip_angle - drift_slip, -PI, PI) / dt * bend
+	drift_slip = slip_angle
 	# Lenkung. Im Drift: Vorderräder in die Bewegungsrichtung der Vorderachse (gamma_f; im Drift ist das Gegenlenken), dazu der Schräglauf
 	# für den Kurs zum Ziel, die Gierrate des Kursbogens und das Anstellen (fehlender Winkel), begrenzt auf den Haftbereich vorn.
 	var forward := Vector2.from_angle(heading)
@@ -737,25 +822,65 @@ func drift_driver(dt: float, behind_line: bool) -> float:
 		var a_cmd := DRIFT_KP * e_c + DRIFT_KR * (omega_d - yaw)
 		if drift_goal > 0.0:
 			a_cmd += DRIFT_KBU * maxf(0.0, drift_goal - beta) * bend
-		desired_steer = clampf(gamma_f + clampf(a_cmd, -cap_f / 36.0, cap_f / 36.0), -DRIFT_LOCK, DRIFT_LOCK)
+		# Zu viel Winkel (DRIFT_OVER_TOL über dem Ziel bzw. ohne Driftwunsch über DRIFT_CATCH): Abfangen geht vor der Linie. Die Vorderräder
+		# ziehen dann nicht mehr in die Rutschrichtung, sie zeigen höchstens in die Fahrtrichtung der Vorderachse. Sonst drehte der Kurswunsch
+		# (das Auto zu schnell für den Bogen, Ziel innen) das Auto mit der Vorderachse weiter ein, bis es sich drehte (Nutzerbefund Beta 1.0.3).
+		# Stärker gegenzulenken (Kraft nach außen) nahm dem Auto den Bogen, es lief weit und schlug zurück.
+		var slide := signf(slip_angle)
+		var free := drift_goal + DRIFT_OVER_TOL if (drift_goal > 0.0 and slide == bend) else DRIFT_CATCH
+		if absf(slip_angle) > free:
+			a_cmd = minf(a_cmd * slide, 0.0) * slide
+		desired_steer = clampf(gamma_f + clampf(a_cmd, -cap_f / 36.0, cap_f / 36.0), -counter_lock, counter_lock)
 		# Langsam oder verloren: geometrisch zum Ziel (Pure Pursuit mit Gierdämpfung). Ein Schräglaufbefehl lenkt im Schritttempo kaum (das
 		# verlorene Auto fuhr neben der Fahrbahn geradeaus in die Reifenwand).
 		var geo := atan2(4.6 * sin(clampf(error, -1.4, 1.4)), target_distance)
 		geo = clampf(geo + YAW_DAMPING * (speed * 2.0 * sin(clampf(error, -1.4, 1.4)) / target_distance - yaw), -DRIFT_LOCK, DRIFT_LOCK)
 		desired_steer = lerpf(geo, desired_steer, 0.0 if recovering else smoothstep(DRIFT_GEO0, DRIFT_GEO1, speed))
 	steering = move_toward(steering, desired_steer, dt * DRIFT_STEER_RATE)
-	# Pedale.
-	var plan: float = route[cursor].speed
+	# Pedale. Tempo: höchstens das Plantempo (die gezeichnete Tempofarbe); ohne Driftwunsch bremst er außerdem auf das Tempo, mit dem er die
+	# Kurven voraus hält (drift_line.z, DRIFT_HOLD). Im Drift regelt das Gas den Winkel, über dem Kurventempo nimmt er nahe am Zielwinkel Gas
+	# weg. Deutlich zu schnell gezeichnet (Zielwinkel über dem Sweetspot) und noch nicht quer: erst auf das Kurventempo zum Zielwinkel
+	# bremsen, dann anstellen – sonst begann das Anstellen mit Sweetspot-Tempo, und das Gas beschleunigte das Auto darüber hinaus.
+	var plan: float = float(route[cursor].speed) if drift_goal > 0.0 else minf(float(route[cursor].speed), line.z)
+	if drift_goal > DRIFT_SWEET and beta < DRIFT_PRE_ANGLE:
+		plan = minf(plan, line.z + DRIFT_CAP_BAND)
+	drift_cap = line.z
 	if recovering:
 		return minf(plan, DRIFT_TURN_SPEED if turning else REC_SPEED)
 	if freeing:
 		plan = minf(plan, REC_SPEED)
 	var pace := signf(u) * speed     # wie in step(): im Drift-Modus zählt das Fahrtempo
+	# Haftung der Hinterachse (Antrieb, den sie überträgt; Allrad: ihr Anteil DRIFT_AWD_REAR) und Fahrwiderstand, beides für die Gasdosierung.
+	var hold := grip * surface * weather_grip * rear_share / (1.0 if rear_drive else DRIFT_AWD_REAR)
+	var resist := maxf(0.0, 0.010 * u * absf(u) + u * (0.09 + float(SURFACE_DRAG.get(ground, 0.0)) / offroad))
 	if drift_goal > 0.0 and pace < plan + DRIFT_COAST:
 		# Gas hält den Winkel: zu wenig -> mehr Gas (das Heck dreht durch und verliert Seitenführung), zu viel -> lupfen (es greift). Über das
 		# Plantempo hinaus gibt er kein Gas (die gezeichnete Tempofarbe bleibt die Obergrenze), bis DRIFT_COAST darüber rollt er.
-		var want := clampf(DRIFT_THR0 + DRIFT_THR_GAIN * (drift_goal - beta), 0.0, 1.0) * power
-		if pace >= plan or beta > maxf(DRIFT_BETA_HARD, drift_goal + DRIFT_BETA_OVER):
+		# Vorsteuerung: Im gehaltenen Drift steht die Kraft der Hinterachse quer zur Fahrt, also um den Driftwinkel nach vorn geneigt –
+		# Antrieb = Haftung hinten · sin(Zielwinkel) (traction) plus Fahrwiderstand; dazu je fehlendem Winkel mehr.
+		var hold_gas := hold * sin(drift_goal) + resist
+		# Dämpfung erst nahe am Zielwinkel: Beim Anstellen bremste sie das Ausbrechen, und das Auto kam erst am Kurvenausgang quer.
+		var damp := DRIFT_THR_DAMP * beta_rate * (1.0 - smoothstep(0.5 * DRIFT_SETTLED, 1.5 * DRIFT_SETTLED, drift_goal - beta))
+		var want := clampf(hold_gas + (DRIFT_THR_GAIN * (drift_goal - beta) - damp) * power, 0.0, power)
+		# Steht der Drift (DRIFT_SETTLED am eigenen Zielwinkel), über Kurventempo (line.z) + DRIFT_CAP_BAND höchstens das Gas, das den Winkel
+		# hält (der Drift zehrt dann am Tempo), bei 2 · DRIFT_CAP_BAND darüber null. Mehr Gas beschleunigte im Bogen, statt den Winkel zu
+		# vergrößern, bis das Auto für ihn zu schnell war. Beim Anstellen dagegen voll nach dem fehlenden Winkel und ohne Bremse: Erst das Gas
+		# bricht das Heck aus (auf das Kurventempo gebremst hat er vorher). Bis 16.10.2026 galt der Deckel bei zu schnell gezeichneten Kurven
+		# schon ab 33° (Sweetspot − DRIFT_SETTLED): Das Auto kam dort nie weiter quer, zu schnell stand es weniger quer als im Sweetspot.
+		if beta > drift_goal - DRIFT_SETTLED and pace > line.z + DRIFT_CAP_BAND:
+			want = minf(want, hold_gas * clampf(2.0 - (pace - line.z) / DRIFT_CAP_BAND, 0.0, 1.0))
+		# Er schaut auf den Winkel in DRIFT_PREDICT s (das Auto dreht mit Schwung weiter): Mit Gaswegnehmen erst am Grenzwinkel drehte es bei
+		# 2 rad/s Gierrate noch 20° weiter, über 90°.
+		var beta_ahead := beta + maxf(beta_rate, 0.0) * DRIFT_PREDICT
+		if pace >= float(route[cursor].speed) or beta_ahead > minf(drift_goal + DRIFT_BETA_OVER, DRIFT_BETA_CAP):
+			want = 0.0
+		elif beta < DRIFT_CATCH and yaw * bend < 0.0:
+			# Gas vergrößert den Schwimmwinkel in die Richtung, in die das Auto gerade rutscht bzw. dreht. Rutscht es noch zur falschen Seite
+			# (Wechselkurve, Kurve zur anderen Seite voraus) oder dreht es gegen die Kurve, hält er nur das Tempo: Erst greift das Heck, die
+			# Lenkung dreht das Auto zur neuen Kurve, dann kommt das Heck mit dem Gas. Mit Gas nach dem fehlenden Winkel drehte sich das Auto
+			# in der Wechselkurve um.
+			want = minf(want, resist)
+		elif beta < -DRIFT_CATCH:
 			want = 0.0
 		drive_room = want
 		return pace + 99.0
@@ -763,6 +888,11 @@ func drift_driver(dt: float, behind_line: bool) -> float:
 		# Quer ohne Driftwunsch (Kurvenausgang, vor einem Nadelöhr): nur den Fahrwiderstand halten, damit das Heck wieder greift. Mit dem Gas
 		# nach Plan drehte der Heckantrieb am Kurvenausgang weiter ein und stand im Nadelöhr quer.
 		drive_room = minf(power, maxf(0.0, 0.010 * u * absf(u) + u * 0.09) + 0.5)
+	elif speed > 2.0:
+		# Haftung ohne Driftwunsch: Gas nur, soweit die Hinterachse neben ihrer Seitenführung Antrieb überträgt (traction_room). Seit die
+		# durchdrehenden Räder den Antrieb übertragen, nimmt jedes Gas darüber dem Heck die Seitenführung, und ein ruhig gezeichneter Bogen
+		# endete mit Vollgas nach Plan im Dreher.
+		drive_room = minf(power, traction_room(hold, resist))
 	return plan
 
 func drift_reverse(dt: float) -> float:
@@ -864,21 +994,25 @@ func detour_blocked(o: Dictionary, a: Vector2, b: Vector2) -> bool:
 			return true
 	return false
 
-func drift_line(speed: float, surface: float) -> Vector2:
-	# Liest die gezeichnete Linie voraus (Drift-Modus): Zielwinkel (rad) und Kurvenrichtung (links +1). Überschuss je Stelle = Plantempo² ·
-	# Krümmung (Menger-Kreis durch Linienpunkte im Abstand 4 m) / Bezugshaftung (DRIFT_REF_GRIP · surface, surface = Haftung des Belags allein,
-	# ohne die Geländegängigkeit des Autos: gleiche Linie, gleicher Plan für jedes Auto); Zielwinkel = (Überschuss − DRIFT_E_ON) · DRIFT_GAIN, höchstens
-	# DRIFT_BETA_MAX. Kurven bis DRIFT_T_INIT s voraus zählen voll, dahinter auf DRIFT_RAMP m eingeblendet; es zählt die größte.
+func drift_line(speed: float, surface: float, hold: float) -> Vector3:
+	# Liest die gezeichnete Linie voraus (Drift-Modus): Zielwinkel (rad), Kurvenrichtung (links +1) und Tempo (m/s). Überschuss je Stelle =
+	# Plantempo² · Krümmung (Menger-Kreis durch Linienpunkte 8 m vor und hinter der Stelle) / Bezugshaftung (DRIFT_REF_GRIP · surface, surface = Haftung des
+	# Belags allein, ohne die Geländegängigkeit des Autos: gleiche Linie, gleicher Plan für jedes Auto); Zielwinkel nach DRIFT_ANGLES
+	# (drift_angle_for). Kurven bis DRIFT_T_INIT s voraus zählen voll, dahinter auf DRIFT_RAMP m eingeblendet; es zählt die größte.
 	# Nadelöhr (halbe Breite unter DRIFT_NARROW): DRIFT_T_CATCH s davor kein Driftwunsch (abfangen), Kurven dahinter zählen nicht; im Nadelöhr
 	# erst DRIFT_EXIT m vor dem Ausgang. Die 20-m-Vorausschau des Prototyps stellte das Auto schon im 2,6-m-Nadelöhr für die nächste Kurve an,
 	# es drehte sich dort und verkeilte sich zwischen den Betonblöcken.
+	# Tempo: An jeder Stelle bis zum Bremsweg voraus hält er den Bogen mit dem Anteil DRIFT_HOLD seiner eigenen Haftung (hold: Auto, Belag,
+	# Wetter), der zum Winkel dort passt (im Nadelöhr Haftung); davor bremst er mit DRIFT_BRAKE. Ohne diese Grenze kam das Auto mit dem
+	# gezeichneten Tempo in die Kurve, war für den Bogen zu schnell, die Vorderräder zogen es mit dem Kurswunsch ein, und es drehte sich.
 	var near := maxf(4.0, speed * DRIFT_T_INIT)
-	var reach := minf(DRIFT_LOOK, near + DRIFT_RAMP)
+	var reach := minf(DRIFT_LOOK, near * DRIFT_EARLY_MAX + DRIFT_RAMP)
+	var far := clampf(speed * speed / (2.0 * DRIFT_BRAKE) + 8.0, reach + 8.0, DRIFT_SPEED_LOOK)
 	var check_narrow := not track.widths.is_empty()
 	var in_narrow := check_narrow and track.hw(previous_phase) < DRIFT_NARROW
 	var d_narrow := 0.0 if in_narrow else INF      # Meter bis zum nächsten Nadelöhr
 	var d_wide := 0.0                               # im Nadelöhr: Meter bis zu seinem Ausgang
-	var scan := maxf(reach + 8.0, speed * DRIFT_T_CATCH + 2.0) if check_narrow else reach + 8.0
+	var scan := maxf(far, speed * DRIFT_T_CATCH + 2.0)
 	var idx: Array[int] = [cursor]
 	var dist: Array[float] = [0.0]
 	var walked := 0.0
@@ -892,21 +1026,25 @@ func drift_line(speed: float, surface: float) -> Vector2:
 				d_narrow = walked
 			if in_narrow and not narrow and d_wide == 0.0:
 				d_wide = walked
-		if walked >= 4.0 * idx.size() and walked <= reach + 8.0:
+		if walked >= 4.0 * idx.size() and walked <= far:
 			idx.append(i)
 			dist.append(walked)
 	if in_narrow and d_wide == 0.0:
 		d_wide = INF
-	if (not in_narrow and d_narrow < speed * DRIFT_T_CATCH) or (in_narrow and d_wide > DRIFT_EXIT):
-		return Vector2.ZERO
-	var best := Vector2.ZERO
+	var calm := (not in_narrow and d_narrow < speed * DRIFT_T_CATCH) or (in_narrow and d_wide > DRIFT_EXIT)
+	var best := Vector3(0.0, 0.0, INF)
 	var ref := DRIFT_REF_GRIP * surface
+	# Krümmung über 8 m (je 4 m vor und hinter dem Punkt), aber höchstens das 1,5-Fache der Krümmung über 16 m (je 8 m, am Anfang ab dem
+	# Linienpunkt 4 m hinter dem Cursor): In einer Kurve liegen beide nah beieinander (Kreis), Wackeln der gezeichneten Linie (Wellen unter
+	# ~16 m) zählt dagegen nicht als Kurve. Allein über 8 m las er aus einer Fingerlinie mit 0,8 m Wackeln Radien um 3 m und bremste vor
+	# jeder Welle auf 6 m/s; allein über 16 m verschmierten die kurzen Kurven der Arena (Kurvenein- und -ausgang zählten als Gerade).
+	var behind := cursor
+	var back := 0.0
+	while behind > 0 and back < 4.0:
+		back += Vector2(route[behind - 1].p).distance_to(route[behind].p)
+		behind -= 1
 	for j in range(idx.size() - 2):
 		var d := dist[j + 1]
-		if d >= d_narrow and not in_narrow:
-			break
-		if in_narrow and d < d_wide:
-			continue
 		var a := Vector2(route[idx[j]].p)
 		var b := Vector2(route[idx[j + 1]].p)
 		var c := Vector2(route[idx[j + 2]].p)
@@ -914,12 +1052,53 @@ func drift_line(speed: float, surface: float) -> Vector2:
 		if den < 1e-4:
 			continue
 		var k := 2.0 * (b - a).cross(c - b) / den
+		var aw := Vector2(route[idx[j - 1]].p) if j > 0 else Vector2(route[behind].p)
+		var cw := Vector2(route[idx[mini(j + 3, idx.size() - 1)]].p)
+		var den_w := aw.distance_to(b) * b.distance_to(cw) * cw.distance_to(aw)
+		if den_w > 1e-4:
+			k = signf(k) * minf(absf(k), 1.5 * absf(2.0 * (b - aw).cross(cw - b) / den_w))
 		var vm := float(route[idx[j + 1]].speed)
-		var goal := clampf((vm * vm * absf(k) / maxf(1.0, ref) - DRIFT_E_ON) * DRIFT_GAIN, 0.0, DRIFT_BETA_MAX)
-		goal *= 1.0 - clampf((d - near) / DRIFT_RAMP, 0.0, 1.0)
+		var angle := drift_angle_for(vm * vm * absf(k) / maxf(1.0, ref))
+		var needle := (d >= d_narrow and not in_narrow) or (in_narrow and d < d_wide)
+		if needle:
+			angle = 0.0
+		# Mehr Winkel als im Sweetspot braucht mehr Anlauf: Er stellt entsprechend früher an (near_j) und hat bis dorthin auf das Kurventempo
+		# zum Zielwinkel gebremst. Mit dem Anstellpunkt des Sweetspots kam der Winkel erst am Kurvenausgang (Arena-Kurven sind 10–21 m lang).
+		var near_j := near * clampf(angle / DRIFT_SWEET, 1.0, DRIFT_EARLY_MAX)
+		if absf(k) > 0.001:
+			var v_bend := sqrt(drift_hold_for(angle) * hold / absf(k))
+			var brake_at := near_j if angle > DRIFT_SWEET else 4.0
+			best.z = minf(best.z, sqrt(v_bend * v_bend + 2.0 * DRIFT_BRAKE * maxf(0.0, d - brake_at)))
+		if calm or needle or d > reach + 8.0:
+			continue
+		var goal := angle * (1.0 - clampf((d - near_j) / DRIFT_RAMP, 0.0, 1.0))
 		if goal > best.x:
-			best = Vector2(goal, signf(k))
+			best.x = goal
+			best.y = signf(k)
+	if calm:
+		best.x = -1.0     # Nadelöhr: kein Driftwunsch, auch kein Ausklingen (drift_driver)
 	return best
+
+static func drift_hold_for(angle: float) -> float:
+	# Anteil der eigenen Haftung als Querbeschleunigung, mit dem der Fahrer einen Bogen bei diesem Driftwinkel (rad) fährt (DRIFT_HOLD).
+	var deg := rad_to_deg(angle)
+	for i in range(1, DRIFT_HOLD.size()):
+		var lo: Array = DRIFT_HOLD[i - 1]
+		var hi: Array = DRIFT_HOLD[i]
+		if deg < float(hi[0]):
+			return lerpf(float(lo[1]), float(hi[1]), (deg - float(lo[0])) / (float(hi[0]) - float(lo[0])))
+	return float(DRIFT_HOLD[-1][1])
+
+static func drift_angle_for(excess: float) -> float:
+	# Zielwinkel (rad) zum Überschuss der Linie (DRIFT_ANGLES; darunter 0, darüber gedeckelt).
+	if excess < float(DRIFT_ANGLES[0][0]):
+		return 0.0
+	for i in range(1, DRIFT_ANGLES.size()):
+		var lo: Array = DRIFT_ANGLES[i - 1]
+		var hi: Array = DRIFT_ANGLES[i]
+		if excess < float(hi[0]):
+			return deg_to_rad(lerpf(float(lo[1]), float(hi[1]), (excess - float(lo[0])) / (float(hi[0]) - float(lo[0]))))
+	return deg_to_rad(float(DRIFT_ANGLES[-1][1]))
 
 func free_driver(dt: float) -> float:
 	# Zurücksetzen (siehe HANG_TIME): rückwärts, die Nase dreht zum Ziel ein Stück voraus auf der Linie. Rückwärts gelenkt dreht das Auto
@@ -1205,22 +1384,60 @@ static func friction_circle(x: float, y: float, cap: float) -> Vector2:
 	var m := sqrt(x * x + y * y)
 	return Vector2(x, y) * (cap / m) if m > cap else Vector2(x, y)
 
+func traction_room(hold: float, resist: float) -> float:
+	# Gas (m/s², mit Fahrwiderstand resist), das die Hinterachse (Haftung hold) neben ihrer Seitenführung überträgt: Anteil am Bogen nach der
+	# Gierbilanz 1,1 / 2,3, mit 10 % Reserve. Geradeaus (unter 2 m/s² quer) frei: Durchdrehen kostet dort keine Führung, die gebraucht wird,
+	# und der Antrieb bleibt an der Haftgrenze (Anfahren wie bisher).
+	var lateral := absf(yaw) * velocity.length() * 1.1 / 2.3
+	var room := resist + 0.9 * sqrt(maxf(0.0, hold * hold - lateral * lateral))
+	return lerpf(power, room, smoothstep(0.5, 2.0, lateral))
+
+static func traction(x: float, y: float, cap: float) -> Vector2:
+	# Angetriebene Achse (x = Antrieb >= 0, y = Seitenkraftwunsch, cap = Haftgrenze): Rutscht der Reifen, dreht das Rad so weit durch, bis
+	# seine Umfangskraft dem Antrieb entspricht – die Kraft zeigt gegen den Schlupf aus Umfangs- und Quergeschwindigkeit, und je schneller
+	# das Rad dreht, desto mehr nach vorn. Der Antrieb geht so bis zur Haftgrenze ganz auf die Straße, die Seitenführung bekommt den Rest
+	# des Reibkreises (wie beim Allrad-Grundmodell, dort ohne Traktionsgrenze). Bis 15.10.2026 (friction_circle) kürzte der Reibkreis
+	# Antrieb und Seitenwunsch im selben Verhältnis: Im Drift (Seitenwunsch vielfach über der Haftung) blieb vom Antrieb fast nichts, das
+	# Auto verlor quer den Vortrieb und blieb fast stehen (Nutzerbefund Beta 1.0.3).
+	var fx := minf(x, cap)
+	var room := sqrt(maxf(0.0, cap * cap - fx * fx))
+	return Vector2(fx, clampf(y, -room, room))
+
+static func spin_excess(drive: float, force: Vector2, want_y: float, slide: float) -> float:
+	# Anzeigegröße rear_spin (Umfangsüberschuss der Hinterräder, m/s): Antrieb über der Haftgrenze (Anfahren) bzw. im Rutschen der
+	# Längsschlupf, mit dem die Kraft die Richtung (Antrieb, Seitenkraft) bekommt – Quergleiten der Achse · Antrieb / Seitenkraft.
+	var excess := maxf(0.0, drive - force.x)
+	if absf(want_y) > absf(force.y) + 0.01 and force.x > 0.0:
+		excess = maxf(excess, minf(8.0, absf(slide) * force.x / maxf(absf(force.y), 0.5)))
+	return excess
+
 func score_drift(dt: float) -> void:
-	# Punkte = Driftwinkel (Grad) × Tempo × Zeit × Multiplikator. Der Multiplikator wächst mit der Dauer eines
-	# durchgehenden Drifts (bis ×4). Die Punkte des laufenden Drifts (Kette, drift_chain) sind erst sicher, wenn er endet
-	# (Multiplikator wieder ×1): Berührt das Auto die Fahrbahnbegrenzung, sind die Kette und 60 Punkte weg; dreht es sich
-	# (über 90° quer, DRIFT_SPIN), ist die Kette weg. Danach beginnt der Multiplikator wieder bei ×1.
-	# Seit 15.10.2026 (Gegenprüfung des Profi-Drifters): Vorher kostete eine Wand nur 60 Punkte und ein Dreher nichts – eine grob
-	# zu schnell gezeichnete Linie (überall 21 m/s) schaffte mit 2–3 Wänden, Drehern und 10 m Abweichung alle drei Stufen.
+	# Punkte je gefahrenem Meter im Drift (seit dem Nutzerplan vom 15.10.2026) = Winkelgutschrift (angle_credit: voll 30–45°, darüber
+	# fallend) × Tempofaktor (Tempo / SCORE_V_REF, bezogen auf die Haftung des Autos) × SCORE_PER_M × Multiplikator; der Multiplikator wächst
+	# mit der gewerteten Driftstrecke (Meter × Gutschrift × Tempofaktor, SCORE_GROW, bis ×4). Zu langsam gezeichnet driftet der Fahrer nicht
+	# (fast keine Punkte), im Sweetspot (30–45°, höchstes Kurventempo) gibt es die vollen Punkte, deutlich zu schnell (bis 80°, langsamer)
+	# rund die Hälfte; Regen: derselbe Winkel, langsamer, weniger Punkte. Bis 15.10.2026 Winkel (Grad) × Tempo × Zeit: Mehr Winkel brachte
+	# immer mehr, und Zeit zählte doppelt (langsam quer kriechen lohnte sich).
+	# Tempofaktor bezogen auf die Haftung (16.10.2026): Der griffigere Apex GT fuhr dieselbe Linie bei gleichem Winkel schneller und holte
+	# allein dadurch mehr Punkte als der Drift King. Wetter zählt nicht in den Bezug – Regen bleibt langsamer und bringt weniger.
+	# Multiplikator nach gewerteter statt reiner Strecke (16.10.2026): Grob überall zu schnell gezeichnet driftete der Fahrer fast ohne
+	# Pause mit Übersteuer-Winkeln und hielt den Multiplikator länger oben als eine gute Linie (gemessen 1300–1600 gegen 1530 Punkte), im
+	# Regen (leichter quer, weniger Lücken) noch länger.
+	# Die Punkte des laufenden Drifts (Kette, drift_chain) sind erst sicher, wenn er endet (Multiplikator wieder ×1): Berührt das Auto die
+	# Fahrbahnbegrenzung, sind die Kette und 60 Punkte weg; dreht es sich (über 90° quer, DRIFT_SPIN), ist die Kette weg. Danach beginnt
+	# der Multiplikator wieder bei ×1.
 	var speed := velocity.length()
 	var angle := 0.0
 	if speed > 1.0:
 		angle = absf(wrapf(velocity.angle() - heading, -PI, PI))
 	drift_angle = rad_to_deg(angle)
-	if not airborne and speed > 6.0 and angle > deg_to_rad(12.0) and angle < deg_to_rad(75.0):
+	if not airborne and speed > 6.0 and angle > deg_to_rad(12.0) and angle < DRIFT_SPIN:
+		var way := speed * dt
+		var weight := angle_credit(angle) * pow(speed / (SCORE_V_REF * sqrt(grip / DRIFT_REF_GRIP)), SCORE_V_POW)
 		drift_time += dt
-		drift_multiplier = minf(4.0, 1.0 + drift_time * 0.6)
-		var gain := drift_angle * speed * dt * 0.25 * drift_multiplier
+		drift_way += way * weight
+		drift_multiplier = minf(4.0, 1.0 + drift_way * SCORE_GROW)
+		var gain := weight * way * SCORE_PER_M * drift_multiplier
 		drift_score += gain
 		drift_chain += gain
 	else:
@@ -1228,12 +1445,14 @@ func score_drift(dt: float) -> void:
 		if drift_time <= 0.0:
 			drift_multiplier = 1.0
 			drift_chain = 0.0
+			drift_way = 0.0
 	if speed > 2.0 and angle > DRIFT_SPIN and drift_chain > 0.0:
 		drift_score = maxf(0.0, drift_score - drift_chain)
 		chain_lost += 1
 		drift_chain = 0.0
 		drift_multiplier = 1.0
 		drift_time = 0.0
+		drift_way = 0.0
 	var q := track.query_branch(pos, previous_phase)
 	var touching := float(q.distance) > track.hw(float(q.s)) - 0.5
 	if touching and not wall_contact:
@@ -1244,7 +1463,18 @@ func score_drift(dt: float) -> void:
 		drift_chain = 0.0
 		drift_multiplier = 1.0
 		drift_time = 0.0
+		drift_way = 0.0
 	wall_contact = touching
+
+static func angle_credit(angle: float) -> float:
+	# Winkelgutschrift der Drift-Wertung (score_drift): steigt bis SCORE_ANGLE, voll im Sweetspot bis DRIFT_SWEET, darüber bis
+	# SCORE_STEEP_ANGLE (60°) auf SCORE_STEEP (10 %). Nur gedeckelt (Nutzerplan „darüber gedeckelt“) brachte eine deutlich zu schnelle Linie
+	# mehr Punkte als der Sweetspot: Sie bleibt zwischen den Kurven länger quer (längere Kette), und ein 70–80°-Drift ist im Modell kaum
+	# langsamer (rund 85 % des Sweetspot-Kurventempos). Mit 50 % erst bei 80° (Fassung vom 15.10.2026) lagen grob schnelle Linien noch bei
+	# 70–100 % des Sweetspots.
+	if angle <= DRIFT_SWEET:
+		return minf(angle / SCORE_ANGLE, 1.0)
+	return lerpf(1.0, SCORE_STEEP, clampf((angle - DRIFT_SWEET) / (SCORE_STEEP_ANGLE - DRIFT_SWEET), 0.0, 1.0))
 
 func beyond_edge(margin: float) -> bool:
 	# Mehr als margin jenseits des Fahrbahnrands (Breitenprofil der Strecke, auch auf Abzweigen)?

@@ -42,14 +42,17 @@ var quay_z := 1e9          # Kaikante: Land nur bei z < quay_z (quay_dir 1) bzw.
 var quay_dir := 1.0
 var time_limit := 0.0
 var drift_targets: Array = []
-# Drift-Ziele und Zeitlimit, gemessen mit dem Profi-Fahrer (RaceVehicle.drift_driver) und der Kettenwertung (score_drift: Wand oder Dreher
-# kosten die Punkte des laufenden Drifts), 15.10.2026, je 40 „menschliche“ Linien (tests/test_drift.gd) und mit dem LineRecorder gezeichnete
-# Fingerlinien: Stufe 1 schaffen mit dem Drift King etwa 3 von 4 Linien, Stufe 2 etwa jede dritte, Stufe 3 (Regen) etwa jede zehnte, saubere
-# Ideallinien mit schnellen Kurven meist; grob überall schnell gezeichnete Linien die Regenstufe nicht. Die Werte gehören in die Streckendatei
+# Drift-Ziele und Zeitlimit, gemessen mit dem Profi-Fahrer (RaceVehicle.drift_driver) und der Wertung je Meter mit Kette (score_drift: Wand
+# oder Dreher kosten die Punkte des laufenden Drifts), Neukalibrierung nach dem Nutzerplan vom 15.10.2026 (Sweetspot, keine Dreher durch die
+# Linie, Punkte je Meter) und der Nachbesserung vom 16.10.2026 (zu schnell mehr Winkel, Winkelgutschrift über 45° fallend, Multiplikator nach
+# gewerteter Strecke) mit 24 „menschlichen“ Linien und LineRecorder-Fingerlinien (tests/test_drift.gd): Stufe 1 schaffen mit dem Drift King
+# etwa drei von vier Linien, Stufe 2 etwa jede dritte, Stufe 3 (Regen) Linien mit Kurven im Sweetspot (Zufallslinien selten); grob überall
+# schnell gezeichnete Linien (21/29 m/s) die Regenstufe nicht (nass höchstens 707). Das Zeitlimit ist großzügig (Punkte entscheiden, nicht
+# die Uhr): die langsamsten menschlichen Linien brauchen trocken 77 s, im Regen 83 s (vorher 55 s). Die Werte gehören in die Streckendatei
 # (drift_targets, time_limit); jede Änderung an tracks/arena.json macht aber Diorama und Abriebkarte ungültig (SHA-256 der Datei), bis beide
 # neu gebaut sind. Bis dahin überschreiben sie beim Laden die Dateiwerte – so gelten im Einzelspieler, beim Weitergeben und im WLAN-Rennen
 # (NetRace.drift_limit_for liest time_limit) dieselben Werte; vorher wertete das WLAN mit 1,4 × Bot (64,5 s) statt 55 s.
-const DRIFT_CALIBRATION := {"arena": {"targets": [1000, 1650, 2000], "limit": 55.0}}
+const DRIFT_CALIBRATION := {"arena": {"targets": [450, 650, 800], "limit": 80.0}}
 var max_half_width := HALF_WIDTH
 const BREAK_SPEED := 9.0      # m/s senkrecht zur Leitplanke: darüber bricht sie
 var open := false         # Sprintstrecke: Start und Ziel getrennt, eine Durchfahrt

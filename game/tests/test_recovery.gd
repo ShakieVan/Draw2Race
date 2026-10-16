@@ -785,7 +785,8 @@ func test_misc() -> void:
 	var a := return_case(t, route, 30.0, 6.0, 0.35, false, 4.0)
 	var b := return_case(t, route, 30.0, 6.0, 0.35, false, 4.0)
 	check(Vector2(a.pos).is_equal_approx(b.pos) and is_equal_approx(float(a.heading), float(b.heading)), "Rückkehr reproduzierbar")
-	check(RaceVehicle.VERSION == "bicycle-7", "Physikversion bleibt bicycle-7 (%s)" % RaceVehicle.VERSION)
+	# bicycle-8 (16.10.2026): Drift-Modus und der Drift King im Rennen haben sich geändert (traction, Profi-Drifter, Wertung je Meter).
+	check(RaceVehicle.VERSION == "bicycle-8", "Physikversion bicycle-8 (%s)" % RaceVehicle.VERSION)
 
 func _init() -> void:
 	var t0 := Time.get_ticks_msec()

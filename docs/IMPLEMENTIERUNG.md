@@ -780,6 +780,8 @@ Nutzerwünsche vom 14.10.2026 (vier Punkte) samt Entscheidungen vom selben Tag: 
 
 ## Drift: kontrolliertes Ausbrechen (16.10.2026, Physik bicycle-8, Beta 1.0.4)
 
+Veröffentlicht als Beta 1.0.4 (Pre-Release in `ShakieVan/Draw2Race-Beta`, `Draw2Race-1.0.4.apk`, 313 538 852 Byte, SHA-256 `599c3512…f69eead8`, gebaut aus 5267db7, `version/code` 1000004, Projektschlüssel). 25 Testläufe grün. Enthält auch die Restpunkte aus 9953616. Auf dem Handy noch nicht abgenommen.
+
 Nutzerbefund an Beta 1.0.3 (Video der Arena, Drift King): Bei zu schnell gezeichneter Linie stellte der Profi das Auto bis fast 90° quer, es verlor den Vortrieb und blieb fast stehen („als würden die Vorderräder bremsen“). Ursachen: Der Reibkreis kürzte den Antrieb quer anteilig mit, die Vorderradkraft wirkte quer zur Karosserie statt zum Rad, und der Gegenlenk-Anschlag lag bei 49°, während der Fahrer bis 60° anstellte. Freigegebener Plan des Nutzers: Der Fahrer behält immer die Kontrolle; die gezeichnete Geschwindigkeit bestimmt, wie weit er das Auto ausbrechen lässt; ein breiter Sweetspot (bis 45°, höchstes Kurventempo, volle Punkte), zu schnell bis 80° bei weniger Tempo und etwa halben Punkten, zu langsam kaum Punkte.
 
 - **Physik:** Die angetriebene Achse überträgt beim Durchdrehen den Antrieb bis zur Haftgrenze, die Seitenführung bekommt den Rest (`traction`); im Drift-Modus wirkt die Vorderradkraft quer zum Rad. Lenkanschlag beim Gegenlenken: Drift King 60° (`CARS.lock`), andere Autos 49°. Der Rennfahrer des Drift King dosiert das Gas am Reibkreis der Hinterachse (`traction_room`); Allrad-Autos im Rennmodus bitgleich, der Drift King 0,2–0,9 s langsamer, ohne Dreher.

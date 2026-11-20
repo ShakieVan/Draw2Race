@@ -2,7 +2,7 @@
 
 ## Stand
 
-Am 24.09.2026 wurden Referenzanalyse, Richtlinien und Umsetzungsplan erstellt und anschließend auf Nutzerauftrag die erste spielbare Version umgesetzt. `game/` enthält das Godot-4.6.1-Projekt, `builds/` die Windows- und Android-Builds. `docs/IMPLEMENTIERUNG.md` dokumentiert tatsächlichen Stand, Tests und offene Geräteabnahme. Die ursprünglichen Pläne bleiben Entwurfsunterlagen.
+Die erste spielbare Version entstand am 24.09.2026. Seitdem kamen Karriere, Bestenliste, Dioramen für alle neun Strecken, 2,5D-Fahrphysik, Motorklang, lokaler Mehrspieler und „Mitspieler einladen“ dazu. Öffentlich ist Release 1.0.0 (04.10.2026); die neueste Beta ist 1.0.4 (16.10.2026, Drift-Umbau mit Fahrphysik bicycle-8). `game/` enthält das Godot-4.6.1-Projekt. `builds/` ist nicht versioniert und hält nur den aktuellen Android- und Windows-Build; veröffentlichte ältere Versionen liegen als Downloads auf GitHub. `docs/IMPLEMENTIERUNG.md` dokumentiert den tatsächlichen Stand je Version, die Tests und offene Geräteabnahmen. Referenzanalyse, Richtlinien und Umsetzungsplan vom 24.09.2026 bleiben Entwurfsunterlagen.
 
 ## Einstieg
 

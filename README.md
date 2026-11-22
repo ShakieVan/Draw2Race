@@ -4,12 +4,13 @@
 
 Ein Rennspiel für Android, bei dem du nicht lenkst, sondern planst: Du zeichnest mit dem Finger zwei Runden Ideallinie, und **wie schnell** du zeichnest, ist das Tempo, das dein Auto fahren will. Dann startet das Rennen, und die Fahrphysik zeigt, ob deine Linie hält. Bremsweg, Haftungsgrenze, Rutschen und Dreher entstehen aus der Bewegung des Autos, nicht aus einer Animation.
 
-**Version 1.0** · Android · offline spielbar · Mehrspieler mit bis zu 4 Handys · Godot 4.6.1 · nicht-kommerzielles Hobbyprojekt
+**Version 1.1** · Android · offline spielbar · Mehrspieler mit bis zu 4 Handys · Godot 4.6.1 · nicht-kommerzielles Hobbyprojekt
 
 <p align="center"><img src="docs/screenshots/02_azure_coast.jpg" alt="Rennen im Stadion der Azure Coast" width="100%"></p>
 
-## Version 1.0 – was drinsteckt
+## Was drinsteckt
 
+- **Neu in 1.1:** Mitspieler einladen über ein eigenes Spiel-WLAN und QR-Codes, ein überarbeitetes Fahrgefühl (Autos finden zurück auf die Linie) und eine neue Drift-Arena, in der die gemalte Geschwindigkeit bestimmt, wie weit das Heck kommt.
 - **Neun Strecken** mit eigener Kulisse, vom Küstenstadion über Stadt, Wald, Hafen und Jahrmarkt bis zur Steilküste und zum Kinderzimmer. Dazu kommen Höhenniveaus, Sprünge, Loopings, Brücken und eine Wippe.
 - **Karriere** mit drei Gold-Herausforderungen je Strecke, Tag und Nacht, Regen, Schnee und Nebel, acht freischaltbaren Autos und einer Bestenliste.
 - **Mehrspieler für bis zu 4 Spieler, ohne Internet:** auf einem Handy zum Weitergeben oder im WLAN bzw. über den Handy-Hotspot. Alle zeichnen gleichzeitig, und alle Handys zeigen dasselbe Rennen.

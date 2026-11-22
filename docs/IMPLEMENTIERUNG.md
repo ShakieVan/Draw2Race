@@ -792,3 +792,10 @@ Nutzerbefund an Beta 1.0.3 (Video der Arena, Drift King): Bei zu schnell gezeich
 - **Physikversion bicycle-8:** Rekorde und Geister beginnen neu; im WLAN nur mit derselben Version.
 - **Prüfungen:** `test_drift` (57), Drift-Teile von `test_air`, `test_race` (Lenkwinkel im Schnappschuss bis ±0,907 rad), `test_recovery` (Version).
 - **Offen (Geräteabnahme):** Zu schnell ist in der Kurve nur gut 10 % langsamer statt halb so schnell (die Halbierung entsteht über die Winkelgutschrift); der Sweetspot steigt eher an, als dass er breit ist; Thunder V8 und Apex GT driften im Drift-Modus etwa so gut wie der Drift King; Gäste sehen höchstens 52° Lenkeinschlag (Schnappschuss-Grenze).
+
+## Version 1.1 (22.11.2026)
+
+- **Release 1.1.0** in `ShakieVan/Draw2Race` (Latest): `Draw2Race-1.1.0.apk`, 313 538 848 Byte, SHA-256 `6bbfc554…d5ac97f6df`, gebaut aus bda8b10, `version/code` 1001000, Projektschlüssel. Inhaltlich gleich mit Beta 1.0.4 (Fahrphysik bicycle-8); es fasst die Betas 1.0.1–1.0.4 zusammen: robustere Update-Funktion, Mitspieler einladen (Spiel-WLAN, QR-Codes), Fahrphysik mit Rückkehr zur Linie, Drift-Arena mit kontrolliertem Ausbrechen.
+- **Freigabe:** Der Nutzer hat Beta 1.0.4 am 22.11.2026 als „ganz ok“ abgenommen und die Veröffentlichung gewünscht. Die offenen Punkte der Geräteabnahme aus 1.0.3/1.0.4 (siehe oben) bleiben Beobachtungen für spätere Betas.
+- **Tests:** 25 Testläufe mit 2296 Prüfungen, alle bestanden (`tools/build.ps1 -Target Android`).
+- **Nummernschema ab jetzt:** Betas 1.1.1, 1.1.2 …, nächstes Release 1.2.0.
